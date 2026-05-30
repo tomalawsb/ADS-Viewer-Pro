@@ -1,6 +1,6 @@
 # ADS Viewer Pro
 
-Wersja: **V18 - 3005261605**
+Wersja: **V19 - 3005261819**
 
 ## Opis
 
@@ -40,6 +40,14 @@ Alerty są wysyłane tylko dla samolotów z listy **Obserwowane** i tylko jeden 
 ## Nawigacja
 
 Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest dostępny w menu **Więcej**.
+
+## Zmiany V19 - 3005261819
+
+- Zastąpiono ikony PNG ikonami SVG dostarczonymi przez użytkownika.
+- Ikony samolotów są teraz osadzane jako wektorowe SVG, więc nie powinny znikać przez problemy z maską PNG.
+- Kolory ikon nadal pobierają obecny kolor programu przez `currentColor`.
+- Pliki SVG dodano do katalogu `assets/aircraft/` i do cache PWA/service workera.
+- Usunięto z paczki stare ikony PNG statków powietrznych.
 
 ## Zmiany V16 - 3005261546
 

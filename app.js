@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V18";
-const APP_VERSION_STAMP = "3005261605";
+const APP_VERSION_NUMBER = "V19";
+const APP_VERSION_STAMP = "3005261819";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -528,294 +528,87 @@ function aircraftGroupLabel(group) {
   }[group] || "samolot";
 }
 
-const AIRCRAFT_ICON_FILES = {
-  jet: "assets/aircraft/aircraft-jet.png",
-  heavy: "assets/aircraft/aircraft-heavy.png",
-  prop: "assets/aircraft/aircraft-prop.png",
-  helicopter: "assets/aircraft/aircraft-helicopter.png",
-  glider: "assets/aircraft/aircraft-glider.png",
-  special: "assets/aircraft/aircraft-special.png"
-};
+const AIRCRAFT_SVG_MARKUP = Object.freeze({
+  jet: `
+<g transform="scale(0.125)">
+<path fill="currentColor" fill-rule="evenodd" d="
+    M 256 449.49 L 254 449.34 L 251.87 447 L 246.35 423 L 245 421.42 L 193 442.4 L 191.4 441 L 192 421.4 L 238.31 382 L 232 283.61 L 215 289.85 L 175 307.72 L 104 341.69 L 103.19 326 L 103.37 319 L 105 316.77 L 178.13 252 L 178.58 234 L 181 229.5 L 186 226.9 L 191 226.77 L 196 228.86 L 199 233.23 L 200 233.19 L 232.09 202 L 232.55 122 L 234.74 102 L 238.72 85 L 243.95 72 L 249 64.58 L 255 61.74 L 260.77 64 L 266.48 72 L 272.35 87 L 276.26 105 L 278.28 130 L 278.47 202 L 311 233.47 L 315 228.53 L 319 226.9 L 324 226.75 L 329 228.98 L 331.83 234 L 332.4 252 L 398 309.77 L 406.74 318 L 407.43 321 L 407.44 340 L 406 341.65 L 329 304.74 L 279 283.25 L 271.78 381 L 318.33 421 L 319.13 441 L 317 442.23 L 265 421.47 L 259.34 445 L 256 449.49 Z
+  "/>
+</g>
+  `,
+  heavy: `
+<g transform="scale(0.125)">
+<path fill="currentColor" fill-rule="evenodd" d="
+    M 256 435.57 L 254.82 435 L 248 413.3 L 181 429.34 L 173.86 430 L 175.75 416 L 177.56 413 L 240.02 376 L 234.69 333 L 230 280.35 L 193 291.86 L 189 303.48 L 186.77 302 L 184 294.74 L 155 304.6 L 151 315.66 L 148.81 315 L 147.23 309 L 146 307.99 L 136 311.9 L 132 322.6 L 130.33 322 L 128.54 316 L 127 315.28 L 63 339.21 L 61.74 338 L 65 317.05 L 117.75 280 L 116.18 261 L 118.24 247 L 125 245.31 L 131 245.58 L 134.32 247 L 136.13 257 L 136.12 267 L 137 267.36 L 167.54 246 L 166.11 226 L 166.83 218 L 169 213.13 L 176 211.97 L 184 213.59 L 187 230.49 L 231 181.99 L 232.44 176 L 233.61 131 L 237.82 103 L 241.76 90 L 245.59 82 L 251 75.85 L 256 74.39 L 260.7 76 L 265.25 81 L 269.38 89 L 273.27 101 L 276.26 116 L 278.13 134 L 278.92 175 L 280.41 182 L 324 230.25 L 325.25 230 L 325.59 219 L 328 213.03 L 335 211.91 L 343 213.82 L 345.17 228 L 343.55 246 L 374 267.2 L 375.27 267 L 375.37 255 L 377.08 247 L 383 245.31 L 390 245.64 L 393 246.86 L 395.03 262 L 393.48 280 L 446.37 317 L 449.42 338 L 449 339.32 L 446 338.36 L 384 315.18 L 382.6 316 L 381 321.79 L 379 322.56 L 375 311.67 L 365 307.89 L 362.36 315 L 361 316.04 L 359.54 315 L 356 304.53 L 327 294.74 L 324 302.78 L 322 303.38 L 318 291.75 L 281 280.33 L 276.3 334 L 271 375.48 L 333.64 413 L 335.33 416 L 337.24 430 L 330 429.33 L 263 413.28 L 256 435.57 Z
+  "/>
+</g>
+  `,
+  prop: `
+<g transform="scale(0.125)">
+<path fill="currentColor" fill-rule="evenodd" d="
+    M 255 419.4 L 253.09 417 L 251 384.83 L 246.6 398 L 245 398.89 L 185 393.6 L 181.61 391 L 181.57 370 L 185.44 366 L 245.91 358 L 230.56 246 L 64 226.1 L 61.69 224 L 61.33 222 L 61.34 188 L 62.63 183 L 68 179.31 L 172 174.61 L 174.34 173 L 174.49 169 L 176 168.21 L 179 174.56 L 229 174.59 L 232.69 120 L 233.83 116 L 237 111.53 L 249 107.11 L 249.06 101 L 248 99.81 L 224 101.14 L 207 99.47 L 205.56 98 L 224 95.72 L 249 96.92 L 252 92.57 L 256 90.87 L 259.51 93 L 262 96.94 L 287 95.72 L 305.34 98 L 304 99.47 L 287 101.13 L 263 99.86 L 261.94 101 L 262 107.11 L 273 110.9 L 277.39 117 L 279.36 131 L 281.15 173 L 282 174.59 L 332 174.47 L 333.43 173 L 333.6 169 L 335 168.21 L 336.3 169 L 336.43 173 L 338 174.6 L 444 179.61 L 447.39 182 L 449.39 186 L 449.59 220 L 449.14 224 L 446 226.3 L 280.39 246 L 264.58 358 L 319 365.75 L 323.02 370 L 323.21 390 L 322.45 392 L 320 393.6 L 264 398.97 L 262.46 398 L 259 385.72 L 257 416.72 L 255 419.4 Z
+    M 236.73 206 L 253 202.79 L 253 174.8 L 249 174.72 L 242 176.75 L 235.68 183 L 234.69 186 L 234.47 205 L 235 206.45 L 236.73 206 Z
+    M 276.31 206 L 276.3 187 L 275.13 183 L 269 176.83 L 258 174.67 L 258 203 L 276.31 206 Z
+  "/>
+</g>
+  `,
+  helicopter: `
+<g transform="scale(0.125)">
+<path fill="currentColor" fill-rule="evenodd" d="
+    M 263 206.58 L 256 205.07 L 249 206.37 L 219.01 178 L 218 158.39 L 209 158.67 L 208 167.49 L 202.93 163 L 203.3 137 L 206 135.58 L 208.13 137 L 208.47 152 L 218 152.68 L 218.73 120 L 220.62 109 L 223.59 100 L 228.79 90 L 236 81.57 L 243 76.55 L 253.13 73 L 253.47 63 L 256 61.62 L 258.73 63 L 259.16 73 L 268 75.84 L 275 80.5 L 281.29 87 L 288.28 99 L 293.23 118 L 294 152.65 L 303.6 152 L 303.79 138 L 305 136.03 L 307 135.56 L 309.37 138 L 309.29 163 L 304 167.44 L 303.54 159 L 294 158.45 L 293.34 178 L 263 206.58 Z
+    M 259 448.02 L 253 448.33 L 251.23 447 L 248 409.51 L 208 409.48 L 205.83 408 L 208.42 393 L 210 391.5 L 247.41 391 L 244.55 296 L 242.35 289 L 228.59 267 L 224.34 255 L 250 231.01 L 257 232.58 L 263 231.08 L 287.97 255 L 282.22 270 L 270.51 288 L 267.79 295 L 263.18 390 L 264 391.48 L 288 391.52 L 289.31 393 L 291.62 406 L 287 409.48 L 262.38 410 L 259 448.02 Z
+    M 379 333.33 L 376 332.66 L 349 308.25 L 280.06 245 L 264.14 230 L 264.41 229 L 268 225.36 L 269 225.81 L 324 268.74 L 386 320.38 L 387.4 322 L 387 324.92 L 379 333.33 Z
+    M 244 212.59 L 208 185.14 L 129 119.38 L 123.97 115 L 124.25 112 L 132 104.48 L 136 105.9 L 198 160.83 L 248 207.6 L 244 212.59 Z
+    M 269 212.18 L 268 212.59 L 263.79 208 L 314 160.77 L 376 105.37 L 380 104.93 L 387 112.22 L 387.56 114 L 386 116.19 L 311 179.38 L 269 212.18 Z
+    M 134 333.3 L 131 332.84 L 123.87 325 L 124.3 321 L 198 260.75 L 243 225.91 L 244.83 226 L 248 230.26 L 134 333.3 Z
+    M 205 253.38 L 202.94 251 L 202.92 184 L 204 183.68 L 208.41 188 L 209 235.35 L 220.42 235 L 219.03 197 L 220 196.51 L 223 198.72 L 243.19 215 L 243.1 224 L 220.65 241 L 209 241.57 L 208.4 250 L 205 253.38 Z
+    M 308 253.39 L 303.74 250 L 303 241.44 L 292 241.36 L 269.16 224 L 269.17 215 L 272 211.78 L 293 196.61 L 291.81 235 L 303.53 235 L 303.8 188 L 309 183.4 L 309.33 251 L 308 253.39 Z
+    M 225.28 134 L 236 128.7 L 252.37 126 L 252.73 100 L 239 100.77 L 231 103.61 L 226.53 107 L 223.96 116 L 224.06 133 L 225.28 134 Z
+    M 288.13 134 L 288.17 114 L 285.59 107 L 276 101.57 L 260 99.52 L 259.73 126 L 276 128.66 L 288.13 134 Z
+    M 260 230.36 L 252 230.3 L 247.37 227 L 244.68 223 L 244.32 217 L 245.67 213 L 249.23 209 L 254 206.81 L 258 206.75 L 262.82 209 L 266.46 213 L 268.28 218 L 266.41 225 L 260 230.36 Z
+    M 284 449.41 L 278.56 447 L 289.35 420 L 286.7 414 L 288 411.1 L 293.21 407 L 299.58 381 L 304 380.9 L 305.84 383 L 295.56 409 L 298 414 L 297.46 417 L 296 419.02 L 291.7 421 L 285.37 448 L 284 449.41 Z
+  "/>
+</g>
+  `,
+  glider: `
+<g transform="scale(0.125)">
+<path fill="currentColor" fill-rule="evenodd" d="
+    M 256 353.13 L 253 340.51 L 227 338.29 L 225.4 337 L 226 332.69 L 252 328.41 L 253.41 327 L 250.86 249 L 250.23 244 L 248 241.51 L 82 228.22 L 65 226.29 L 62 225.2 L 62.1 224 L 66 222.53 L 84 221.69 L 248 218.55 L 249.61 178 L 252.62 162 L 253.65 159 L 256 156.95 L 259.23 164 L 261.43 176 L 262.65 192 L 262.57 217 L 264 218.83 L 430 221.76 L 446 222.64 L 449.26 224 L 449 225.43 L 446 226.32 L 429 228.2 L 263 241.63 L 261.55 243 L 260.46 249 L 257.94 327 L 259 328.37 L 285 332.56 L 285.92 337 L 284 338.27 L 258 340.59 L 256 353.13 Z
+    M 258.61 202 L 260.69 200 L 260.14 181 L 258.41 175 L 255 173.54 L 252.84 175 L 251.59 178 L 250.55 200 L 253 202.13 L 258.61 202 Z
+  "/>
+</g>
+  `,
+  special: `
+<g transform="scale(0.125)">
+<path fill="currentColor" fill-rule="evenodd" d="
+    M 319 449.23 L 317 449.43 L 285.82 422 L 279 394.97 L 276 411.9 L 268.88 420 L 267 420.22 L 259.58 412 L 259.08 406 L 257.42 404 L 256.6 400 L 257.1 393 L 256 391.75 L 253.84 393 L 254.39 399 L 253.54 404 L 251.99 406 L 251.38 412 L 243 420.78 L 234.94 412 L 232 394.93 L 225.29 422 L 194 449.38 L 163 440.1 L 162 439 L 162.47 417 L 192 388.74 L 209 400.7 L 209.84 400 L 192.2 384 L 192.01 371 L 214.57 346 L 190.26 369 L 189 376.86 L 133 356.5 L 120.87 344 L 121.56 324 L 208 240.21 L 207 258.27 L 211.63 241 L 208.37 235 L 213.47 186 L 235.64 166 L 239.71 118 L 242.63 97 L 246.78 80 L 255 62.12 L 256 62.12 L 263.07 77 L 268.35 97 L 271.32 118 L 275.4 166 L 297.58 186 L 302.6 235 L 299.34 241 L 304 258.28 L 303 240.27 L 390.08 325 L 390.15 344 L 378.89 356 L 322 377.02 L 320.77 369 L 297 346.46 L 318.9 371 L 318.77 384 L 302.22 399 L 303 399.97 L 319 388.68 L 348.94 418 L 348.97 439 L 348.07 440 L 319 449.23 Z
+    M 259.36 186 L 262.25 185 L 263.04 180 L 264.26 148 L 261.3 132 L 256.17 125 L 255 124.81 L 249.65 132 L 247.64 141 L 246.47 151 L 246.75 167 L 248.78 185 L 254 186.47 L 259.36 186 Z
+    M 299.09 403 L 301.63 401 L 301 400.1 L 297.73 403 L 299.09 403 Z
+    M 213.24 403 L 210 400.18 L 209.33 401 L 213.24 403 Z
+  "/>
+</g>
+  `
+});
 
-function aircraftIconAssetUrl(group) {
-  return AIRCRAFT_ICON_FILES[group] || AIRCRAFT_ICON_FILES.jet;
-}
-
-function aircraftPngIconMarkup(group) {
-  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_ICON_FILES, group) ? group : "jet";
-  const url = aircraftIconAssetUrl(safeGroup);
-  return `
-    <span class="aircraft-icon-stack aircraft-png-icon-${safeGroup}" aria-hidden="true">
-      <svg class="aircraft-icon-fallback" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" focusable="false">${aircraftShapeMarkup(safeGroup)}</svg>
-      <span class="aircraft-png-icon" style="-webkit-mask-image:url('${url}');mask-image:url('${url}');"></span>
-    </span>`;
-}
-
-function aircraftPngMaskSupported() {
-  const style = document.createElement("span").style;
-  if (("webkitMaskImage" in style) || ("maskImage" in style)) return true;
-  if (!window.CSS || typeof window.CSS.supports !== "function") return false;
-  return window.CSS.supports("-webkit-mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`) ||
-    window.CSS.supports("mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`);
-}
-
-function preloadAircraftPngIcons() {
-  if (!aircraftPngMaskSupported()) {
-    document.documentElement.classList.remove("aircraft-png-icons-ready");
-    return;
-  }
-  const urls = Object.values(AIRCRAFT_ICON_FILES);
-  Promise.all(urls.map((url) => new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = url;
-  }))).then(() => {
-    document.documentElement.classList.add("aircraft-png-icons-ready");
-  }).catch(() => {
-    document.documentElement.classList.remove("aircraft-png-icons-ready");
-  });
-}
-
-function aircraftAltitudeFeet(aircraft) {
-  const raw = firstFilled(aircraft?.alt_baro, aircraft?.alt_geom, aircraft?.altitude);
-  if (!raw) return null;
-  if (String(raw).toLowerCase() === "ground") return 0;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
-}
-
-
-function clampNumber(value, min, max, fallback) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return Math.min(max, Math.max(min, number));
-}
-
-function defaultPerformanceSettings() {
-  return { mode: "balanced", ...PERFORMANCE_PRESETS.balanced };
-}
-
-function normalizePerformanceSettings(saved = {}) {
-  const mode = Object.prototype.hasOwnProperty.call(PERFORMANCE_PRESETS, saved.mode) ? saved.mode : "balanced";
-  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
-  return {
-    mode,
-    refreshIntervalMs: clampNumber(saved.refreshIntervalMs, 3000, 30000, preset.refreshIntervalMs),
-    mapLimit: Math.round(clampNumber(saved.mapLimit, 40, 500, preset.mapLimit)),
-    listLimit: Math.round(clampNumber(saved.listLimit, 30, 250, preset.listLimit)),
-    trailLimit: Math.round(clampNumber(saved.trailLimit, 0, 250, preset.trailLimit)),
-    trackPoints: Math.round(clampNumber(saved.trackPoints, 8, 120, preset.trackPoints)),
-    showTrails: saved.showTrails !== undefined ? saved.showTrails === true : preset.showTrails,
-    showFreshnessLabels: saved.showFreshnessLabels !== undefined ? saved.showFreshnessLabels === true : preset.showFreshnessLabels,
-    showRealPhotos: saved.showRealPhotos !== undefined ? saved.showRealPhotos === true : preset.showRealPhotos,
-    autoHideStale: saved.autoHideStale !== undefined ? saved.autoHideStale === true : preset.autoHideStale,
-    removeAfterSeconds: Math.round(clampNumber(saved.removeAfterSeconds, 60, 600, preset.removeAfterSeconds))
-  };
-}
-
-function loadPerformanceSettings() {
-  const settings = normalizePerformanceSettings(storageJsonGet(PERFORMANCE_STORAGE_KEY, defaultPerformanceSettings()));
-  if (performanceModeInput) performanceModeInput.value = settings.mode;
-  if (performanceRefreshInput) performanceRefreshInput.value = String(Math.round(settings.refreshIntervalMs / 1000));
-  if (performanceMapLimitInput) performanceMapLimitInput.value = String(settings.mapLimit);
-  if (performanceListLimitInput) performanceListLimitInput.value = String(settings.listLimit);
-  if (performanceTrailsInput) performanceTrailsInput.checked = settings.showTrails;
-  if (performanceFreshnessLabelsInput) performanceFreshnessLabelsInput.checked = settings.showFreshnessLabels;
-  if (performanceRealPhotosInput) performanceRealPhotosInput.checked = settings.showRealPhotos;
-  if (performanceAutoHideStaleInput) performanceAutoHideStaleInput.checked = settings.autoHideStale;
-  if (performanceRemoveAfterInput) performanceRemoveAfterInput.value = String(settings.removeAfterSeconds);
-  return settings;
-}
-
-function readPerformanceSettings() {
-  const mode = Object.prototype.hasOwnProperty.call(PERFORMANCE_PRESETS, performanceModeInput?.value) ? performanceModeInput.value : "balanced";
-  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
-  return normalizePerformanceSettings({
-    mode,
-    refreshIntervalMs: clampNumber(Number(performanceRefreshInput?.value || Math.round(preset.refreshIntervalMs / 1000)) * 1000, 3000, 30000, preset.refreshIntervalMs),
-    mapLimit: performanceMapLimitInput?.value || preset.mapLimit,
-    listLimit: performanceListLimitInput?.value || preset.listLimit,
-    trailLimit: preset.trailLimit,
-    trackPoints: preset.trackPoints,
-    showTrails: performanceTrailsInput ? performanceTrailsInput.checked : preset.showTrails,
-    showFreshnessLabels: performanceFreshnessLabelsInput ? performanceFreshnessLabelsInput.checked : preset.showFreshnessLabels,
-    showRealPhotos: performanceRealPhotosInput ? performanceRealPhotosInput.checked : preset.showRealPhotos,
-    autoHideStale: performanceAutoHideStaleInput ? performanceAutoHideStaleInput.checked : preset.autoHideStale,
-    removeAfterSeconds: performanceRemoveAfterInput?.value || preset.removeAfterSeconds
-  });
-}
-
-function savePerformanceSettings() {
-  const settings = readPerformanceSettings();
-  storageJsonSet(PERFORMANCE_STORAGE_KEY, settings);
-  markFirestoreStateSectionDirty("performance");
-  return settings;
-}
-
-function applyPerformancePreset(mode) {
-  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
-  if (performanceRefreshInput) performanceRefreshInput.value = String(Math.round(preset.refreshIntervalMs / 1000));
-  if (performanceMapLimitInput) performanceMapLimitInput.value = String(preset.mapLimit);
-  if (performanceListLimitInput) performanceListLimitInput.value = String(preset.listLimit);
-  if (performanceTrailsInput) performanceTrailsInput.checked = preset.showTrails;
-  if (performanceFreshnessLabelsInput) performanceFreshnessLabelsInput.checked = preset.showFreshnessLabels;
-  if (performanceRealPhotosInput) performanceRealPhotosInput.checked = preset.showRealPhotos;
-  if (performanceAutoHideStaleInput) performanceAutoHideStaleInput.checked = preset.autoHideStale;
-  if (performanceRemoveAfterInput) performanceRemoveAfterInput.value = String(preset.removeAfterSeconds);
-}
-
-function getAutoRefreshIntervalMs() {
-  return readPerformanceSettings().refreshIntervalMs;
-}
-
-function aircraftVisibleByLifecycle(aircraft, performance = readPerformanceSettings()) {
-  if (!performance.autoHideStale) return true;
-  const seconds = aircraftFreshnessSeconds(aircraft);
-  if (!Number.isFinite(seconds)) return true;
-  return seconds <= performance.removeAfterSeconds;
-}
-
-function lifecycleFilteredAircraft(aircraft, performance = readPerformanceSettings()) {
-  return (aircraft || []).filter((item) => aircraftVisibleByLifecycle(item, performance));
-}
-
-function hiddenOldAircraftCount(aircraft, performance = readPerformanceSettings()) {
-  return Math.max(0, (aircraft || []).length - lifecycleFilteredAircraft(aircraft, performance).length);
-}
-
-function aircraftLifecycleState(aircraft, performance = readPerformanceSettings()) {
-  const seconds = aircraftFreshnessSeconds(aircraft);
-  if (!Number.isFinite(seconds)) return "unknown";
-  if (performance.autoHideStale && seconds > performance.removeAfterSeconds) return "expired";
-  if (seconds > STALE_FADE_SECONDS) return "stale";
-  return "active";
-}
-
-function loadAircraftFilters() {
-  const saved = storageJsonGet(FILTER_STORAGE_KEY, {});
-  if (aircraftFilterKindInput) aircraftFilterKindInput.value = saved.kind || "all";
-  if (aircraftFilterMinAltInput) aircraftFilterMinAltInput.value = saved.minAlt || "";
-  if (aircraftFilterMaxAltInput) aircraftFilterMaxAltInput.value = saved.maxAlt || "";
-  if (aircraftFilterCallsignInput) aircraftFilterCallsignInput.checked = saved.callsignOnly === true;
-}
-
-function readAircraftFilters() {
-  const minAlt = Number.parseInt(String(aircraftFilterMinAltInput?.value || "").trim(), 10);
-  const maxAlt = Number.parseInt(String(aircraftFilterMaxAltInput?.value || "").trim(), 10);
-  return {
-    kind: aircraftFilterKindInput?.value || "all",
-    minAlt: Number.isFinite(minAlt) ? minAlt : null,
-    maxAlt: Number.isFinite(maxAlt) ? maxAlt : null,
-    callsignOnly: aircraftFilterCallsignInput?.checked === true
-  };
-}
-
-function saveAircraftFilters() {
-  const filters = readAircraftFilters();
-  storageJsonSet(FILTER_STORAGE_KEY, {
-    kind: filters.kind,
-    minAlt: filters.minAlt === null ? "" : String(filters.minAlt),
-    maxAlt: filters.maxAlt === null ? "" : String(filters.maxAlt),
-    callsignOnly: filters.callsignOnly
-  });
-  markFirestoreStateSectionDirty("filters");
-}
-
-function aircraftMatchesKindFilter(aircraft, kind) {
-  if (!kind || kind === "all") return true;
-  const group = aircraftTypeGroup(aircraft);
-  if (kind === "jet") return group === "jet" || group === "heavy";
-  if (kind === "helicopter") return group === "helicopter";
-  if (kind === "prop") return group === "prop";
-  if (kind === "glider") return group === "glider";
-  if (kind === "special") return group === "special";
-  return true;
-}
-
-function aircraftMatchesFilters(aircraft, filters = readAircraftFilters()) {
-  if (!aircraftMatchesKindFilter(aircraft, filters.kind)) return false;
-  if (filters.callsignOnly && !aircraftCallsign(aircraft)) return false;
-  const altitude = aircraftAltitudeFeet(aircraft);
-  if (filters.minAlt !== null && (altitude === null || altitude < filters.minAlt)) return false;
-  if (filters.maxAlt !== null && (altitude === null || altitude > filters.maxAlt)) return false;
-  return true;
-}
-
-function filterAircraftForDisplay(aircraft) {
-  const filters = readAircraftFilters();
-  const performance = readPerformanceSettings();
-  return lifecycleFilteredAircraft(aircraft, performance).filter((item) => aircraftMatchesFilters(item, filters));
-}
-
-function aircraftFilterSummary(total, visible, sourceAircraft = lastAircraftCache) {
-  const hiddenOld = hiddenOldAircraftCount(sourceAircraft || []);
-  const filteredOut = Math.max(0, total - hiddenOld - visible);
-  if (!hiddenOld && !filteredOut) return `${visible} samolotów`;
-  const parts = [`${visible} z ${total} samolotów`];
-  if (filteredOut) parts.push(`${filteredOut} ukryte filtrami`);
-  if (hiddenOld) parts.push(`${hiddenOld} usunięte jako stare`);
-  return parts.join(" • ");
-}
-
-function rerenderAircraftFromCache() {
-  saveAircraftFilters();
-  if (!lastAircraftCache.length) {
-    setAircraftStatus("Filtry ustawione. Pobierz samoloty, żeby je zastosować.");
-    return;
-  }
-  const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
-  renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
-  renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
-  setAircraftStatus(`Filtry: pokazuję ${aircraftFilterSummary(lastAircraftCache.length, visibleAircraft.length)}.`);
-}
-
-function readBrowseSettingsSafe() {
-  try {
-    return readBrowseSettings();
-  } catch {
-    return { dist: Number(browseDistInput?.value || AUTO_LOAD_RADIUS_NM) || AUTO_LOAD_RADIUS_NM };
-  }
-}
+const AIRCRAFT_SVG_FILES = Object.freeze({
+  jet: "assets/aircraft/aircraft-jet.svg",
+  heavy: "assets/aircraft/aircraft-heavy.svg",
+  prop: "assets/aircraft/aircraft-prop.svg",
+  helicopter: "assets/aircraft/aircraft-helicopter.svg",
+  glider: "assets/aircraft/aircraft-glider.svg",
+  special: "assets/aircraft/aircraft-special.svg"
+});
 
 function aircraftShapeMarkup(group) {
-  if (group === "helicopter") {
-    return `
-      <path d="M5 12h54v5H5z" fill="currentColor"></path>
-      <path d="M30 17h4v11h-4z" fill="currentColor"></path>
-      <path d="M17 28h24c8 0 14 5 16 12H20C12 40 7 36 7 30v-2h10z" fill="currentColor"></path>
-      <path d="M47 31l12-8 3 5-11 10z" fill="currentColor"></path>
-      <path d="M17 44h34v4H17zM22 48h8v4h-8zM39 48h8v4h-8z" fill="currentColor"></path>`;
-  }
-  if (group === "glider") {
-    return `
-      <path d="M32 9c2 0 3 1 3 3v17l28 5v5l-28-1-1 12 8 5v4l-10-2-10 2v-4l8-5-1-12-28 1v-5l28-5V12c0-2 1-3 3-3z" fill="currentColor"></path>`;
-  }
-  if (group === "prop") {
-    return `
-      <path d="M32 7l6 22 20 8v7l-22-4-2 15 7 4v4l-9-3-9 3v-4l7-4-2-15-22 4v-7l20-8z" fill="currentColor"></path>
-      <circle cx="32" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="4"></circle>
-      <path d="M29 10h6M32 7v6" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>`;
-  }
-  if (group === "heavy") {
-    return `
-      <path d="M32 2l9 27 21 8v10l-25-4-2 13 10 5v4l-13-3-13 3v-4l10-5-2-13-25 4V37l21-8z" fill="currentColor"></path>
-      <path d="M13 39h10v6H13zM41 39h10v6H41zM25 32h14v5H25z" fill="currentColor"></path>`;
-  }
-  if (group === "special") {
-    return `
-      <path d="M32 3l8 27 20 9v8l-22-5-3 15 8 4v4l-11-3-11 3v-4l8-4-3-15-22 5v-8l20-9z" fill="currentColor"></path>
-      <path d="M28 21h8v21h-8zM21 28h22v7H21z" fill="currentColor"></path>`;
-  }
-  return `
-    <path d="M32 4l7 25 21 9v8l-23-5-2 16 7 4v3l-10-3-10 3v-3l7-4-2-16-23 5v-8l21-9z" fill="currentColor"></path>`;
+  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_SVG_MARKUP, group) ? group : "jet";
+  return AIRCRAFT_SVG_MARKUP[safeGroup] || AIRCRAFT_SVG_MARKUP.jet;
 }
 
 function aircraftSvgMarkup(group) {
-  return aircraftPngIconMarkup(group);
+  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_SVG_MARKUP, group) ? group : "jet";
+  const label = aircraftGroupLabel(safeGroup);
+  return `<svg class="aircraft-svg-icon aircraft-svg-icon-${safeGroup}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="${escapeHtml(label)}" focusable="false">${aircraftShapeMarkup(safeGroup)}</svg>`;
 }
-
-preloadAircraftPngIcons();
 
 function aircraftIconDimensions(group) {
   const dimensions = {
