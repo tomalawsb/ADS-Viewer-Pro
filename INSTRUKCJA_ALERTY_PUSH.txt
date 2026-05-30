@@ -1,0 +1,14 @@
+ADS Viewer Pro — alerty i powiadomienia
+
+1. Alerty w tej wersji działają tylko dla samolotów dodanych do listy „Obserwowane”.
+2. Żeby dodać samolot do alertów: wyszukaj go albo dotknij na mapie, a następnie użyj opcji „Obserwuj”.
+3. Wejdź w panel „Alerty” i włącz „Alerty włączone”.
+4. „Dodatkowy filtr w obserwowanych”, dystans, wysokość i typ wojskowy/specjalny tylko zawężają listę obserwowanych. Nie wywołają alertu dla przypadkowego samolotu spoza obserwowanych.
+5. Żeby widzieć powiadomienia systemowe, kliknij „Włącz powiadomienia” i zaakceptuj zgodę przeglądarki.
+6. Aplikacja musi działać z HTTPS, np. GitHub Pages, albo z localhost.
+
+Uwaga techniczna:
+W tej wersji alerty są liczone lokalnie po odświeżeniach mapy. Powiadomienia pojawiają się, gdy aplikacja/PWA działa i pobiera dane ADS-B. Prawdziwe push po całkowitym zamknięciu aplikacji wymaga dodatkowego backendu albo Firebase Cloud Messaging.
+
+
+Uwaga: alert dla konkretnego samolotu z listy obserwowanych jest wysyłany tylko jeden raz. Ponowny alert wymaga usunięcia samolotu z obserwowanych i dodania go jeszcze raz.

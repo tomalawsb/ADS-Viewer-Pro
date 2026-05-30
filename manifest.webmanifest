@@ -1,0 +1,39 @@
+{
+  "name": "ADS Viewer Pro V13",
+  "short_name": "ADS Viewer",
+  "description": "Mapa ADS-B z automatycznym odświeżaniem, lokalizacją, Firestore, alertami systemowymi, obserwowanymi samolotami, historią przelotów i mobilnym panelem.",
+  "start_url": "./?v=3005261234",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fb",
+  "theme_color": "#f3f6fb",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}
