@@ -1,4 +1,4 @@
-const APP_VERSION_STAMP = "3005261440";
+const APP_VERSION_STAMP = "3005261546";
 const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
 const ASSETS = [
   "./",
@@ -8,7 +8,13 @@ const ASSETS = [
   `./manifest.webmanifest?v=${APP_VERSION_STAMP}`,
   "./icon.svg",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./assets/aircraft/aircraft-jet.png",
+  "./assets/aircraft/aircraft-heavy.png",
+  "./assets/aircraft/aircraft-prop.png",
+  "./assets/aircraft/aircraft-helicopter.png",
+  "./assets/aircraft/aircraft-glider.png",
+  "./assets/aircraft/aircraft-special.png"
 ];
 
 self.addEventListener("install", (event) => {

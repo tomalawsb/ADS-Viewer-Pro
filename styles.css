@@ -810,6 +810,21 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   paint-order: stroke fill;
   filter: none;
 }
+
+.plane-marker .aircraft-png-icon {
+  display: block;
+  width: var(--plane-svg-width, 28px);
+  height: var(--plane-svg-height, 28px);
+  background: currentColor;
+  -webkit-mask-image: var(--aircraft-icon-url);
+  mask-image: var(--aircraft-icon-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
 .plane-label {
   margin-top: -4px;
   padding: 2px 5px;
@@ -947,6 +962,7 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   .map-popup-route { font-size: 0.74rem; }
   .plane-marker { width: var(--plane-svg-width, 28px); height: var(--plane-svg-height, 28px); }
   .plane-marker svg { width: var(--plane-svg-width, 24px); height: var(--plane-svg-height, 24px); }
+  .plane-marker .aircraft-png-icon { width: var(--plane-svg-width, 24px); height: var(--plane-svg-height, 24px); }
   .plane-label { font-size: 0.52rem; padding: 1px 4px; }
 
   .aircraft-list,
@@ -1182,6 +1198,20 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   filter: drop-shadow(0 3px 6px rgba(15,23,42,.34));
 }
 .phase-plane svg { width: 31px; height: 31px; fill: currentColor; }
+.phase-plane .aircraft-png-icon {
+  display: block;
+  width: 31px;
+  height: 31px;
+  background: currentColor;
+  -webkit-mask-image: var(--aircraft-icon-url);
+  mask-image: var(--aircraft-icon-url);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
 .phase-climb { color: #22c55e; }
 .phase-descent { color: #f97316; }
 .phase-ground { color: #64748b; }
@@ -1285,6 +1315,7 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
 }
 .map-popup-phase .phase-plane { width: 28px; height: 28px; }
 .map-popup-phase .phase-plane svg { width: 25px; height: 25px; }
+.map-popup-phase .phase-plane .aircraft-png-icon { width: 25px; height: 25px; }
 .map-popup-phase-text { color: var(--muted); font-size: 0.56rem; font-weight: 900; text-align: center; }
 .map-popup-photo {
   width: 100%;

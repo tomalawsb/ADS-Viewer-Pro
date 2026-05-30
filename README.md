@@ -1,6 +1,6 @@
 # ADS Viewer Pro
 
-Wersja: **V15 - 3005261440**
+Wersja: **V16 - 3005261546**
 
 ## Opis
 
@@ -40,6 +40,14 @@ Alerty są wysyłane tylko dla samolotów z listy **Obserwowane** i tylko jeden 
 ## Nawigacja
 
 Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest dostępny w menu **Więcej**.
+
+## Zmiany V16 - 3005261546
+
+- Podpięto zewnętrzne ikony PNG z katalogu `assets/aircraft/`.
+- Ikony PNG mają przezroczyste tło i są używane jako maski CSS, więc zachowują obecne kolory programu.
+- Obsługiwane typy ikon PNG: odrzutowy, duży samolot, śmigłowy, śmigłowiec, szybowiec i specjalny/wojskowy.
+- Pliki ikon PNG zostały dodane do cache PWA/service workera, aby działały offline po zainstalowaniu aplikacji.
+- Usunięto z paczki surowe pliki `ChatGPT Image...png`, bo miały tło szachownicy i nie były używane przez program.
 
 ## Zmiany V15 - 3005261440
 

@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V15";
-const APP_VERSION_STAMP = "3005261440";
+const APP_VERSION_NUMBER = "V16";
+const APP_VERSION_STAMP = "3005261546";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -523,6 +523,25 @@ function aircraftGroupLabel(group) {
   }[group] || "samolot";
 }
 
+const AIRCRAFT_ICON_FILES = {
+  jet: "assets/aircraft/aircraft-jet.png",
+  heavy: "assets/aircraft/aircraft-heavy.png",
+  prop: "assets/aircraft/aircraft-prop.png",
+  helicopter: "assets/aircraft/aircraft-helicopter.png",
+  glider: "assets/aircraft/aircraft-glider.png",
+  special: "assets/aircraft/aircraft-special.png"
+};
+
+function aircraftIconAssetUrl(group) {
+  return AIRCRAFT_ICON_FILES[group] || AIRCRAFT_ICON_FILES.jet;
+}
+
+function aircraftPngIconMarkup(group) {
+  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_ICON_FILES, group) ? group : "jet";
+  const url = aircraftIconAssetUrl(safeGroup);
+  return `<span class="aircraft-png-icon aircraft-png-icon-${safeGroup}" style="--aircraft-icon-url:url('${url}')" aria-hidden="true"></span>`;
+}
+
 function aircraftAltitudeFeet(aircraft) {
   const raw = firstFilled(aircraft?.alt_baro, aircraft?.alt_geom, aircraft?.altitude);
   if (!raw) return null;
@@ -756,7 +775,7 @@ function aircraftShapeMarkup(group) {
 }
 
 function aircraftSvgMarkup(group) {
-  return `<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">${aircraftShapeMarkup(group)}</svg>`;
+  return aircraftPngIconMarkup(group);
 }
 
 function aircraftIconDimensions(group) {
