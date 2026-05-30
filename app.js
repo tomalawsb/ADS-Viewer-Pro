@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V19";
-const APP_VERSION_STAMP = "3005261819";
+const APP_VERSION_NUMBER = "V20";
+const APP_VERSION_STAMP = "3005261828";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -528,6 +528,256 @@ function aircraftGroupLabel(group) {
   }[group] || "samolot";
 }
 
+const AIRCRAFT_ICON_FILES = {
+  jet: "assets/aircraft/aircraft-jet.png",
+  heavy: "assets/aircraft/aircraft-heavy.png",
+  prop: "assets/aircraft/aircraft-prop.png",
+  helicopter: "assets/aircraft/aircraft-helicopter.png",
+  glider: "assets/aircraft/aircraft-glider.png",
+  special: "assets/aircraft/aircraft-special.png"
+};
+
+function aircraftIconAssetUrl(group) {
+  return AIRCRAFT_ICON_FILES[group] || AIRCRAFT_ICON_FILES.jet;
+}
+
+function aircraftPngIconMarkup(group) {
+  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_ICON_FILES, group) ? group : "jet";
+  const url = aircraftIconAssetUrl(safeGroup);
+  return `
+    <span class="aircraft-icon-stack aircraft-png-icon-${safeGroup}" aria-hidden="true">
+      <svg class="aircraft-icon-fallback" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" focusable="false">${aircraftShapeMarkup(safeGroup)}</svg>
+      <span class="aircraft-png-icon" style="-webkit-mask-image:url('${url}');mask-image:url('${url}');"></span>
+    </span>`;
+}
+
+function aircraftPngMaskSupported() {
+  const style = document.createElement("span").style;
+  if (("webkitMaskImage" in style) || ("maskImage" in style)) return true;
+  if (!window.CSS || typeof window.CSS.supports !== "function") return false;
+  return window.CSS.supports("-webkit-mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`) ||
+    window.CSS.supports("mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`);
+}
+
+function preloadAircraftPngIcons() {
+  if (!aircraftPngMaskSupported()) {
+    document.documentElement.classList.remove("aircraft-png-icons-ready");
+    return;
+  }
+  const urls = Object.values(AIRCRAFT_ICON_FILES);
+  Promise.all(urls.map((url) => new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = resolve;
+    img.onerror = reject;
+    img.src = url;
+  }))).then(() => {
+    document.documentElement.classList.add("aircraft-png-icons-ready");
+  }).catch(() => {
+    document.documentElement.classList.remove("aircraft-png-icons-ready");
+  });
+}
+
+function aircraftAltitudeFeet(aircraft) {
+  const raw = firstFilled(aircraft?.alt_baro, aircraft?.alt_geom, aircraft?.altitude);
+  if (!raw) return null;
+  if (String(raw).toLowerCase() === "ground") return 0;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
+}
+
+
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function defaultPerformanceSettings() {
+  return { mode: "balanced", ...PERFORMANCE_PRESETS.balanced };
+}
+
+function normalizePerformanceSettings(saved = {}) {
+  const mode = Object.prototype.hasOwnProperty.call(PERFORMANCE_PRESETS, saved.mode) ? saved.mode : "balanced";
+  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
+  return {
+    mode,
+    refreshIntervalMs: clampNumber(saved.refreshIntervalMs, 3000, 30000, preset.refreshIntervalMs),
+    mapLimit: Math.round(clampNumber(saved.mapLimit, 40, 500, preset.mapLimit)),
+    listLimit: Math.round(clampNumber(saved.listLimit, 30, 250, preset.listLimit)),
+    trailLimit: Math.round(clampNumber(saved.trailLimit, 0, 250, preset.trailLimit)),
+    trackPoints: Math.round(clampNumber(saved.trackPoints, 8, 120, preset.trackPoints)),
+    showTrails: saved.showTrails !== undefined ? saved.showTrails === true : preset.showTrails,
+    showFreshnessLabels: saved.showFreshnessLabels !== undefined ? saved.showFreshnessLabels === true : preset.showFreshnessLabels,
+    showRealPhotos: saved.showRealPhotos !== undefined ? saved.showRealPhotos === true : preset.showRealPhotos,
+    autoHideStale: saved.autoHideStale !== undefined ? saved.autoHideStale === true : preset.autoHideStale,
+    removeAfterSeconds: Math.round(clampNumber(saved.removeAfterSeconds, 60, 600, preset.removeAfterSeconds))
+  };
+}
+
+function loadPerformanceSettings() {
+  const settings = normalizePerformanceSettings(storageJsonGet(PERFORMANCE_STORAGE_KEY, defaultPerformanceSettings()));
+  if (performanceModeInput) performanceModeInput.value = settings.mode;
+  if (performanceRefreshInput) performanceRefreshInput.value = String(Math.round(settings.refreshIntervalMs / 1000));
+  if (performanceMapLimitInput) performanceMapLimitInput.value = String(settings.mapLimit);
+  if (performanceListLimitInput) performanceListLimitInput.value = String(settings.listLimit);
+  if (performanceTrailsInput) performanceTrailsInput.checked = settings.showTrails;
+  if (performanceFreshnessLabelsInput) performanceFreshnessLabelsInput.checked = settings.showFreshnessLabels;
+  if (performanceRealPhotosInput) performanceRealPhotosInput.checked = settings.showRealPhotos;
+  if (performanceAutoHideStaleInput) performanceAutoHideStaleInput.checked = settings.autoHideStale;
+  if (performanceRemoveAfterInput) performanceRemoveAfterInput.value = String(settings.removeAfterSeconds);
+  return settings;
+}
+
+function readPerformanceSettings() {
+  const mode = Object.prototype.hasOwnProperty.call(PERFORMANCE_PRESETS, performanceModeInput?.value) ? performanceModeInput.value : "balanced";
+  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
+  return normalizePerformanceSettings({
+    mode,
+    refreshIntervalMs: clampNumber(Number(performanceRefreshInput?.value || Math.round(preset.refreshIntervalMs / 1000)) * 1000, 3000, 30000, preset.refreshIntervalMs),
+    mapLimit: performanceMapLimitInput?.value || preset.mapLimit,
+    listLimit: performanceListLimitInput?.value || preset.listLimit,
+    trailLimit: preset.trailLimit,
+    trackPoints: preset.trackPoints,
+    showTrails: performanceTrailsInput ? performanceTrailsInput.checked : preset.showTrails,
+    showFreshnessLabels: performanceFreshnessLabelsInput ? performanceFreshnessLabelsInput.checked : preset.showFreshnessLabels,
+    showRealPhotos: performanceRealPhotosInput ? performanceRealPhotosInput.checked : preset.showRealPhotos,
+    autoHideStale: performanceAutoHideStaleInput ? performanceAutoHideStaleInput.checked : preset.autoHideStale,
+    removeAfterSeconds: performanceRemoveAfterInput?.value || preset.removeAfterSeconds
+  });
+}
+
+function savePerformanceSettings() {
+  const settings = readPerformanceSettings();
+  storageJsonSet(PERFORMANCE_STORAGE_KEY, settings);
+  markFirestoreStateSectionDirty("performance");
+  return settings;
+}
+
+function applyPerformancePreset(mode) {
+  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
+  if (performanceRefreshInput) performanceRefreshInput.value = String(Math.round(preset.refreshIntervalMs / 1000));
+  if (performanceMapLimitInput) performanceMapLimitInput.value = String(preset.mapLimit);
+  if (performanceListLimitInput) performanceListLimitInput.value = String(preset.listLimit);
+  if (performanceTrailsInput) performanceTrailsInput.checked = preset.showTrails;
+  if (performanceFreshnessLabelsInput) performanceFreshnessLabelsInput.checked = preset.showFreshnessLabels;
+  if (performanceRealPhotosInput) performanceRealPhotosInput.checked = preset.showRealPhotos;
+  if (performanceAutoHideStaleInput) performanceAutoHideStaleInput.checked = preset.autoHideStale;
+  if (performanceRemoveAfterInput) performanceRemoveAfterInput.value = String(preset.removeAfterSeconds);
+}
+
+function getAutoRefreshIntervalMs() {
+  return readPerformanceSettings().refreshIntervalMs;
+}
+
+function aircraftVisibleByLifecycle(aircraft, performance = readPerformanceSettings()) {
+  if (!performance.autoHideStale) return true;
+  const seconds = aircraftFreshnessSeconds(aircraft);
+  if (!Number.isFinite(seconds)) return true;
+  return seconds <= performance.removeAfterSeconds;
+}
+
+function lifecycleFilteredAircraft(aircraft, performance = readPerformanceSettings()) {
+  return (aircraft || []).filter((item) => aircraftVisibleByLifecycle(item, performance));
+}
+
+function hiddenOldAircraftCount(aircraft, performance = readPerformanceSettings()) {
+  return Math.max(0, (aircraft || []).length - lifecycleFilteredAircraft(aircraft, performance).length);
+}
+
+function aircraftLifecycleState(aircraft, performance = readPerformanceSettings()) {
+  const seconds = aircraftFreshnessSeconds(aircraft);
+  if (!Number.isFinite(seconds)) return "unknown";
+  if (performance.autoHideStale && seconds > performance.removeAfterSeconds) return "expired";
+  if (seconds > STALE_FADE_SECONDS) return "stale";
+  return "active";
+}
+
+function loadAircraftFilters() {
+  const saved = storageJsonGet(FILTER_STORAGE_KEY, {});
+  if (aircraftFilterKindInput) aircraftFilterKindInput.value = saved.kind || "all";
+  if (aircraftFilterMinAltInput) aircraftFilterMinAltInput.value = saved.minAlt || "";
+  if (aircraftFilterMaxAltInput) aircraftFilterMaxAltInput.value = saved.maxAlt || "";
+  if (aircraftFilterCallsignInput) aircraftFilterCallsignInput.checked = saved.callsignOnly === true;
+}
+
+function readAircraftFilters() {
+  const minAlt = Number.parseInt(String(aircraftFilterMinAltInput?.value || "").trim(), 10);
+  const maxAlt = Number.parseInt(String(aircraftFilterMaxAltInput?.value || "").trim(), 10);
+  return {
+    kind: aircraftFilterKindInput?.value || "all",
+    minAlt: Number.isFinite(minAlt) ? minAlt : null,
+    maxAlt: Number.isFinite(maxAlt) ? maxAlt : null,
+    callsignOnly: aircraftFilterCallsignInput?.checked === true
+  };
+}
+
+function saveAircraftFilters() {
+  const filters = readAircraftFilters();
+  storageJsonSet(FILTER_STORAGE_KEY, {
+    kind: filters.kind,
+    minAlt: filters.minAlt === null ? "" : String(filters.minAlt),
+    maxAlt: filters.maxAlt === null ? "" : String(filters.maxAlt),
+    callsignOnly: filters.callsignOnly
+  });
+  markFirestoreStateSectionDirty("filters");
+}
+
+function aircraftMatchesKindFilter(aircraft, kind) {
+  if (!kind || kind === "all") return true;
+  const group = aircraftTypeGroup(aircraft);
+  if (kind === "jet") return group === "jet" || group === "heavy";
+  if (kind === "helicopter") return group === "helicopter";
+  if (kind === "prop") return group === "prop";
+  if (kind === "glider") return group === "glider";
+  if (kind === "special") return group === "special";
+  return true;
+}
+
+function aircraftMatchesFilters(aircraft, filters = readAircraftFilters()) {
+  if (!aircraftMatchesKindFilter(aircraft, filters.kind)) return false;
+  if (filters.callsignOnly && !aircraftCallsign(aircraft)) return false;
+  const altitude = aircraftAltitudeFeet(aircraft);
+  if (filters.minAlt !== null && (altitude === null || altitude < filters.minAlt)) return false;
+  if (filters.maxAlt !== null && (altitude === null || altitude > filters.maxAlt)) return false;
+  return true;
+}
+
+function filterAircraftForDisplay(aircraft) {
+  const filters = readAircraftFilters();
+  const performance = readPerformanceSettings();
+  return lifecycleFilteredAircraft(aircraft, performance).filter((item) => aircraftMatchesFilters(item, filters));
+}
+
+function aircraftFilterSummary(total, visible, sourceAircraft = lastAircraftCache) {
+  const hiddenOld = hiddenOldAircraftCount(sourceAircraft || []);
+  const filteredOut = Math.max(0, total - hiddenOld - visible);
+  if (!hiddenOld && !filteredOut) return `${visible} samolotów`;
+  const parts = [`${visible} z ${total} samolotów`];
+  if (filteredOut) parts.push(`${filteredOut} ukryte filtrami`);
+  if (hiddenOld) parts.push(`${hiddenOld} usunięte jako stare`);
+  return parts.join(" • ");
+}
+
+function rerenderAircraftFromCache() {
+  saveAircraftFilters();
+  if (!lastAircraftCache.length) {
+    setAircraftStatus("Filtry ustawione. Pobierz samoloty, żeby je zastosować.");
+    return;
+  }
+  const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
+  renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
+  renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
+  setAircraftStatus(`Filtry: pokazuję ${aircraftFilterSummary(lastAircraftCache.length, visibleAircraft.length)}.`);
+}
+
+function readBrowseSettingsSafe() {
+  try {
+    return readBrowseSettings();
+  } catch {
+    return { dist: Number(browseDistInput?.value || AUTO_LOAD_RADIUS_NM) || AUTO_LOAD_RADIUS_NM };
+  }
+}
+
 const AIRCRAFT_SVG_MARKUP = Object.freeze({
   jet: `
 <g transform="scale(0.125)">
@@ -588,15 +838,6 @@ const AIRCRAFT_SVG_MARKUP = Object.freeze({
   "/>
 </g>
   `
-});
-
-const AIRCRAFT_SVG_FILES = Object.freeze({
-  jet: "assets/aircraft/aircraft-jet.svg",
-  heavy: "assets/aircraft/aircraft-heavy.svg",
-  prop: "assets/aircraft/aircraft-prop.svg",
-  helicopter: "assets/aircraft/aircraft-helicopter.svg",
-  glider: "assets/aircraft/aircraft-glider.svg",
-  special: "assets/aircraft/aircraft-special.svg"
 });
 
 function aircraftShapeMarkup(group) {

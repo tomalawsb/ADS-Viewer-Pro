@@ -1,6 +1,8 @@
+# ADS Viewer Pro V20 - 3005261828
+
 # ADS Viewer Pro
 
-Wersja: **V19 - 3005261819**
+Wersja: **V20 - 3005261828**
 
 ## Opis
 
@@ -41,14 +43,6 @@ Alerty są wysyłane tylko dla samolotów z listy **Obserwowane** i tylko jeden 
 
 Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest dostępny w menu **Więcej**.
 
-## Zmiany V19 - 3005261819
-
-- Zastąpiono ikony PNG ikonami SVG dostarczonymi przez użytkownika.
-- Ikony samolotów są teraz osadzane jako wektorowe SVG, więc nie powinny znikać przez problemy z maską PNG.
-- Kolory ikon nadal pobierają obecny kolor programu przez `currentColor`.
-- Pliki SVG dodano do katalogu `assets/aircraft/` i do cache PWA/service workera.
-- Usunięto z paczki stare ikony PNG statków powietrznych.
-
 ## Zmiany V16 - 3005261546
 
 - Podpięto zewnętrzne ikony PNG z katalogu `assets/aircraft/`.
@@ -69,8 +63,14 @@ Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest 
 - Kolory ikon pozostają zgodne z dotychczasowym ustawieniem programu.
 - Naprawiono przycisk „Szczegóły” w panelu samolotu: teraz pokazuje/ukrywa panel szczegółów i rozwija kartę.
 
-## Zmiany V18 - 3005261605
+## Zmiany V20 - 3005261828
 - Rozszerzono synchronizację Firestore: oprócz zapisanych samolotów synchronizowane są teraz ustawienia programu i lista obserwowanych.
 - Synchronizowane sekcje: źródło danych/API, motyw, filtry samolotów, ustawienia wydajności, obserwowane samoloty, ustawienia alertów i stan alertów jednorazowych.
 - Dodano techniczny dokument stanu aplikacji w Firestore: `adsViewerSync/{kod}/flights/__app_state`, żeby zachować zgodność z dotychczasowymi regułami Firestore.
 - Status synchronizacji pokazuje teraz liczbę zapisanych i obserwowanych samolotów.
+
+
+## V20 - 3005261828
+- Naprawiono błąd z V19: przywrócono komplet funkcji ładowania i filtrów samolotów.
+- Ikony samolotów działają jako SVG zamiast PNG.
+- Zachowano synchronizację Firestore z V17/V18.
