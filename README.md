@@ -1,68 +1,62 @@
 # ADS Viewer Pro
 
-Wersja: **V17 - 3005261608**
+Wersja: **V8 - 2905262217**
 
-## Opis
+## Co robi program
 
-Lekka aplikacja PWA do podglądu samolotów ADS-B na mapie.
+ADS Viewer Pro to lekka aplikacja PWA do podglądu samolotów ADS-B na mapie. Działa jako statyczna strona, więc nadaje się do publikacji na GitHub Pages.
 
 ## Najważniejsze funkcje
 
-- automatyczna lokalizacja po starcie,
-- automatyczne wczytywanie i odświeżanie samolotów,
-- mapa samolotów z markerami i śladami lotu,
-- przycisk ADS obowiązkowy przy samolotach,
+- mapa samolotów z automatycznym odświeżaniem,
+- ślady lotu budowane lokalnie z kolejnych pozycji,
+- filtry samolotów,
 - zapisane samoloty,
-- lista obserwowanych samolotów,
-- alerty tylko dla listy obserwowanych,
-- lokalne powiadomienia systemowe, gdy aplikacja działa,
-- synchronizacja zapisanych samolotów, obserwowanych i ustawień przez Firestore,
-- dolny panel mobilny,
-- tryb wydajności.
+- obserwowane samoloty,
+- alerty,
+- historia przelotów,
+- tryb wydajności,
+- wskaźnik świeżości danych,
+- linki ADS,
+- uproszczony dolny panel mobilny.
 
-## Ważne zasady projektu
+## Zmiany V8 - 2905262217
 
-- Nie usuwać przycisku **ADS**.
-- W listach mają zostać akcje **ADS**, **Mapa**, **Usuń**.
-- Nie przywracać funkcji **Śledź**.
-- Alerty mają działać tylko dla samolotów z listy **Obserwowane**.
-- Automatyczna lokalizacja i automatyczne ładowanie samolotów po starcie mają zostać włączone.
+- Przebudowano dolny panel na telefonie.
+- Zostawiono 5 głównych pozycji: **Radar**, **Szukaj**, **Zapisane**, **Alerty**, **Więcej**.
+- Przeniesiono pod **Więcej**: **Obserwowane**, **Historia**, **Status**, **Ustawienia** oraz **Z linku**.
+- Usunięto problem zlewających się podpisów typu „ZapisaneObserw.” i „HistoriaAlerty”.
+- Zachowano wszystkie dotychczasowe funkcje programu.
 
-## Uruchomienie
+## Zmiany V7 - 2905262151
 
-Najlepiej publikować jako statyczną stronę, np. GitHub Pages. Lokalizacja i powiadomienia wymagają HTTPS albo localhost.
+- Dodano lokalną historię przelotów.
+- Program zapisuje samoloty widziane na mapie i łączy wpisy w 15-minutowe okna.
+- Dodano wyszukiwanie historii, akcje ADS/Mapa/Obserwuj/Usuń oraz eksport historii do CSV przez schowek.
+- Historia jest ograniczona do 450 pozycji, żeby nie spowalniać aplikacji.
 
+## Zmiany V6 - 2905262145
 
-## Alerty jednorazowe
+- Dodano automatyczne wygaszanie i ukrywanie starych samolotów.
+- Dodano tryb wydajności z profilami: Responsywny, Zrównoważony, Oszczędny.
+- Dodano ustawienia interwału odświeżania, limitu markerów, limitu listy i czasu usuwania starych danych.
 
-Alerty są wysyłane tylko dla samolotów z listy **Obserwowane** i tylko jeden raz dla danego samolotu. Aby pozwolić na ponowny alert, usuń samolot z obserwowanych i dodaj go ponownie.
+## Zmiany V5 - 2905261941
 
-## Nawigacja
+- Rozbudowano panel szczegółów samolotu.
+- Dodano wskaźnik świeżości danych: LIVE, Świeże, Opóźnione, Stare.
 
-Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest dostępny w menu **Więcej**.
+## Zmiany V4 - 2905262136
 
-## Zmiany V16 - 3005261546
+- Dodano alerty.
+- Dodano listę obserwowanych samolotów.
 
-- Podpięto zewnętrzne ikony PNG z katalogu `assets/aircraft/`.
-- Ikony PNG mają przezroczyste tło i są używane jako maski CSS, więc zachowują obecne kolory programu.
-- Obsługiwane typy ikon PNG: odrzutowy, duży samolot, śmigłowy, śmigłowiec, szybowiec i specjalny/wojskowy.
-- Pliki ikon PNG zostały dodane do cache PWA/service workera, aby działały offline po zainstalowaniu aplikacji.
-- Usunięto z paczki surowe pliki `ChatGPT Image...png`, bo miały tło szachownicy i nie były używane przez program.
+## Zmiany V3 - 2905261927
 
-## Zmiany V15 - 3005261440
+- Dodano ślady lotu.
+- Dodano filtry samolotów.
+- Zmieniono numerację wersji na format: V3 - DDMMRRHHMM.
 
-- START/STOP na mapie są rysowane tylko wtedy, gdy program ma potwierdzone punkty startu i lądowania z danymi lotnisk.
-- Gdy brak potwierdzonej trasy, program rysuje tylko ślad live wybranego samolotu bez fałszywych znaczników START/STOP.
-- Automatyczne odświeżenie wybranego samolotu nie przejmuje już widoku po kliknięciu lokalizacji użytkownika.
-- Ścieżki innych samolotów są zapisywane w tle, ale nie są rysowane na mapie; widoczna jest tylko ścieżka wybranego samolotu.
-- Numer wersji jest widoczny na górze oraz w ustawieniach programu.
-- Dodano pytanie instalacyjne PWA: „Zainstaluj” albo „Korzystaj w przeglądarce”.
-- Dodano różne sylwetki ikon statków powietrznych: duży pasażerski, odrzutowy, mały śmigłowy, śmigłowiec, szybowiec i specjalny/wojskowy.
-- Kolory ikon pozostają zgodne z dotychczasowym ustawieniem programu.
-- Naprawiono przycisk „Szczegóły” w panelu samolotu: teraz pokazuje/ukrywa panel szczegółów i rozwija kartę.
+## Ważne ograniczenie
 
-## Zmiany V17 - 3005261608
-- Rozszerzono synchronizację Firestore: oprócz zapisanych samolotów synchronizowane są teraz ustawienia programu i lista obserwowanych.
-- Synchronizowane sekcje: źródło danych/API, motyw, filtry samolotów, ustawienia wydajności, obserwowane samoloty, ustawienia alertów i stan alertów jednorazowych.
-- Dodano techniczny dokument stanu aplikacji w Firestore: `adsViewerSync/{kod}/flights/__app_state`, żeby zachować zgodność z dotychczasowymi regułami Firestore.
-- Status synchronizacji pokazuje teraz liczbę zapisanych i obserwowanych samolotów.
+Pełna trasa i dane start/cel pojawią się tylko wtedy, gdy użyte źródło ADS-B zwróci takie informacje. Darmowe źródła często pokazują głównie aktualną pozycję, wysokość, prędkość i callsign.

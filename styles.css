@@ -163,41 +163,6 @@ h2 { margin-bottom: 0; font-size: 1.05rem; }
 .status-chip[data-mode="busy"] { background: rgba(251, 191, 36, 0.34); }
 .status-chip[data-mode="error"] { background: rgba(248, 113, 113, 0.36); }
 
-.install-prompt {
-  position: fixed;
-  top: calc(82px + env(safe-area-inset-top, 0px));
-  left: 50%;
-  z-index: 6900;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: min(560px, calc(100vw - 20px));
-  padding: 12px;
-  border: 1px solid rgba(22, 101, 52, 0.18);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--shadow);
-  transform: translateX(-50%);
-}
-.install-prompt[hidden] { display: none !important; }
-.install-prompt strong { color: #064e3b; font-size: 0.92rem; }
-.install-prompt p { margin: 3px 0 0; color: var(--muted); font-size: 0.78rem; font-weight: 750; }
-.install-prompt-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.settings-version {
-  display: inline-flex;
-  align-items: center;
-  min-height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--muted);
-  background: var(--panel-2);
-  font-size: 0.78rem;
-  font-weight: 850;
-}
-.settings-version strong { color: var(--text); }
-
 .map-tools-card {
   position: fixed;
   top: calc(88px + env(safe-area-inset-top, 0px));
@@ -213,60 +178,6 @@ h2 { margin-bottom: 0; font-size: 1.05rem; }
   backdrop-filter: blur(14px);
 }
 .map-tools-card .panel-subtitle { display: none; }
-
-.map-floating-controls {
-  position: fixed;
-  right: calc(14px + env(safe-area-inset-right, 0px));
-  bottom: calc(154px + var(--safe-bottom));
-  z-index: 7305;
-  display: grid;
-  gap: 8px;
-  pointer-events: auto;
-}
-.map-location-button {
-  display: grid;
-  place-items: center;
-  width: 46px;
-  height: 46px;
-  border: 1px solid rgba(15, 23, 42, 0.16);
-  border-radius: 16px;
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: var(--shadow);
-  font-size: 1.35rem;
-  font-weight: 950;
-  line-height: 1;
-  backdrop-filter: blur(14px);
-  touch-action: manipulation;
-}
-.map-location-button:hover,
-.map-location-button:focus-visible {
-  background: #ffffff;
-  transform: translateY(-1px);
-}
-.user-location-div-icon {
-  position: relative;
-  display: grid;
-  place-items: center;
-  background: transparent;
-}
-.user-location-dot {
-  position: absolute;
-  width: 15px;
-  height: 15px;
-  border: 3px solid #ffffff;
-  border-radius: 999px;
-  background: #2563eb;
-  box-shadow: 0 4px 18px rgba(37, 99, 235, 0.44);
-}
-.user-location-pulse {
-  position: absolute;
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.2);
-}
-
 .map-status-card {
   position: fixed;
   left: 50%;
@@ -785,8 +696,8 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
 .plane-marker {
   display: grid;
   place-items: center;
-  width: var(--plane-svg-width, 32px);
-  height: var(--plane-svg-height, 32px);
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 0;
   color: #0f766e;
@@ -797,33 +708,18 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
 }
 .plane-marker.special,
 .aircraft-kind-special .plane-marker { color: #dc2626; }
-.aircraft-kind-heavy .plane-marker { color: #1d4ed8; }
+.aircraft-kind-heavy .plane-marker { width: 36px; height: 36px; color: #1d4ed8; }
 .aircraft-kind-prop .plane-marker { color: #0f766e; }
 .aircraft-kind-helicopter .plane-marker { color: #9333ea; }
 .aircraft-kind-glider .plane-marker { color: #0369a1; }
 .plane-marker svg {
-  width: var(--plane-svg-width, 28px);
-  height: var(--plane-svg-height, 28px);
+  width: 28px;
+  height: 28px;
   fill: currentColor;
   stroke: rgba(255,255,255,.95);
   stroke-width: 2.2px;
   paint-order: stroke fill;
   filter: none;
-}
-
-.plane-marker .aircraft-png-icon {
-  display: block;
-  width: var(--plane-svg-width, 28px);
-  height: var(--plane-svg-height, 28px);
-  background: currentColor;
-  -webkit-mask-image: var(--aircraft-icon-url);
-  mask-image: var(--aircraft-icon-url);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
 }
 .plane-label {
   margin-top: -4px;
@@ -879,7 +775,7 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   }
   .eyebrow { display: none; }
   .version-row { margin-top: 4px; }
-  .version-badge { display: inline-flex; font-size: 0.66rem; padding: 2px 7px; }
+  .version-badge { display: none; }
   .map-tools-card {
     top: calc(74px + env(safe-area-inset-top, 0px));
     right: 8px;
@@ -960,9 +856,9 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   .map-popup-note { font-size: 0.66rem; }
   .map-popup-meta,
   .map-popup-route { font-size: 0.74rem; }
-  .plane-marker { width: var(--plane-svg-width, 28px); height: var(--plane-svg-height, 28px); }
-  .plane-marker svg { width: var(--plane-svg-width, 24px); height: var(--plane-svg-height, 24px); }
-  .plane-marker .aircraft-png-icon { width: var(--plane-svg-width, 24px); height: var(--plane-svg-height, 24px); }
+  .plane-marker { width: 28px; height: 28px; }
+  .aircraft-kind-heavy .plane-marker { width: 32px; height: 32px; }
+  .plane-marker svg { width: 24px; height: 24px; }
   .plane-label { font-size: 0.52rem; padding: 1px 4px; }
 
   .aircraft-list,
@@ -1198,20 +1094,6 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   filter: drop-shadow(0 3px 6px rgba(15,23,42,.34));
 }
 .phase-plane svg { width: 31px; height: 31px; fill: currentColor; }
-.phase-plane .aircraft-png-icon {
-  display: block;
-  width: 31px;
-  height: 31px;
-  background: currentColor;
-  -webkit-mask-image: var(--aircraft-icon-url);
-  mask-image: var(--aircraft-icon-url);
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-position: center;
-  mask-position: center;
-  -webkit-mask-size: contain;
-  mask-size: contain;
-}
 .phase-climb { color: #22c55e; }
 .phase-descent { color: #f97316; }
 .phase-ground { color: #64748b; }
@@ -1315,7 +1197,6 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
 }
 .map-popup-phase .phase-plane { width: 28px; height: 28px; }
 .map-popup-phase .phase-plane svg { width: 25px; height: 25px; }
-.map-popup-phase .phase-plane .aircraft-png-icon { width: 25px; height: 25px; }
 .map-popup-phase-text { color: var(--muted); font-size: 0.56rem; font-weight: 900; text-align: center; }
 .map-popup-photo {
   width: 100%;
@@ -1781,214 +1662,4 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
     flex-wrap: wrap;
     justify-content: flex-end;
   }
-}
-
-
-.sync-settings-card {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  margin-top: 12px;
-  border: 1px solid rgba(15, 23, 42, .12);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, .72);
-}
-.sync-settings-card strong {
-  display: block;
-  margin-bottom: 4px;
-}
-.sync-status {
-  margin: 0;
-  font-size: .88rem;
-  color: #475569;
-}
-.sync-status[data-mode="ok"] { color: #047857; }
-.sync-status[data-mode="busy"] { color: #0369a1; }
-.sync-status[data-mode="error"] { color: #b91c1c; }
-.sync-settings-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.setup-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 11000;
-  display: grid;
-  place-items: center;
-  padding: 18px;
-  background: rgba(15, 23, 42, .42);
-  backdrop-filter: blur(8px);
-}
-.setup-modal[hidden] { display: none; }
-.setup-card {
-  width: min(780px, 100%);
-  max-height: min(92vh, 820px);
-  overflow: auto;
-  display: grid;
-  gap: 12px;
-  padding: 18px;
-  border-radius: 22px;
-  border: 1px solid rgba(15, 23, 42, .14);
-  background: #f8fafc;
-  box-shadow: 0 30px 90px rgba(15, 23, 42, .28);
-}
-.setup-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-}
-.setup-head h2,
-.setup-head p { margin: 0; }
-.setup-head h2 { margin-bottom: 6px; }
-.setup-card textarea,
-.setup-card input { width: 100%; }
-.setup-card textarea {
-  min-height: 110px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  resize: vertical;
-}
-.setup-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-.field-hint {
-  display: block;
-  margin-top: 4px;
-  font-size: .78rem;
-  color: #64748b;
-}
-.setup-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: flex-end;
-}
-body.modal-open { overflow: hidden; }
-
-@media (max-width: 760px) {
-  .map-floating-controls {
-    right: calc(10px + env(safe-area-inset-right, 0px));
-    bottom: calc(150px + var(--safe-bottom));
-  }
-  .map-location-button {
-    width: 44px;
-    height: 44px;
-    border-radius: 15px;
-    font-size: 1.25rem;
-  }
-}
-
-@media (max-width: 640px) {
-  .setup-modal {
-    align-items: end;
-    padding: 10px;
-  }
-  .setup-card {
-    max-height: 92vh;
-    border-radius: 20px 20px 16px 16px;
-    padding: 14px;
-  }
-  .setup-grid { grid-template-columns: 1fr; }
-  .setup-actions,
-  .sync-settings-actions {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-}
-
-
-/* V11 - 3005261131: uchwyty paneli i kopiowanie danych samolotu */
-.drawer-drag-handle,
-.aircraft-sheet-drag-handle {
-  display: block !important;
-  position: relative;
-  width: 82px;
-  height: 28px;
-  margin: 0 auto 6px;
-  border-radius: 999px;
-  background: transparent !important;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-}
-.drawer-drag-handle::after,
-.aircraft-sheet-drag-handle::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 11px;
-  width: 58px;
-  height: 5px;
-  border-radius: 999px;
-  background: rgba(100, 116, 139, 0.58);
-  transform: translateX(-50%);
-}
-.drawer-drag-handle:active,
-.aircraft-sheet-drag-handle:active { cursor: grabbing; }
-
-.control-column,
-.aircraft-sheet {
-  overscroll-behavior: contain;
-}
-.aircraft-sheet,
-.aircraft-sheet .aircraft-sheet-head,
-.aircraft-sheet .aircraft-sheet-hero,
-.aircraft-sheet .aircraft-sheet-cards,
-.aircraft-sheet .aircraft-sheet-live-grid,
-.aircraft-sheet .aircraft-sheet-more,
-.map-popup,
-.map-popup * {
-  user-select: text;
-  -webkit-user-select: text;
-}
-.aircraft-sheet button,
-.aircraft-sheet .aircraft-sheet-drag-handle,
-.map-popup button,
-.drawer-drag-handle,
-.aircraft-sheet-drag-handle {
-  user-select: none;
-  -webkit-user-select: none;
-}
-.copyable-aircraft-value {
-  cursor: copy;
-  user-select: text;
-  -webkit-user-select: text;
-  text-decoration: underline dotted rgba(14, 165, 233, 0.55);
-  text-underline-offset: 3px;
-}
-.copyable-aircraft-value:active {
-  opacity: 0.72;
-}
-.map-popup-hex {
-  display: inline-flex;
-  width: fit-content;
-  max-width: 100%;
-  margin: 2px 0 0;
-  padding: 3px 7px;
-  border: 1px solid rgba(14, 165, 233, 0.24);
-  border-radius: 999px;
-  background: rgba(14, 165, 233, 0.08);
-  color: var(--text);
-  font-size: 0.68rem;
-  font-weight: 950;
-  letter-spacing: 0.03em;
-}
-.detail-value.copyable-aircraft-value,
-.aircraft-sheet-live-grid strong.copyable-aircraft-value {
-  min-height: 20px;
-}
-
-@media (max-width: 760px) {
-  .install-prompt {
-    top: calc(70px + env(safe-area-inset-top, 0px));
-    align-items: stretch;
-    flex-direction: column;
-    padding: 10px;
-  }
-  .install-prompt-actions { justify-content: stretch; }
-  .install-prompt-actions button { flex: 1 1 130px; }
 }
