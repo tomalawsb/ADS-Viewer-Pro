@@ -1,13 +1,14 @@
-INSTRUKCJA FIRESTORE — ADS Viewer Pro 2.7
+INSTRUKCJA FIRESTORE — ADS Viewer Pro V17
 
 CEL
-Synchronizacja zapisanych samolotów między telefonem i komputerem.
-Ten sam projekt Firebase + ten sam kod synchronizacji = ta sama lista zapisanych samolotów.
+Synchronizacja danych programu między telefonem i komputerem.
+Ten sam projekt Firebase + ten sam kod synchronizacji = te same zapisane samoloty, obserwowane samoloty i ustawienia programu.
 
 WAŻNE
 Dane firebaseConfig w aplikacji webowej nie są hasłem. To normalne, że są widoczne w kodzie strony.
 Nie wpisuj tam żadnych prywatnych haseł.
 Kod synchronizacji potraktuj jak prywatny identyfikator listy.
+Od V17 program synchronizuje też ustawienia źródła danych/API, motyw, filtry, tryb wydajności, obserwowane samoloty oraz ustawienia alertów.
 
 KROK 1 — UTWÓRZ PROJEKT FIREBASE
 1. Wejdź na: https://console.firebase.google.com/
@@ -63,7 +64,7 @@ service cloud.firestore {
 Kliknij Publish / Opublikuj.
 
 KROK 5 — SKONFIGURUJ APLIKACJĘ ADS VIEWER
-1. Uruchom ADS Viewer Pro 2.7.
+1. Uruchom ADS Viewer Pro V17.
 2. Przy pierwszym uruchomieniu pokaże się okno Firestore.
 3. Wklej cały obiekt firebaseConfig.
 4. Kliknij „Odczytaj konfigurację z wklejonego tekstu” albo poczekaj, aż pola same się uzupełnią.
@@ -77,10 +78,11 @@ KROK 6 — SKONFIGURUJ DRUGIE URZĄDZENIE
 4. Kliknij „Zapisz i synchronizuj”.
 
 JAK TO DZIAŁA
-- Aplikacja trzyma lokalną kopię zapisanych samolotów w przeglądarce.
+- Aplikacja trzyma lokalną kopię danych w przeglądarce.
 - Po włączeniu Firestore pobiera dane z chmury.
-- Scala dane lokalne i chmurowe.
-- Uzupełnia Firestore brakującymi lokalnymi zapisami.
+- Scala zapisane samoloty lokalne i chmurowe.
+- Synchronizuje też obserwowane samoloty oraz ustawienia programu.
+- Techniczny stan ustawień jest zapisywany jako dokument `__app_state` w tej samej kolekcji Firestore, dlatego podane reguły nadal pasują do programu.
 - Potem zmiany są synchronizowane w tle.
 
 GDZIE ZMIENIĆ KONFIGURACJĘ

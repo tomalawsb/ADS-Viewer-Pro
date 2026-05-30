@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V16";
-const APP_VERSION_STAMP = "3005261546";
+const APP_VERSION_NUMBER = "V17";
+const APP_VERSION_STAMP = "3005261608";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -24,6 +24,9 @@ const FIRESTORE_CONFIG_STORAGE_KEY = "adsb-firestore-config-v1";
 const FIRESTORE_SETUP_DISMISSED_KEY = "adsb-firestore-setup-dismissed-v1";
 const FIRESTORE_DELETED_FLIGHTS_STORAGE_KEY = "adsb-firestore-deleted-flights-v1";
 const FIRESTORE_CLIENT_ID_STORAGE_KEY = "adsb-firestore-client-id-v1";
+const FIRESTORE_STATE_META_STORAGE_KEY = "adsb-firestore-state-meta-v1";
+const FIRESTORE_STATE_DOC_ID = "__app_state";
+const FIRESTORE_STATE_SECTIONS = ["api", "theme", "filters", "performance", "watchlist", "alertSettings", "alertFired"];
 const FIREBASE_SDK_VERSION = "10.12.5";
 const NOTIFICATION_ICON = "icon-192.png";
 const FIRESTORE_COLLECTION_ROOT = "adsViewerSync";
@@ -266,7 +269,9 @@ let firestoreState = {
   unsubscribe: null,
   ready: false,
   initializing: false,
-  configSignature: ""
+  configSignature: "",
+  stateDocRef: null,
+  unsubscribeState: null
 };
 let firestoreApplyingRemote = false;
 let firestorePushTimer = null;
@@ -614,6 +619,7 @@ function readPerformanceSettings() {
 function savePerformanceSettings() {
   const settings = readPerformanceSettings();
   storageJsonSet(PERFORMANCE_STORAGE_KEY, settings);
+  markFirestoreStateSectionDirty("performance");
   return settings;
 }
 
@@ -683,6 +689,7 @@ function saveAircraftFilters() {
     maxAlt: filters.maxAlt === null ? "" : String(filters.maxAlt),
     callsignOnly: filters.callsignOnly
   });
+  markFirestoreStateSectionDirty("filters");
 }
 
 function aircraftMatchesKindFilter(aircraft, kind) {
@@ -1228,8 +1235,9 @@ function loadWatchlist() {
   }
 }
 
-function saveWatchlist(items) {
-  storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(items));
+function saveWatchlist(items, options = {}) {
+  storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(Array.isArray(items) ? items : []));
+  if (!options.skipSync) markFirestoreStateSectionDirty("watchlist");
 }
 
 function loadAlertLog() {
@@ -1250,8 +1258,9 @@ function loadFiredAlertState() {
   return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
 }
 
-function saveFiredAlertState(state) {
+function saveFiredAlertState(state, options = {}) {
   storageJsonSet(ALERT_FIRED_STORAGE_KEY, state && typeof state === "object" ? state : {});
+  if (!options.skipSync) markFirestoreStateSectionDirty("alertFired");
 }
 
 function hasFiredAlertForIcao(icao) {
@@ -1308,8 +1317,9 @@ function loadAlertSettingsObject() {
   return { ...defaultAlertSettings(), ...(saved && typeof saved === "object" ? saved : {}) };
 }
 
-function saveAlertSettingsObject(settings) {
+function saveAlertSettingsObject(settings, options = {}) {
   storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, { ...defaultAlertSettings(), ...(settings || {}) });
+  if (!options.skipSync) markFirestoreStateSectionDirty("alertSettings");
 }
 
 function timeStampText() {
@@ -1339,6 +1349,244 @@ function showToast(message, durationMs = 1900) {
   toast.classList.add("show");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(hideToast, durationMs);
+}
+
+
+function loadFirestoreStateMeta() {
+  const meta = storageJsonGet(FIRESTORE_STATE_META_STORAGE_KEY, {});
+  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta : {};
+}
+
+function saveFirestoreStateMeta(meta) {
+  storageJsonSet(FIRESTORE_STATE_META_STORAGE_KEY, meta && typeof meta === "object" ? meta : {});
+}
+
+function firestoreSectionUpdatedAt(section) {
+  const meta = loadFirestoreStateMeta();
+  const value = Number(meta[section] || 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function ensureFirestoreStateMetaSeeded() {
+  const meta = loadFirestoreStateMeta();
+  let changed = false;
+  const now = Date.now();
+  for (const section of FIRESTORE_STATE_SECTIONS) {
+    const current = Number(meta[section] || 0);
+    if (!Number.isFinite(current) || current <= 0) {
+      meta[section] = now;
+      changed = true;
+    }
+  }
+  if (changed) saveFirestoreStateMeta(meta);
+}
+
+function markFirestoreStateSectionDirty(section, stamp = Date.now()) {
+  if (firestoreApplyingRemote) return;
+  if (!FIRESTORE_STATE_SECTIONS.includes(section)) return;
+  const meta = loadFirestoreStateMeta();
+  meta[section] = Math.max(Number(meta[section] || 0), Number(stamp) || Date.now());
+  saveFirestoreStateMeta(meta);
+  scheduleFirestorePush();
+}
+
+function normalizeFirestoreSection(section, value) {
+  if (section === "api") {
+    const source = value && typeof value === "object" ? value : {};
+    const dataSource = Object.prototype.hasOwnProperty.call(API_SOURCES, source.dataSource) ? source.dataSource : DEFAULT_DATA_SOURCE;
+    return {
+      dataSource,
+      apiBase: String(source.apiBase || apiSourceByName(dataSource).apiBase || ""),
+      apiKey: String(source.apiKey || "")
+    };
+  }
+  if (section === "theme") return String(value || "light") === "dark" ? "dark" : "light";
+  if (section === "filters") return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  if (section === "performance") return normalizePerformanceSettings(value && typeof value === "object" ? value : defaultPerformanceSettings());
+  if (section === "watchlist") return Array.isArray(value) ? value : [];
+  if (section === "alertSettings") return { ...defaultAlertSettings(), ...(value && typeof value === "object" ? value : {}) };
+  if (section === "alertFired") return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return value;
+}
+
+function localFirestoreSectionValue(section) {
+  if (section === "api") {
+    const dataSource = storageGet(DATA_SOURCE_STORAGE_KEY, DEFAULT_DATA_SOURCE);
+    return normalizeFirestoreSection("api", {
+      dataSource,
+      apiBase: storageGet(API_BASE_STORAGE_KEY, apiSourceByName(dataSource).apiBase),
+      apiKey: storageGet(API_KEY_STORAGE_KEY, "")
+    });
+  }
+  if (section === "theme") return normalizeFirestoreSection("theme", storageGet(THEME_STORAGE_KEY, "light"));
+  if (section === "filters") return normalizeFirestoreSection("filters", storageJsonGet(FILTER_STORAGE_KEY, {}));
+  if (section === "performance") return normalizeFirestoreSection("performance", storageJsonGet(PERFORMANCE_STORAGE_KEY, defaultPerformanceSettings()));
+  if (section === "watchlist") return normalizeFirestoreSection("watchlist", loadWatchlist());
+  if (section === "alertSettings") return normalizeFirestoreSection("alertSettings", loadAlertSettingsObject());
+  if (section === "alertFired") return normalizeFirestoreSection("alertFired", loadFiredAlertState());
+  return null;
+}
+
+function buildLocalFirestoreState() {
+  const config = loadFirestoreConfig();
+  const sections = {};
+  for (const section of FIRESTORE_STATE_SECTIONS) {
+    sections[section] = {
+      updatedAtMs: firestoreSectionUpdatedAt(section),
+      value: localFirestoreSectionValue(section)
+    };
+  }
+  return {
+    id: FIRESTORE_STATE_DOC_ID,
+    syncVersion: 2,
+    syncKey: sanitizeSyncKey(config?.syncKey || ""),
+    _clientId: firestoreClientId,
+    _updatedAtMs: Date.now(),
+    updatedAt: new Date().toISOString(),
+    sections
+  };
+}
+
+
+function encodeFirestoreAppStateForFlightDoc(state) {
+  const config = loadFirestoreConfig();
+  const now = Date.now();
+  return {
+    id: FIRESTORE_STATE_DOC_ID,
+    syncKey: sanitizeSyncKey(config?.syncKey || ""),
+    deleted: false,
+    icao: "",
+    hex: "",
+    name: "ADS Viewer Pro — stan aplikacji",
+    date: "app-state",
+    routeShort: "app-state-v2",
+    routeVerbose: JSON.stringify(state || buildLocalFirestoreState()),
+    createdAt: new Date(now).toISOString(),
+    updatedAt: new Date(now).toISOString(),
+    _clientId: firestoreClientId,
+    _updatedAtMs: now
+  };
+}
+
+function decodeFirestoreAppStateFromFlightDoc(data) {
+  if (!data || typeof data !== "object") return null;
+  if (data.sections && typeof data.sections === "object") return data;
+  const encoded = String(data.routeVerbose || "");
+  if (!encoded) return null;
+  try {
+    const parsed = JSON.parse(encoded);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function remoteFirestoreStateSections(data) {
+  const source = data && typeof data === "object" ? data.sections : null;
+  return source && typeof source === "object" && !Array.isArray(source) ? source : {};
+}
+
+function applyRemoteSectionToLocal(section, value) {
+  const normalized = normalizeFirestoreSection(section, value);
+  if (section === "api") {
+    storageSet(DATA_SOURCE_STORAGE_KEY, normalized.dataSource);
+    storageSet(API_BASE_STORAGE_KEY, normalized.apiBase);
+    storageSet(API_KEY_STORAGE_KEY, normalized.apiKey);
+    if (dataSourceInput) dataSourceInput.value = normalized.dataSource;
+    if (apiBaseInput) apiBaseInput.value = normalized.apiBase;
+    if (apiKeyInput) apiKeyInput.value = normalized.apiKey;
+    return;
+  }
+  if (section === "theme") {
+    storageSet(THEME_STORAGE_KEY, normalized);
+    applyTheme(normalized);
+    return;
+  }
+  if (section === "filters") {
+    storageJsonSet(FILTER_STORAGE_KEY, normalized);
+    loadAircraftFilters();
+    return;
+  }
+  if (section === "performance") {
+    storageJsonSet(PERFORMANCE_STORAGE_KEY, normalized);
+    loadPerformanceSettings();
+    return;
+  }
+  if (section === "watchlist") {
+    storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(normalized));
+    renderWatchlist();
+    updateAlertStatusText();
+    return;
+  }
+  if (section === "alertSettings") {
+    storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, normalized);
+    applyAlertSettingsToForm();
+    return;
+  }
+  if (section === "alertFired") {
+    storageJsonSet(ALERT_FIRED_STORAGE_KEY, normalized);
+    updateAlertStatusText();
+  }
+}
+
+function applyRemoteAppState(remoteData) {
+  const sections = remoteFirestoreStateSections(remoteData);
+  const meta = loadFirestoreStateMeta();
+  const changedSections = new Set();
+  let needsPush = false;
+
+  firestoreApplyingRemote = true;
+  try {
+    for (const section of FIRESTORE_STATE_SECTIONS) {
+      const remoteSection = sections[section];
+      if (!remoteSection || typeof remoteSection !== "object") continue;
+      const remoteUpdatedAt = Number(remoteSection.updatedAtMs || 0);
+      const localUpdatedAt = Number(meta[section] || 0);
+      if (!Number.isFinite(remoteUpdatedAt)) continue;
+      if (remoteUpdatedAt > localUpdatedAt) {
+        applyRemoteSectionToLocal(section, remoteSection.value);
+        meta[section] = remoteUpdatedAt;
+        changedSections.add(section);
+      } else if (localUpdatedAt > remoteUpdatedAt) {
+        needsPush = true;
+      }
+    }
+    saveFirestoreStateMeta(meta);
+  } finally {
+    firestoreApplyingRemote = false;
+  }
+
+  if (changedSections.has("performance")) restartAircraftAutoRefresh();
+  if (changedSections.has("filters") && lastAircraftCache.length) {
+    const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
+    renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
+    renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
+  }
+  return { changed: changedSections.size > 0, needsPush };
+}
+
+async function pullAppStateFromFirestore() {
+  if (!firestoreState.ready || !firestoreState.stateDocRef) return { changed: false, needsPush: false };
+  const modules = await loadFirestoreModules();
+  const { getDoc } = modules.firestore;
+  const snapshot = await getDoc(firestoreState.stateDocRef);
+  if (!snapshot.exists()) return { changed: false, needsPush: false };
+  const state = decodeFirestoreAppStateFromFlightDoc(snapshot.data());
+  if (!state) return { changed: false, needsPush: false };
+  return applyRemoteAppState(state);
+}
+
+async function pushAppStateToFirestore() {
+  if (!firestoreState.ready || !firestoreState.stateDocRef) return;
+  const modules = await loadFirestoreModules();
+  const { setDoc } = modules.firestore;
+  ensureFirestoreStateMetaSeeded();
+  const state = buildLocalFirestoreState();
+  await setDoc(firestoreState.stateDocRef, encodeFirestoreAppStateForFlightDoc(state), { merge: true });
+}
+
+function firestoreStatusSummary(prefix = "Synchronizacja aktywna") {
+  return `${prefix}. Zapisane: ${loadFlights().length}. Obserwowane: ${loadWatchlist().length}.`;
 }
 
 function firestoreConfigFromForm() {
@@ -1476,8 +1724,13 @@ async function resetFirestoreConnection() {
   if (firestoreState.unsubscribe) {
     firestoreState.unsubscribe();
   }
+  if (firestoreState.unsubscribeState) {
+    firestoreState.unsubscribeState();
+  }
   firestoreState.unsubscribe = null;
+  firestoreState.unsubscribeState = null;
   firestoreState.collectionRef = null;
+  firestoreState.stateDocRef = null;
   firestoreState.db = null;
   firestoreState.ready = false;
 }
@@ -1493,6 +1746,7 @@ function remoteDocsToFlightsAndTombstones(snapshot) {
   const tombstones = {};
   snapshot.forEach((docSnapshot) => {
     const data = docSnapshot.data();
+    if (docSnapshot.id === FIRESTORE_STATE_DOC_ID || data?.id === FIRESTORE_STATE_DOC_ID) return;
     if (!data || typeof data !== "object") return;
     if (data.deleted) {
       tombstones[docSnapshot.id] = Number(data.deletedAt || data._updatedAtMs || Date.now());
@@ -1607,10 +1861,11 @@ async function syncFirestoreNow(options = {}) {
   if (firestorePushInProgress) return true;
   firestorePushInProgress = true;
   try {
-    if (!options.silent) setFirestoreStatus("Synchronizuję zapisane samoloty...", "busy");
+    if (!options.silent) setFirestoreStatus("Synchronizuję dane programu...", "busy");
     await pushFlightsToFirestore(loadFlights());
     await pushLocalTombstonesToFirestore();
-    setFirestoreStatus(`Synchronizacja aktywna. Zapisane: ${loadFlights().length}.`, "ok");
+    await pushAppStateToFirestore();
+    setFirestoreStatus(firestoreStatusSummary(), "ok");
     return true;
   } finally {
     firestorePushInProgress = false;
@@ -1634,17 +1889,19 @@ async function initFirestoreSync(options = {}) {
     await resetFirestoreConnection();
     const modules = await loadFirestoreModules();
     const { initializeApp, getApps } = modules.app;
-    const { getFirestore, collection, getDocs, onSnapshot } = modules.firestore;
+    const { getFirestore, collection, doc, getDocs, onSnapshot } = modules.firestore;
     const appName = `ads-viewer-${sanitizeFirestoreDocId(config.projectId)}-${sanitizeFirestoreDocId(config.syncKey)}`;
     const existing = getApps().find((item) => item.name === appName);
     const app = existing || initializeApp(firebaseConfigForSdk(config), appName);
     const db = getFirestore(app);
     const collectionRef = collection(db, FIRESTORE_COLLECTION_ROOT, sanitizeSyncKey(config.syncKey), "flights");
+    const stateDocRef = doc(collectionRef, FIRESTORE_STATE_DOC_ID);
     firestoreState = {
       ...firestoreState,
       app,
       db,
       collectionRef,
+      stateDocRef,
       ready: true,
       configSignature: signature
     };
@@ -1654,16 +1911,31 @@ async function initFirestoreSync(options = {}) {
     const merged = applyRemoteFlights(remoteFlights, tombstones);
     await pushFlightsToFirestore(merged);
     await pushLocalTombstonesToFirestore();
+    const stateResult = await pullAppStateFromFirestore();
+    await pushAppStateToFirestore();
+    if (stateResult.needsPush) scheduleFirestorePush();
 
     firestoreState.unsubscribe = onSnapshot(collectionRef, (liveSnapshot) => {
       const { flights, tombstones: liveTombstones } = remoteDocsToFlightsAndTombstones(liveSnapshot);
       applyRemoteFlights(flights, liveTombstones);
-      setFirestoreStatus(`Synchronizacja aktywna. Zapisane: ${loadFlights().length}.`, "ok");
+      setFirestoreStatus(firestoreStatusSummary(), "ok");
     }, (error) => {
       setFirestoreStatus(`Błąd Firestore: ${error.message || error}`, "error");
     });
 
-    setFirestoreStatus(`Synchronizacja aktywna. Zapisane: ${loadFlights().length}.`, "ok");
+    firestoreState.unsubscribeState = onSnapshot(stateDocRef, (stateSnapshot) => {
+      if (!stateSnapshot.exists()) return;
+      const state = decodeFirestoreAppStateFromFlightDoc(stateSnapshot.data());
+      if (!state) return;
+      const result = applyRemoteAppState(state);
+      if (result.needsPush) scheduleFirestorePush();
+      if (result.changed) setFirestoreStatus(firestoreStatusSummary(), "ok");
+    }, (error) => {
+      setFirestoreStatus(`Błąd synchronizacji ustawień: ${error.message || error}`, "error");
+    });
+
+
+    setFirestoreStatus(firestoreStatusSummary(), "ok");
     return true;
   } catch (error) {
     firestoreState.ready = false;
@@ -1694,7 +1966,7 @@ async function deleteSavedFlight(flight) {
   showToast("Usunięto zapis.");
   try {
     await pushDeletedFlightToFirestore(id);
-    setFirestoreStatus("Usunięcie zsynchronizowane z Firestore.", "ok");
+    setFirestoreStatus(firestoreStatusSummary("Usunięcie zsynchronizowane z Firestore"), "ok");
   } catch (error) {
     setFirestoreStatus(`Usunięto lokalnie. Firestore zsynchronizuje później: ${error.message || error}`, "error");
   }
@@ -1708,7 +1980,7 @@ async function clearSavedFlights() {
   showToast("Lista wyczyszczona.");
   try {
     await pushLocalTombstonesToFirestore();
-    setFirestoreStatus("Usunięcia zsynchronizowane z Firestore.", "ok");
+    setFirestoreStatus(firestoreStatusSummary("Usunięcia zsynchronizowane z Firestore"), "ok");
   } catch (error) {
     setFirestoreStatus(`Wyczyszczono lokalnie. Firestore zsynchronizuje później: ${error.message || error}`, "error");
   }
@@ -2756,7 +3028,7 @@ function updateWatchlistFromAircraft(aircraftArray) {
     };
   });
 
-  if (changed) saveWatchlist(next);
+  if (changed) saveWatchlist(next, { skipSync: true });
   renderWatchlist();
 }
 
@@ -4677,6 +4949,7 @@ document.querySelector("#saveApiKeyButton").addEventListener("click", () => {
     storageSet(DATA_SOURCE_STORAGE_KEY, dataSourceInput.value);
     storageSet(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
     storageSet(API_BASE_STORAGE_KEY, apiBase);
+    markFirestoreStateSectionDirty("api");
     apiBaseInput.value = apiBase;
     showToast(persistentStorageAvailable ? "Ustawienia zapisane lokalnie." : "Zapis jest tylko tymczasowy w trybie pliku.");
   } catch (error) {
@@ -4686,6 +4959,7 @@ document.querySelector("#saveApiKeyButton").addEventListener("click", () => {
 
 themeInput.addEventListener("change", () => {
   applyTheme(themeInput.value);
+  markFirestoreStateSectionDirty("theme");
 });
 
 dataSourceInput.addEventListener("change", () => {
