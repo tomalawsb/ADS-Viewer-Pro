@@ -1,8 +1,9 @@
-const APP_VERSION_NUMBER = "V13";
-const APP_VERSION_STAMP = "3005261234";
+const APP_VERSION_NUMBER = "V14";
+const APP_VERSION_STAMP = "3005261415";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
+const PWA_BROWSER_CHOICE_STORAGE_KEY = "adsb-pwa-browser-choice-v1";
 const FETCH_TIMEOUT_MS = 9000;
 const RADIUS_FETCH_TIMEOUT_MS = 5200;
 const HEX_FETCH_TIMEOUT_MS = 4200;
@@ -122,6 +123,9 @@ const emptyState = document.querySelector("#emptyState");
 const template = document.querySelector("#flightItemTemplate");
 const toast = document.querySelector("#toast");
 const installButton = document.querySelector("#installButton");
+const installPrompt = document.querySelector("#installPrompt");
+const installPromptInstallButton = document.querySelector("#installPromptInstallButton");
+const installPromptBrowserButton = document.querySelector("#installPromptBrowserButton");
 const themeInput = document.querySelector("#themeInput");
 const dataSourceInput = document.querySelector("#dataSourceInput");
 const apiKeyInput = document.querySelector("#apiKeyInput");
@@ -152,6 +156,7 @@ const aircraftTemplate = document.querySelector("#aircraftItemTemplate");
 const busyOverlay = document.querySelector("#busyOverlay");
 const busyText = document.querySelector("#busyText");
 const appVersionBadge = document.querySelector("#appVersionBadge");
+const settingsVersionBadge = document.querySelector("#settingsVersionBadge");
 const forceUpdateButton = document.querySelector("#forceUpdateButton");
 const lastStatusText = document.querySelector("#lastStatusText");
 const lastStatusTime = document.querySelector("#lastStatusTime");
@@ -983,6 +988,28 @@ function routeAirportPoints(aircraft) {
   return routeAirports(aircraft?._route).map(airportPoint).filter(validPoint);
 }
 
+function confirmedRouteEndpointPoints(aircraft) {
+  const route = aircraft?._route;
+  if (!route || route.plausible === false || route.confirmed === false) return null;
+  const airports = routeAirports(route);
+  if (airports.length < 2) return null;
+
+  const startAirport = airports[0];
+  const endAirport = airports[airports.length - 1];
+  const startPoint = airportPoint(startAirport);
+  const endPoint = airportPoint(endAirport);
+  if (!validPoint(startPoint) || !validPoint(endPoint)) return null;
+
+  const startLabel = routeAirportLabel(startAirport);
+  const endLabel = routeAirportLabel(endAirport);
+  if (!startLabel || !endLabel) return null;
+
+  return {
+    start: { ...startPoint, label: startLabel },
+    end: { ...endPoint, label: endLabel }
+  };
+}
+
 function aircraftListFromResponse(data) {
   if (Array.isArray(data?.ac)) return data.ac;
   if (Array.isArray(data?.aircraft)) return data.aircraft;
@@ -1775,6 +1802,7 @@ function openDrawerPanel(panelId, title = "Panel") {
 
 function applyAppVersion() {
   if (appVersionBadge) appVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
+  if (settingsVersionBadge) settingsVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
   document.title = `ADS Viewer Pro ${APP_VERSION}`;
   document.documentElement.dataset.appVersion = APP_VERSION_STAMP;
   storageSet(APP_BUILD_STORAGE_KEY, APP_VERSION);
@@ -1785,9 +1813,53 @@ function isStandaloneApp() {
 }
 
 function updateInstallButtonVisibility() {
-  if (!installButton) return;
+  if (installButton) {
+    const standalone = isStandaloneApp();
+    const markedInstalled = storageGet(PWA_INSTALLED_STORAGE_KEY, "") === "1";
+    installButton.hidden = standalone || markedInstalled;
+    installButton.disabled = false;
+    installButton.textContent = deferredInstallPrompt ? "Zainstaluj" : "Jak zainstalować";
+    installButton.title = deferredInstallPrompt
+      ? "Zainstaluj aplikację na urządzeniu"
+      : "Pokaż informację, jak zainstalować aplikację z menu przeglądarki";
+  }
+  updateInstallPromptVisibility();
+}
+
+function updateInstallPromptVisibility() {
+  if (!installPrompt) return;
+  const browserChoice = storageGet(PWA_BROWSER_CHOICE_STORAGE_KEY, "") === "browser";
   const markedInstalled = storageGet(PWA_INSTALLED_STORAGE_KEY, "") === "1";
-  installButton.hidden = markedInstalled || isStandaloneApp() || !deferredInstallPrompt;
+  installPrompt.hidden = isStandaloneApp() || markedInstalled || browserChoice;
+}
+
+function dismissInstallPromptForBrowser() {
+  storageSet(PWA_BROWSER_CHOICE_STORAGE_KEY, "browser");
+  updateInstallPromptVisibility();
+  showToast("Zostajesz w wersji przeglądarkowej. Instalację znajdziesz w ustawieniach programu.", 3600);
+}
+
+async function promptPwaInstall() {
+  if (isStandaloneApp()) {
+    showToast("Aplikacja jest już uruchomiona jako zainstalowana PWA.", 2600);
+    updateInstallButtonVisibility();
+    return;
+  }
+
+  if (!deferredInstallPrompt) {
+    updateInstallPromptVisibility();
+    showToast("Ta przeglądarka nie udostępniła przycisku instalacji. Użyj menu przeglądarki: Zainstaluj aplikację / Dodaj do ekranu głównego.", 6200);
+    return;
+  }
+
+  deferredInstallPrompt.prompt();
+  const choice = await deferredInstallPrompt.userChoice;
+  if (choice?.outcome === "accepted") {
+    storageSet(PWA_INSTALLED_STORAGE_KEY, "1");
+    storageSet(PWA_BROWSER_CHOICE_STORAGE_KEY, "installed");
+  }
+  deferredInstallPrompt = null;
+  updateInstallButtonVisibility();
 }
 
 function deleteWritableCookies() {
@@ -1975,7 +2047,7 @@ function drawDirectionLine(layer, point, heading, speed, options = {}) {
   }).addTo(layer);
 }
 
-function drawRoute(points, label = "Trasa") {
+function drawRoute(points, label = "Trasa", options = {}) {
   initMap();
   if (!map || !routeLayer) return;
   routeLayer.clearLayers();
@@ -1992,17 +2064,27 @@ function drawRoute(points, label = "Trasa") {
     L.polyline(latLngs, {
       pane: "routePane",
       interactive: false,
-      color: "#16a34a",
-      weight: 4,
-      opacity: 0.92
+      color: "#ffffff",
+      weight: 9,
+      opacity: 0.88
+    }).addTo(routeLayer);
+
+    L.polyline(latLngs, {
+      pane: "routePane",
+      interactive: false,
+      color: "#f97316",
+      weight: 5,
+      opacity: 0.98
     }).addTo(routeLayer);
   } else if (Number.isFinite(Number(clean[0].track))) {
-    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#0ea5e9", weight: 3, opacity: 0.9 });
+    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#f97316", weight: 4, opacity: 0.96 });
   }
 
   const start = clean[0];
   const end = clean[clean.length - 1];
-  if (latLngs.length === 1) {
+  const endpoints = options.endpoints || null;
+
+  if (latLngs.length === 1 && options.showCurrentMarker !== false) {
     L.marker([start.lat, start.lon], {
       pane: "routePane",
       interactive: false,
@@ -2010,28 +2092,36 @@ function drawRoute(points, label = "Trasa") {
       icon: routeEndpointIcon("AKTUALNIE", "start"),
       title: "Aktualna pozycja"
     }).addTo(routeLayer);
-  } else {
-    L.marker([start.lat, start.lon], {
+  }
+
+  if (endpoints?.start && endpoints?.end) {
+    L.marker([endpoints.start.lat, endpoints.start.lon], {
       pane: "routePane",
       interactive: false,
       keyboard: false,
       icon: routeEndpointIcon("START", "start"),
-      title: "Start"
+      title: `Start: ${endpoints.start.label || "potwierdzony punkt startu"}`
     }).addTo(routeLayer);
 
-    L.marker([end.lat, end.lon], {
+    L.marker([endpoints.end.lat, endpoints.end.lon], {
       pane: "routePane",
       interactive: false,
       keyboard: false,
-      icon: routeEndpointIcon("KONIEC", "end"),
-      title: "Koniec"
+      icon: routeEndpointIcon("STOP", "end"),
+      title: `Stop: ${endpoints.end.label || "potwierdzony punkt lądowania"}`
     }).addTo(routeLayer);
   }
 
   lastRouteBounds = L.latLngBounds(latLngs);
-  map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: latLngs.length === 1 ? 10 : 11 });
+  if (options.fitMap !== false) {
+    map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: latLngs.length === 1 ? 10 : 11 });
+  }
+
   const suffix = latLngs.length === 1 ? "1 punkt + kierunek lotu" : `${latLngs.length} punktów`;
-  setRouteSummary(`${label}: ${suffix}. Start ${start.lat.toFixed(4)}, ${start.lon.toFixed(4)} -> koniec ${end.lat.toFixed(4)}, ${end.lon.toFixed(4)}.`);
+  const endpointText = endpoints?.start && endpoints?.end
+    ? ` Start ${endpoints.start.label}; stop ${endpoints.end.label}.`
+    : " Bez potwierdzonego startu i lądowania — nie pokazuję znaczników START/STOP.";
+  setRouteSummary(`${label}: ${suffix}.${endpointText}`);
 }
 
 function clearRoute() {
@@ -3479,7 +3569,7 @@ function updateSelectedAircraftAfterRefresh(aircraft) {
   const updated = findAircraftByIcaoInCache(selectedIcao, aircraft);
   if (!updated) return;
   selectedAircraft = updated;
-  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(updated);
+  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(updated, { fitMap: false });
   if (aircraftSheet?.classList.contains("is-open")) {
     if (aircraftSheetAltitude) aircraftSheetAltitude.textContent = formatAltitude(updated?.alt_baro);
     if (aircraftSheetSpeed) aircraftSheetSpeed.textContent = formatSpeed(updated?.gs);
@@ -3521,7 +3611,7 @@ async function refreshFocusedAircraftInBackground() {
     const updated = await fetchAircraftByHex(cleanIcao, { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
     if (!updated) return;
     selectedAircraft = updated;
-    focusAircraftOnMap(updated, { singleMarker: true, showSheet: aircraftSheet?.classList.contains("is-open"), drawRoute: true });
+    focusAircraftOnMap(updated, { singleMarker: true, showSheet: aircraftSheet?.classList.contains("is-open"), drawRoute: true, centerMap: false });
     setAircraftStatus(`Auto-odświeżenie: ${aircraftLabel(updated)}.`);
   } catch (error) {
     setAircraftStatus(`Auto-odświeżenie wybranego samolotu nieudane: ${explainFetchError(error)}.`);
@@ -3709,10 +3799,12 @@ function focusAircraftOnMap(aircraft, options = {}) {
   if (options.drawRoute !== false) drawSelectedAircraftRoute(aircraft);
   if (options.showSheet !== false) showSelectedAircraftSheet(aircraft);
 
-  const requestedZoom = Number(options.zoom ?? zoomInput?.value ?? 9.2);
-  const currentZoom = Number(map.getZoom?.() || 0);
-  const nextZoom = Number.isFinite(requestedZoom) ? Math.min(13, Math.max(currentZoom || 0, requestedZoom)) : Math.max(currentZoom || 0, 9);
-  map.setView([point.lat, point.lon], nextZoom || 9, { animate: false });
+  if (options.centerMap !== false) {
+    const requestedZoom = Number(options.zoom ?? zoomInput?.value ?? 9.2);
+    const currentZoom = Number(map.getZoom?.() || 0);
+    const nextZoom = Number.isFinite(requestedZoom) ? Math.min(13, Math.max(currentZoom || 0, requestedZoom)) : Math.max(currentZoom || 0, 9);
+    map.setView([point.lat, point.lon], nextZoom || 9, { animate: false });
+  }
   return true;
 }
 
@@ -3736,18 +3828,21 @@ function drawStoredTrackForAircraft(aircraft) {
   return clean;
 }
 
-function drawSelectedAircraftRoute(aircraft) {
+function drawSelectedAircraftRoute(aircraft, options = {}) {
   const flight = aircraftToFlight(aircraft);
   fillForm(flight);
 
   const point = pointFromAircraft(aircraft);
   let points = [];
-  const airportPoints = routeAirportPoints(aircraft);
+  const confirmedEndpoints = confirmedRouteEndpointPoints(aircraft);
 
-  if (airportPoints.length >= 2) {
-    points = point ? [airportPoints[0], point, airportPoints[airportPoints.length - 1]] : airportPoints;
-    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`);
-    setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję trasę start → aktualna pozycja → cel dla wybranego samolotu.`);
+  if (confirmedEndpoints) {
+    points = point ? [confirmedEndpoints.start, point, confirmedEndpoints.end] : [confirmedEndpoints.start, confirmedEndpoints.end];
+    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`, {
+      endpoints: confirmedEndpoints,
+      fitMap: options.fitMap !== false
+    });
+    setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję potwierdzony START i STOP oraz aktualną pozycję wybranego samolotu.`);
     return;
   }
 
@@ -3758,11 +3853,14 @@ function drawSelectedAircraftRoute(aircraft) {
   if (!points.length && point) points = [point];
 
   if (points.length) {
-    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`);
+    drawRoute(points, `${aircraftLabel(aircraft)} • ślad live`, {
+      fitMap: options.fitMap !== false,
+      showCurrentMarker: points.length === 1
+    });
     if (points.length === 1) {
-      setRouteSummary(`${aircraftLabel(aircraft)}: API nie zwróciło pełnej trasy start-lądowanie. Pokazuję aktualny punkt i kierunek tylko dla wybranego samolotu.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: brak potwierdzonego startu i lądowania. Pokazuję aktualny punkt i kierunek tylko dla wybranego samolotu.`);
     } else {
-      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję ślad z tej sesji tylko dla wybranego samolotu. Pełna trasa wymaga źródła z historią/trace.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: brak potwierdzonego startu i lądowania. Pokazuję wyraźny ślad live budowany od uruchomienia programu.`);
     }
     return;
   }
@@ -3808,20 +3906,9 @@ function visibleTrackSets(aircraft) {
 function drawVisibleAircraftTracks(aircraft) {
   if (!trailLayer) return;
   trailLayer.clearLayers();
-  const performance = readPerformanceSettings();
-  if (!performance.showTrails || performance.trailLimit <= 0) return;
-
-  for (const trackSet of visibleTrackSets(aircraft)) {
-    if (trackSet.points.length < 2) continue;
-
-    L.polyline(trackSet.points.map((trackPoint) => [trackPoint.lat, trackPoint.lon]), {
-      pane: "trailPane",
-      interactive: false,
-      color: "#2563eb",
-      weight: 2,
-      opacity: 0.38
-    }).addTo(trailLayer);
-  }
+  // Ślady wszystkich samolotów są nadal zapisywane w pamięci sesji,
+  // ale na mapie rysujemy wyłącznie ścieżkę wybranego samolotu.
+  visibleTrackSets(aircraft);
 }
 
 function renderAircraftMap(aircraft, settings = {}, options = {}) {
@@ -4889,8 +4976,14 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelector("#locateButton").addEventListener("click", () => locateUser({ autoLoad: false, startup: false, centerMap: true }));
-mapLocateButton?.addEventListener("click", () => locateUser({ autoLoad: false, startup: false, centerMap: true }));
+document.querySelector("#locateButton").addEventListener("click", () => {
+  savedMapFocusActive = false;
+  locateUser({ autoLoad: false, startup: false, centerMap: true });
+});
+mapLocateButton?.addEventListener("click", () => {
+  savedMapFocusActive = false;
+  locateUser({ autoLoad: false, startup: false, centerMap: true });
+});
 
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
@@ -4911,14 +5004,9 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshAircraftInBackground();
 });
 
-installButton.addEventListener("click", async () => {
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  const choice = await deferredInstallPrompt.userChoice;
-  if (choice?.outcome === "accepted") storageSet(PWA_INSTALLED_STORAGE_KEY, "1");
-  deferredInstallPrompt = null;
-  updateInstallButtonVisibility();
-});
+installButton?.addEventListener("click", promptPwaInstall);
+installPromptInstallButton?.addEventListener("click", promptPwaInstall);
+installPromptBrowserButton?.addEventListener("click", dismissInstallPromptForBrowser);
 
 document.addEventListener("click", async (event) => {
   const copyTarget = event.target?.closest?.(".copyable-aircraft-value");

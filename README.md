@@ -1,6 +1,6 @@
 # ADS Viewer Pro
 
-Wersja: **V13 - 3005261234**
+Wersja: **V14 - 3005261415**
 
 ## Opis
 
@@ -40,3 +40,12 @@ Alerty są wysyłane tylko dla samolotów z listy **Obserwowane** i tylko jeden 
 ## Nawigacja
 
 Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest dostępny w menu **Więcej**.
+
+## Zmiany V14 - 3005261415
+
+- START/STOP na mapie są rysowane tylko wtedy, gdy program ma potwierdzone punkty startu i lądowania z danymi lotnisk.
+- Gdy brak potwierdzonej trasy, program rysuje tylko ślad live wybranego samolotu bez fałszywych znaczników START/STOP.
+- Automatyczne odświeżenie wybranego samolotu nie przejmuje już widoku po kliknięciu lokalizacji użytkownika.
+- Ścieżki innych samolotów są zapisywane w tle, ale nie są rysowane na mapie; widoczna jest tylko ścieżka wybranego samolotu.
+- Numer wersji jest widoczny na górze oraz w ustawieniach programu.
+- Dodano pytanie instalacyjne PWA: „Zainstaluj” albo „Korzystaj w przeglądarce”.

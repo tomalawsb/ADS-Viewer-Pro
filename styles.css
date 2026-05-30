@@ -163,6 +163,41 @@ h2 { margin-bottom: 0; font-size: 1.05rem; }
 .status-chip[data-mode="busy"] { background: rgba(251, 191, 36, 0.34); }
 .status-chip[data-mode="error"] { background: rgba(248, 113, 113, 0.36); }
 
+.install-prompt {
+  position: fixed;
+  top: calc(82px + env(safe-area-inset-top, 0px));
+  left: 50%;
+  z-index: 6900;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: min(560px, calc(100vw - 20px));
+  padding: 12px;
+  border: 1px solid rgba(22, 101, 52, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+}
+.install-prompt[hidden] { display: none !important; }
+.install-prompt strong { color: #064e3b; font-size: 0.92rem; }
+.install-prompt p { margin: 3px 0 0; color: var(--muted); font-size: 0.78rem; font-weight: 750; }
+.install-prompt-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.settings-version {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  background: var(--panel-2);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+.settings-version strong { color: var(--text); }
+
 .map-tools-card {
   position: fixed;
   top: calc(88px + env(safe-area-inset-top, 0px));
@@ -829,7 +864,7 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   }
   .eyebrow { display: none; }
   .version-row { margin-top: 4px; }
-  .version-badge { display: none; }
+  .version-badge { display: inline-flex; font-size: 0.66rem; padding: 2px 7px; }
   .map-tools-card {
     top: calc(74px + env(safe-area-inset-top, 0px));
     right: 8px;
@@ -1915,4 +1950,15 @@ body.modal-open { overflow: hidden; }
 .detail-value.copyable-aircraft-value,
 .aircraft-sheet-live-grid strong.copyable-aircraft-value {
   min-height: 20px;
+}
+
+@media (max-width: 760px) {
+  .install-prompt {
+    top: calc(70px + env(safe-area-inset-top, 0px));
+    align-items: stretch;
+    flex-direction: column;
+    padding: 10px;
+  }
+  .install-prompt-actions { justify-content: stretch; }
+  .install-prompt-actions button { flex: 1 1 130px; }
 }
