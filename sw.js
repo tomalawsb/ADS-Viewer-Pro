@@ -1,4 +1,4 @@
-const APP_VERSION_STAMP = "2905262217";
+const APP_VERSION_STAMP = "3005261605";
 const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
 const ASSETS = [
   "./",
@@ -6,7 +6,15 @@ const ASSETS = [
   `./styles.css?v=${APP_VERSION_STAMP}`,
   `./app.js?v=${APP_VERSION_STAMP}`,
   `./manifest.webmanifest?v=${APP_VERSION_STAMP}`,
-  "./icon.svg"
+  "./icon.svg",
+  "./icon-192.png",
+  "./icon-512.png",
+  "./assets/aircraft/aircraft-jet.png",
+  "./assets/aircraft/aircraft-heavy.png",
+  "./assets/aircraft/aircraft-prop.png",
+  "./assets/aircraft/aircraft-helicopter.png",
+  "./assets/aircraft/aircraft-glider.png",
+  "./assets/aircraft/aircraft-special.png"
 ];
 
 self.addEventListener("install", (event) => {
@@ -65,4 +73,43 @@ self.addEventListener("fetch", (event) => {
   if (isStaticLibrary) {
     event.respondWith(cacheFirst(event.request));
   }
+});
+
+
+self.addEventListener("push", (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data ? event.data.text() : "Nowy alert ADS Viewer Pro" };
+  }
+
+  const title = payload.title || "ADS Viewer Pro";
+  const options = {
+    body: payload.body || payload.message || "Nowy alert samolotu.",
+    icon: payload.icon || "./icon-192.png",
+    badge: payload.badge || "./icon-192.png",
+    tag: payload.tag || "ads-viewer-push-alert",
+    renotify: true,
+    data: { url: payload.url || "./" },
+    vibrate: [180, 80, 180]
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = event.notification?.data?.url || "./";
+
+  event.waitUntil((async () => {
+    const clientList = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const client of clientList) {
+      if ("focus" in client) {
+        await client.focus();
+        return;
+      }
+    }
+    if (self.clients.openWindow) await self.clients.openWindow(targetUrl);
+  })());
 });

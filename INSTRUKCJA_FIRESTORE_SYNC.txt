@@ -1,4 +1,4 @@
-INSTRUKCJA FIRESTORE — ADS Viewer Pro V17
+INSTRUKCJA FIRESTORE — ADS Viewer Pro V18
 
 CEL
 Synchronizacja danych programu między telefonem i komputerem.
@@ -8,7 +8,7 @@ WAŻNE
 Dane firebaseConfig w aplikacji webowej nie są hasłem. To normalne, że są widoczne w kodzie strony.
 Nie wpisuj tam żadnych prywatnych haseł.
 Kod synchronizacji potraktuj jak prywatny identyfikator listy.
-Od V17 program synchronizuje też ustawienia źródła danych/API, motyw, filtry, tryb wydajności, obserwowane samoloty oraz ustawienia alertów.
+Od V18 program synchronizuje też ustawienia źródła danych/API, motyw, filtry, tryb wydajności, obserwowane samoloty oraz ustawienia alertów.
 
 KROK 1 — UTWÓRZ PROJEKT FIREBASE
 1. Wejdź na: https://console.firebase.google.com/
@@ -64,7 +64,7 @@ service cloud.firestore {
 Kliknij Publish / Opublikuj.
 
 KROK 5 — SKONFIGURUJ APLIKACJĘ ADS VIEWER
-1. Uruchom ADS Viewer Pro V17.
+1. Uruchom ADS Viewer Pro V18.
 2. Przy pierwszym uruchomieniu pokaże się okno Firestore.
 3. Wklej cały obiekt firebaseConfig.
 4. Kliknij „Odczytaj konfigurację z wklejonego tekstu” albo poczekaj, aż pola same się uzupełnią.

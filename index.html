@@ -4,16 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#eaf3ef">
-    <meta name="app-version" content="V8 - 2905262217">
+    <meta name="app-version" content="V18 - 3005261605">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>ADS Viewer Pro V8 - 2905262217</title>
-    <link rel="manifest" href="manifest.webmanifest?v=2905262151">
+    <title>ADS Viewer Pro V18 - 3005261605</title>
+    <link rel="manifest" href="manifest.webmanifest?v=3005261605">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
-    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="styles.css?v=2905262217">
+    <link rel="stylesheet" href="styles.css?v=3005261605">
   </head>
   <body>
     <main class="app-shell">
@@ -22,9 +22,20 @@
           <p class="eyebrow">ADS-B Live Radar</p>
           <h1>ADS Viewer Pro</h1>
           <div class="version-row">
-            <p class="version-badge" id="appVersionBadge">V8 - 2905262217</p>
+            <p class="version-badge" id="appVersionBadge">V18 - 3005261605</p>
             <p class="status-chip" id="statusChip">Gotowy</p>
           </div>
+        </div>
+      </section>
+
+      <section class="install-prompt" id="installPrompt" aria-label="Instalacja aplikacji" hidden>
+        <div>
+          <strong>Zainstalować ADS Viewer Pro?</strong>
+          <p>Możesz zainstalować aplikację na telefonie albo dalej korzystać w przeglądarce.</p>
+        </div>
+        <div class="install-prompt-actions">
+          <button class="primary-button compact-button" id="installPromptInstallButton" type="button">Zainstaluj</button>
+          <button class="secondary-button compact-button" id="installPromptBrowserButton" type="button">Korzystaj w przeglądarce</button>
         </div>
       </section>
 
@@ -41,6 +52,9 @@
             </div>
           </div>
           <div id="flightMap" class="flight-map" aria-label="Mapa z samolotami"></div>
+          <div class="map-floating-controls" aria-label="Narzędzia mapy">
+            <button class="map-location-button" id="mapLocateButton" type="button" aria-label="Lokalizuj mnie na mapie" title="Lokalizuj mnie na mapie">⌖</button>
+          </div>
           <div id="routeSummary" class="status-line map-status-card">Wczytaj samoloty albo wpisz ICAO i kliknij „Pokaż na mapie”.</div>
         </section>
 
@@ -271,7 +285,7 @@
             <div class="panel-head">
               <div>
                 <h2 id="alertsTitle">Alerty</h2>
-                <p class="panel-subtitle">Powiadomienia dla konkretnych samolotów, obserwowanych, wojskowych/specjalnych, niskich i bliskich przelotów.</p>
+                <p class="panel-subtitle">Powiadomienia tylko dla samolotów dodanych do listy obserwowanych. Dodatkowe pola mogą zawężać alert, ale nie uruchomią alarmu dla przypadkowego samolotu.</p>
               </div>
             </div>
 
@@ -282,8 +296,8 @@
 
             <div class="alert-grid">
               <label>
-                Szukany samolot
-                <input id="alertQueryInput" placeholder="hex, callsign, rejestracja, np. 50801b albo RYR123">
+                Dodatkowy filtr w obserwowanych
+                <input id="alertQueryInput" placeholder="opcjonalnie: hex, callsign, rejestracja">
               </label>
               <label>
                 Blisko mnie / środka mapy do km
@@ -294,12 +308,12 @@
                 <input id="alertMaxAltitudeInput" type="number" min="0" max="60000" step="100" placeholder="np. 1500">
               </label>
               <label class="checkbox-filter-row">
-                <input id="alertWatchedInput" type="checkbox" checked>
-                <span>Alarmuj dla obserwowanych</span>
+                <input id="alertWatchedInput" type="checkbox" checked disabled>
+                <span>Alarmuj tylko dla listy obserwowanych</span>
               </label>
               <label class="checkbox-filter-row">
                 <input id="alertSpecialInput" type="checkbox">
-                <span>Wojskowe / specjalne</span>
+                <span>Tylko wojskowe / specjalne z obserwowanych</span>
               </label>
               <label class="checkbox-filter-row">
                 <input id="alertSystemInput" type="checkbox">
@@ -309,12 +323,12 @@
 
             <div class="actions alert-actions">
               <button class="primary-button" id="saveAlertSettingsButton" type="button">Zapisz alerty</button>
-              <button class="secondary-button" id="requestNotificationsButton" type="button">Zgoda systemowa</button>
+              <button class="secondary-button" id="requestNotificationsButton" type="button">Włącz powiadomienia</button>
               <button class="secondary-button" id="testAlertsButton" type="button">Testuj teraz</button>
               <button class="ghost-button danger" id="clearAlertLogButton" type="button">Wyczyść log</button>
             </div>
 
-            <div id="alertStatus" class="status-line">Alerty są sprawdzane po każdym odświeżeniu mapy.</div>
+            <div id="alertStatus" class="status-line">Alerty są sprawdzane po każdym odświeżeniu mapy, tylko dla listy obserwowanych i tylko raz dla danego samolotu. Na telefonie wymagają zgody przeglądarki.</div>
             <ol id="alertLogList" class="alert-log-list"></ol>
           </section>
 
@@ -344,8 +358,21 @@
               </label>
               <button class="ghost-button update-button" id="forceUpdateButton" type="button" title="Wyczyść cache programu i pobierz najnowszą wersję">Odśwież program</button>
               <button class="secondary-button compact-button" id="installButton" type="button" hidden title="Zainstaluj aplikację">Zainstaluj</button>
+              <span class="settings-version">Wersja: <strong id="settingsVersionBadge">V18 - 3005261605</strong></span>
             </div>
             <p class="settings-note">„Odśwież program” czyści cache aplikacji i pobiera najnowsze pliki z GitHub Pages. Zapisane samoloty zostają.</p>
+
+            <div class="sync-settings-card">
+              <div>
+                <strong>Synchronizacja Firestore</strong>
+                <p id="firestoreSyncStatus" class="sync-status">Synchronizacja Firestore nie jest skonfigurowana.</p>
+              </div>
+              <div class="sync-settings-actions">
+                <button class="secondary-button compact-button" id="firestoreSettingsButton" type="button">Konfiguruj</button>
+                <button class="secondary-button compact-button" id="firestoreSyncNowButton" type="button">Synchronizuj teraz</button>
+                <button class="ghost-button danger compact-button" id="firestoreDisableButton" type="button">Wyłącz</button>
+              </div>
+            </div>
 
             <details class="performance-details" open>
               <summary>Tryb wydajności</summary>
@@ -443,6 +470,7 @@
         </div>
 
         <div class="aircraft-sheet-actions">
+          <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
           <button type="button" id="aircraftSheetAds">Otwórz ADS</button>
           <button type="button" id="aircraftSheetWatch">Obserwuj</button>
           <button type="button" id="aircraftSheetSave">Zapisz</button>
@@ -453,9 +481,9 @@
       </section>
 
       <div class="bottom-more-menu" id="bottomMoreMenu" aria-label="Więcej opcji" hidden>
-        <button type="button" data-panel="watchPanel" data-title="Obserwowane samoloty">
-          <span class="nav-icon">◎</span>
-          <span>Obserwowane</span>
+        <button type="button" data-panel="alertsPanel" data-title="Alerty">
+          <span class="nav-icon">⚑</span>
+          <span>Alerty</span>
         </button>
         <button type="button" data-panel="historyPanel" data-title="Historia przelotów">
           <span class="nav-icon">◷</span>
@@ -488,9 +516,9 @@
           <span class="nav-icon">★</span>
           <span>Zapisane</span>
         </button>
-        <button type="button" data-panel="alertsPanel" data-title="Alerty">
-          <span class="nav-icon">⚑</span>
-          <span>Alerty</span>
+        <button type="button" data-panel="watchPanel" data-title="Obserwowane samoloty">
+          <span class="nav-icon">◎</span>
+          <span>Obserwowane</span>
         </button>
         <button type="button" data-more-toggle="true" aria-controls="bottomMoreMenu" aria-expanded="false">
           <span class="nav-icon">☰</span>
@@ -509,6 +537,7 @@
           </div>
         </div>
         <div class="flight-actions flight-actions-compact">
+          <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
           <button class="icon-button ads-flight" type="button" title="Otwórz w ADS">ADS</button>
           <button class="icon-button map-flight" type="button" title="Pokaż na mapie">Mapa</button>
           <button class="icon-button delete-flight danger" type="button" title="Usuń">Usuń</button>
@@ -526,6 +555,7 @@
           </div>
         </div>
         <div class="flight-actions flight-actions-compact">
+          <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
           <button class="icon-button ads-watch" type="button" title="Otwórz w ADS">ADS</button>
           <button class="icon-button map-watch" type="button" title="Pokaż na mapie">Mapa</button>
           <button class="icon-button delete-watch danger" type="button" title="Usuń">Usuń</button>
@@ -564,10 +594,51 @@
           </span>
         </button>
         <button class="secondary-button aircraft-map" type="button">Mapa</button>
+        <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
         <button class="secondary-button aircraft-ads" type="button">ADS</button>
         <button class="secondary-button aircraft-save" type="button">Zapisz</button>
       </li>
     </template>
+
+    <div id="firestoreSetupModal" class="setup-modal" role="dialog" aria-modal="true" aria-labelledby="firestoreSetupTitle" hidden>
+      <section class="setup-card">
+        <div class="setup-head">
+          <div>
+            <p class="eyebrow">Synchronizacja danych</p>
+            <h2 id="firestoreSetupTitle">Konfiguracja Firestore</h2>
+            <p>Wklej konfigurację Firebase i ustaw prywatny kod synchronizacji. Ten sam kod wpisz na telefonie i komputerze.</p>
+          </div>
+          <button class="ghost-button" id="firestoreCloseConfigButton" type="button" aria-label="Zamknij">×</button>
+        </div>
+
+        <label>
+          Wklej cały obiekt <code>firebaseConfig</code>
+          <textarea id="firestoreConfigPaste" rows="5" spellcheck="false" placeholder="const firebaseConfig = { apiKey: '...', authDomain: '...', projectId: '...', appId: '...' };"></textarea>
+        </label>
+        <button class="secondary-button" id="firestoreParseConfigButton" type="button">Odczytaj konfigurację z wklejonego tekstu</button>
+
+        <div class="setup-grid">
+          <label>apiKey<input id="firestoreApiKeyInput" autocomplete="off" spellcheck="false"></label>
+          <label>authDomain<input id="firestoreAuthDomainInput" autocomplete="off" spellcheck="false"></label>
+          <label>projectId<input id="firestoreProjectIdInput" autocomplete="off" spellcheck="false"></label>
+          <label>storageBucket<input id="firestoreStorageBucketInput" autocomplete="off" spellcheck="false"></label>
+          <label>messagingSenderId<input id="firestoreMessagingSenderIdInput" autocomplete="off" spellcheck="false"></label>
+          <label>appId<input id="firestoreAppIdInput" autocomplete="off" spellcheck="false"></label>
+        </div>
+
+        <label>
+          Kod synchronizacji
+          <input id="firestoreSyncKeyInput" autocomplete="off" spellcheck="false" placeholder="np. ads-tomek-2026">
+          <span class="field-hint">Ten sam kod musi być wpisany na każdym urządzeniu. Nie używaj spacji ani polskich znaków.</span>
+        </label>
+
+        <p id="firestoreModalStatus" class="sync-status">Czekam na konfigurację.</p>
+        <div class="setup-actions">
+          <button class="primary-button" id="firestoreSaveConfigButton" type="button">Zapisz i synchronizuj</button>
+          <button class="secondary-button" id="firestoreSkipConfigButton" type="button">Pomiń teraz</button>
+        </div>
+      </section>
+    </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="busyOverlay" class="busy-overlay" role="status" aria-live="polite" hidden>
@@ -577,6 +648,6 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="app.js?v=2905262151" defer></script>
+    <script src="app.js?v=3005261605" defer></script>
   </body>
 </html>
