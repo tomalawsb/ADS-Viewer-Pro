@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V14";
-const APP_VERSION_STAMP = "3005261415";
+const APP_VERSION_NUMBER = "V15";
+const APP_VERSION_STAMP = "3005261440";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -481,25 +481,36 @@ function escapeHtml(value) {
 }
 
 function aircraftTypeGroup(aircraft) {
+  const typeCode = firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType).toUpperCase();
+  const category = firstFilled(aircraft?.category, aircraft?.emitter_category, aircraft?.emergencyCategory).toUpperCase();
   const raw = [
-    aircraft?.t,
-    aircraft?.type,
-    aircraft?.aircraftType,
-    aircraft?.category,
+    typeCode,
+    category,
     aircraft?.kind,
     aircraft?.desc,
+    aircraft?.description,
     aircraft?.name,
+    aircraft?.operator,
     aircraft?.registration,
     aircraft?.r
   ].filter(Boolean).join(" ").toUpperCase();
 
-  if (/\b(H|HELI|HELICOPTER|EC\d|H\d|R44|R66|AS3|B06|B429|S76|AW1|MD9)\b/.test(raw)) return "helicopter";
-  if (/\b(GLID|GLIDER|S12|ASK|ASW|DG\d|LS\d|VENTUS|JANUS)\b/.test(raw)) return "glider";
-  if (/\b(C172|C182|C152|P28|PA28|PA34|SR20|SR22|DA40|DA42|BE20|PC12|TBM|C208|C206|BN2|AN2|DHC|DH8|ATR|SF34|L410)\b/.test(raw)) return "prop";
-  if (/\b(A330|A340|A350|A380|B747|B767|B777|B787|IL76|A124|MD11|DC10)\b/.test(raw)) return "heavy";
-  if (/\b(C17|C130|KC|A400|P8|E3|E7|MIL|F16|F-16|F35|F-35|MIG|SU\d|TYPHOON|RAFALE)\b/.test(raw)) return "special";
+  // ADS-B/Mode-S kategorie: A7/C7 = rotorcraft, B1 = szybowiec,
+  // B4 = ultralekki, A1 = lekki, A5 = heavy, A6 = high performance/military.
+  if (/\b(A7|C7)\b/.test(category)) return "helicopter";
+  if (/\bB1\b/.test(category)) return "glider";
+  if (/\b(B4|A1)\b/.test(category)) return "prop";
+  if (/\bA5\b/.test(category)) return "heavy";
+  if (/\bA6\b/.test(category)) return "special";
+
+  if (/HELICOPTER|ROTORCRAFT|ŚMIGŁ|SMIGL|GYROCOPTER|GYROPLANE|\b(R44|R66|R22|R20|B06|B407|B429|B412|B212|B427|H500|H60|UH60|EC20|EC30|EC35|EC45|EC55|AS50|AS55|AS65|S76|S92|A109|AW09|AW10|AW11|AW13|AW16|AW18|MD50|MD52|MD60|MD90)\b/.test(raw)) return "helicopter";
+  if (/GLIDER|SAILPLANE|MOTORGLIDER|SZYBOW|\b(ASW|ASK|DG\d|LS\d|JS\d|SZD|VENTUS|JANUS|DISCUS|DUODISCUS|ARCUS|S12|GROB|TWIN\s?ASTIR)\b/.test(raw)) return "glider";
+  if (/ULTRALIGHT|MICROLIGHT|PARAGLIDER|MOTOL|\b(C150|C152|C162|C172|C175|C177|C180|C182|C185|C206|C207|C208|C210|P28A|P28R|PA28|PA32|PA34|PA44|SR20|SR22|DA20|DA40|DA42|DV20|DR40|BE20|BE30|BE35|BE36|BE58|PC12|PC24|TBM7|TBM8|TBM9|C25A|C25B|C25C|E50P|E55P|PRM1|M20P|M20T|C680|C750|BN2P|AN2|DHC2|DHC3|DHC6|DH8A|DH8B|DH8C|DH8D|AT43|AT45|AT72|SF34|L410|P180)\b/.test(raw)) return "prop";
+  if (/CARGO|FREIGHTER|HEAVY|\b(A300|A310|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B747|B748|B74S|B74R|B767|B763|B764|B777|B772|B773|B77L|B77W|B787|B788|B789|B78X|IL76|IL96|A124|A225|MD11|DC10|DC87)\b/.test(raw)) return "heavy";
+  if (/MILITARY|WOJSK|FIGHTER|TANKER|SPECIAL|POLICE|RESCUE|AMBULANCE|\b(C17|C5M|C130|C30J|KC\d|K35R|A400|P8|P3|E3|E7|E8|F16|F-16|F18|F-18|F22|F-22|F35|F-35|MIG|MIG\d|SU\d|TYPHOON|EUFI|RAFALE|GRIPEN|TORNADO|HAWK|L159|A10|B1|B2|B52)\b/.test(raw)) return "special";
   return "jet";
 }
+
 
 function aircraftGroupLabel(group) {
   return {
@@ -714,37 +725,52 @@ function readBrowseSettingsSafe() {
 function aircraftShapeMarkup(group) {
   if (group === "helicopter") {
     return `
-      <path d="M7 14h50v5H7z" fill="currentColor"></path>
-      <path d="M30 19h4v9h-4z" fill="currentColor"></path>
-      <path d="M19 28h26c5 0 9 4 9 9v2H18c-6 0-10-4-10-10v-1h11z" fill="currentColor"></path>
-      <path d="M46 31l12-8 2 4-10 10zM17 40h30v4H17zM20 44h9v4h-9zM38 44h9v4h-9z" fill="currentColor"></path>`;
+      <path d="M5 12h54v5H5z" fill="currentColor"></path>
+      <path d="M30 17h4v11h-4z" fill="currentColor"></path>
+      <path d="M17 28h24c8 0 14 5 16 12H20C12 40 7 36 7 30v-2h10z" fill="currentColor"></path>
+      <path d="M47 31l12-8 3 5-11 10z" fill="currentColor"></path>
+      <path d="M17 44h34v4H17zM22 48h8v4h-8zM39 48h8v4h-8z" fill="currentColor"></path>`;
   }
   if (group === "glider") {
     return `
-      <path d="M32 10c2 0 3 1 3 3v16l27 7v5l-27-3-1 12 8 5v4l-10-3-10 3v-4l8-5-1-12-27 3v-5l27-7V13c0-2 1-3 3-3z" fill="currentColor"></path>`;
+      <path d="M32 9c2 0 3 1 3 3v17l28 5v5l-28-1-1 12 8 5v4l-10-2-10 2v-4l8-5-1-12-28 1v-5l28-5V12c0-2 1-3 3-3z" fill="currentColor"></path>`;
   }
   if (group === "prop") {
     return `
-      <path d="M32 4l7 25 21 9v8l-23-5-2 16 7 4v3l-10-3-10 3v-3l7-4-2-16-23 5v-8l21-9z" fill="currentColor"></path>
-      <path d="M27 8c0-5 10-5 10 0 0 4-3 8-5 11-2-3-5-7-5-11zM27 8c0 4 3 8 5 11" fill="currentColor"></path>`;
+      <path d="M32 7l6 22 20 8v7l-22-4-2 15 7 4v4l-9-3-9 3v-4l7-4-2-15-22 4v-7l20-8z" fill="currentColor"></path>
+      <circle cx="32" cy="10" r="6" fill="none" stroke="currentColor" stroke-width="4"></circle>
+      <path d="M29 10h6M32 7v6" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>`;
   }
   if (group === "heavy") {
     return `
-      <path d="M32 2l9 27 21 8v9l-25-4-2 13 9 5v4l-12-3-12 3v-4l9-5-2-13-25 4v-9l21-8z" fill="currentColor"></path>
-      <path d="M15 39h8v5h-8zM41 39h8v5h-8z" fill="currentColor"></path>`;
+      <path d="M32 2l9 27 21 8v10l-25-4-2 13 10 5v4l-13-3-13 3v-4l10-5-2-13-25 4V37l21-8z" fill="currentColor"></path>
+      <path d="M13 39h10v6H13zM41 39h10v6H41zM25 32h14v5H25z" fill="currentColor"></path>`;
   }
   if (group === "special") {
     return `
-      <path d="M32 3l8 26 20 9v8l-23-5-2 16 7 4v3l-10-3-10 3v-3l7-4-2-16-23 5v-8l20-9z" fill="currentColor"></path>
-      <path d="M28 20h8v22h-8zM21 27h22v8H21z" fill="currentColor"></path>`;
+      <path d="M32 3l8 27 20 9v8l-22-5-3 15 8 4v4l-11-3-11 3v-4l8-4-3-15-22 5v-8l20-9z" fill="currentColor"></path>
+      <path d="M28 21h8v21h-8zM21 28h22v7H21z" fill="currentColor"></path>`;
   }
   return `
-    <path d="M32 4 39 29 60 38 60 46 37 41 35 57 42 61 42 64 32 61 22 64 22 61 29 57 27 41 4 46 4 38 25 29 32 4Z" fill="currentColor"></path>`;
+    <path d="M32 4l7 25 21 9v8l-23-5-2 16 7 4v3l-10-3-10 3v-3l7-4-2-16-23 5v-8l21-9z" fill="currentColor"></path>`;
 }
 
 function aircraftSvgMarkup(group) {
   return `<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">${aircraftShapeMarkup(group)}</svg>`;
 }
+
+function aircraftIconDimensions(group) {
+  const dimensions = {
+    heavy: { width: 52, height: 52, anchorX: 26, anchorY: 26, svgWidth: 46, svgHeight: 46 },
+    jet: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 },
+    prop: { width: 38, height: 38, anchorX: 19, anchorY: 19, svgWidth: 32, svgHeight: 32 },
+    helicopter: { width: 44, height: 38, anchorX: 22, anchorY: 19, svgWidth: 40, svgHeight: 34 },
+    glider: { width: 52, height: 34, anchorX: 26, anchorY: 17, svgWidth: 48, svgHeight: 30 },
+    special: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 }
+  };
+  return dimensions[group] || dimensions.jet;
+}
+
 
 function aircraftMiniIconSvg(aircraft) {
   const group = aircraftTypeGroup(aircraft || {});
@@ -2430,6 +2456,32 @@ function aircraftDetailsRows(aircraft) {
   return rows;
 }
 
+function renderAircraftDetailsPanel(aircraft) {
+  if (!aircraftSheetMorePanel) return;
+  aircraftSheetMorePanel.replaceChildren();
+  for (const [name, value] of aircraftDetailsRows(aircraft)) {
+    const row = document.createElement("div");
+    row.className = "detail-row";
+    const valueElement = createTextElement("strong", "detail-value", value);
+    if (["Callsign", "HEX", "Rejestracja", "Pozycja"].includes(name)) {
+      enableCopyableAircraftValue(valueElement, value, name);
+    }
+    row.append(createTextElement("span", "detail-name", name), valueElement);
+    aircraftSheetMorePanel.append(row);
+  }
+}
+
+function setAircraftDetailsVisible(visible) {
+  if (!aircraftSheet || !aircraftSheetMorePanel) return;
+  aircraftSheetMorePanel.hidden = !visible;
+  aircraftSheet.classList.toggle("is-expanded", visible);
+  if (aircraftSheetRoute) aircraftSheetRoute.textContent = visible ? "Ukryj szczegóły" : "Szczegóły";
+  if (visible) {
+    invalidateMapSoon();
+    window.setTimeout(() => aircraftSheetMorePanel.scrollIntoView({ block: "nearest", behavior: "smooth" }), 80);
+  }
+}
+
 function showSelectedAircraftSheet(aircraft) {
   if (!aircraftSheet || !aircraft) return;
   selectedAircraft = aircraft;
@@ -2452,21 +2504,8 @@ function showSelectedAircraftSheet(aircraft) {
   updateAircraftSheetLiveDetails(aircraft);
   if (aircraftSheetPhoto) setAircraftPhoto(aircraftSheetPhoto, aircraft, { realPhoto: true });
 
-  if (aircraftSheetMorePanel) {
-    aircraftSheetMorePanel.replaceChildren();
-    for (const [name, value] of aircraftDetailsRows(aircraft)) {
-      const row = document.createElement("div");
-      row.className = "detail-row";
-      const valueElement = createTextElement("strong", "detail-value", value);
-      if (["Callsign", "HEX", "Rejestracja", "Pozycja"].includes(name)) {
-        enableCopyableAircraftValue(valueElement, value, name);
-      }
-      row.append(createTextElement("span", "detail-name", name), valueElement);
-      aircraftSheetMorePanel.append(row);
-    }
-    aircraftSheetMorePanel.hidden = true;
-  }
-  if (aircraftSheetRoute) aircraftSheetRoute.textContent = "Szczegóły";
+  if (aircraftSheetMorePanel) renderAircraftDetailsPanel(aircraft);
+  setAircraftDetailsVisible(false);
   aircraftSheet.hidden = false;
   aircraftSheet.classList.remove("is-expanded", "is-dragging");
   aircraftSheet.style.removeProperty("--sheet-drag-y");
@@ -3580,13 +3619,7 @@ function updateSelectedAircraftAfterRefresh(aircraft) {
     if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(updated);
     updateAircraftSheetLiveDetails(updated);
     if (aircraftSheetMorePanel && !aircraftSheetMorePanel.hidden) {
-      aircraftSheetMorePanel.replaceChildren();
-      for (const [name, value] of aircraftDetailsRows(updated)) {
-        const row = document.createElement("div");
-        row.className = "detail-row";
-        row.append(createTextElement("span", "detail-name", name), createTextElement("strong", "detail-value", value));
-        aircraftSheetMorePanel.append(row);
-      }
+      renderAircraftDetailsPanel(updated);
     }
   }
 }
@@ -3724,20 +3757,22 @@ function aircraftIcon(aircraft) {
   const heading = Number.isFinite(Number(rawHeading)) ? Number(rawHeading) : 0;
   const label = aircraftCallsign(aircraft) || firstFilled(aircraft?.callsign, aircraft?.name, aircraft?.flight, normalizeIcao(aircraft?.hex || "").toUpperCase(), "SAMOLOT");
   const group = aircraftTypeGroup(aircraft || {});
+  const dimensions = aircraftIconDimensions(group);
   const special = group === "special" || (aircraft?.dbFlags && (aircraft.dbFlags & 1)) ? " special" : "";
   const freshness = aircraftFreshnessInfo(aircraft);
   const performance = readPerformanceSettings();
   const lifecycle = aircraftLifecycleState(aircraft, performance);
   const escapedLabel = escapeHtml(label);
+  const typeTitle = aircraftGroupLabel(group);
   const freshnessHtml = performance.showFreshnessLabels ? `<span class="plane-freshness freshness-${freshness.state}">${escapeHtml(freshness.label)}</span>` : "";
   return L.divIcon({
     className: `aircraft-div-icon aircraft-kind-${group} aircraft-freshness-${freshness.state} aircraft-lifecycle-${lifecycle}`,
-    iconSize: [42, 38],
-    iconAnchor: [21, 19],
-    popupAnchor: [0, -20],
+    iconSize: [dimensions.width, dimensions.height],
+    iconAnchor: [dimensions.anchorX, dimensions.anchorY],
+    popupAnchor: [0, -Math.round(dimensions.height / 2)],
     html: `
-      <div class="plane-marker-wrap aircraft-kind-${group}">
-        <div class="plane-marker${special}" style="--heading:${heading}deg">
+      <div class="plane-marker-wrap aircraft-kind-${group}" title="${escapeHtml(typeTitle)}">
+        <div class="plane-marker${special}" style="--heading:${heading}deg; --plane-svg-width:${dimensions.svgWidth}px; --plane-svg-height:${dimensions.svgHeight}px;">
           ${aircraftSvgMarkup(group)}
         </div>
         <span class="plane-label">${escapedLabel}</span>
@@ -3745,6 +3780,7 @@ function aircraftIcon(aircraft) {
       </div>`
   });
 }
+
 
 
 function aircraftIcao(aircraft) {
@@ -5040,9 +5076,8 @@ aircraftSheetSave?.addEventListener("click", () => {
 
 aircraftSheetRoute?.addEventListener("click", () => {
   if (!selectedAircraft || !aircraftSheetMorePanel) return;
-  drawSelectedAircraftRoute(selectedAircraft);
-  aircraftSheetMorePanel.hidden = !aircraftSheetMorePanel.hidden;
-  if (aircraftSheetRoute) aircraftSheetRoute.textContent = aircraftSheetMorePanel.hidden ? "Szczegóły" : "Ukryj szczegóły";
+  renderAircraftDetailsPanel(selectedAircraft);
+  setAircraftDetailsVisible(aircraftSheetMorePanel.hidden);
 });
 
 copyStatusButton?.addEventListener("click", async () => {

@@ -785,8 +785,8 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
 .plane-marker {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: var(--plane-svg-width, 32px);
+  height: var(--plane-svg-height, 32px);
   border: 0;
   border-radius: 0;
   color: #0f766e;
@@ -797,13 +797,13 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
 }
 .plane-marker.special,
 .aircraft-kind-special .plane-marker { color: #dc2626; }
-.aircraft-kind-heavy .plane-marker { width: 36px; height: 36px; color: #1d4ed8; }
+.aircraft-kind-heavy .plane-marker { color: #1d4ed8; }
 .aircraft-kind-prop .plane-marker { color: #0f766e; }
 .aircraft-kind-helicopter .plane-marker { color: #9333ea; }
 .aircraft-kind-glider .plane-marker { color: #0369a1; }
 .plane-marker svg {
-  width: 28px;
-  height: 28px;
+  width: var(--plane-svg-width, 28px);
+  height: var(--plane-svg-height, 28px);
   fill: currentColor;
   stroke: rgba(255,255,255,.95);
   stroke-width: 2.2px;
@@ -945,9 +945,8 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   .map-popup-note { font-size: 0.66rem; }
   .map-popup-meta,
   .map-popup-route { font-size: 0.74rem; }
-  .plane-marker { width: 28px; height: 28px; }
-  .aircraft-kind-heavy .plane-marker { width: 32px; height: 32px; }
-  .plane-marker svg { width: 24px; height: 24px; }
+  .plane-marker { width: var(--plane-svg-width, 28px); height: var(--plane-svg-height, 28px); }
+  .plane-marker svg { width: var(--plane-svg-width, 24px); height: var(--plane-svg-height, 24px); }
   .plane-label { font-size: 0.52rem; padding: 1px 4px; }
 
   .aircraft-list,

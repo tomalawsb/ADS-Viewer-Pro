@@ -1,6 +1,6 @@
 # ADS Viewer Pro
 
-Wersja: **V14 - 3005261415**
+Wersja: **V15 - 3005261440**
 
 ## Opis
 
@@ -41,7 +41,7 @@ Alerty są wysyłane tylko dla samolotów z listy **Obserwowane** i tylko jeden 
 
 Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest dostępny w menu **Więcej**.
 
-## Zmiany V14 - 3005261415
+## Zmiany V15 - 3005261440
 
 - START/STOP na mapie są rysowane tylko wtedy, gdy program ma potwierdzone punkty startu i lądowania z danymi lotnisk.
 - Gdy brak potwierdzonej trasy, program rysuje tylko ślad live wybranego samolotu bez fałszywych znaczników START/STOP.
@@ -49,3 +49,6 @@ Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest 
 - Ścieżki innych samolotów są zapisywane w tle, ale nie są rysowane na mapie; widoczna jest tylko ścieżka wybranego samolotu.
 - Numer wersji jest widoczny na górze oraz w ustawieniach programu.
 - Dodano pytanie instalacyjne PWA: „Zainstaluj” albo „Korzystaj w przeglądarce”.
+- Dodano różne sylwetki ikon statków powietrznych: duży pasażerski, odrzutowy, mały śmigłowy, śmigłowiec, szybowiec i specjalny/wojskowy.
+- Kolory ikon pozostają zgodne z dotychczasowym ustawieniem programu.
+- Naprawiono przycisk „Szczegóły” w panelu samolotu: teraz pokazuje/ukrywa panel szczegółów i rozwija kartę.
