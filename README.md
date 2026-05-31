@@ -1,8 +1,8 @@
-# ADS Viewer Pro V28 - 3105260955
+# ADS Viewer Pro V29 - 3105260945
 
 # ADS Viewer Pro
 
-Wersja: **V28 - 3105260955**
+Wersja: **V29 - 3105260945**
 
 ## Opis
 
@@ -101,3 +101,9 @@ Poprawki:
 - Eksport zapisuje do wskazanego katalogu: `dane.json`, `opis.txt`, `raport.html`, `historia_trasy.csv`, `historia_widzen.csv`, zdjęcie lub grafikę poglądową oraz link do źródła zdjęcia, jeśli jest dostępny.
 - W Chrome/Edge program używa wyboru katalogu. Gdy przeglądarka tego nie obsługuje, pobiera pliki osobno.
 - Historia przelotów obejmuje dane zapisane lokalnie przez program oraz punkty trasy zebrane podczas odświeżania/obserwowania.
+
+
+## Zmiany V29 - 3105260945
+
+- Naprawiono przycisk Eksportuj: wybór katalogu otwiera się natychmiast po kliknięciu, zanim program zacznie pobierać zdjęcie i budować pliki eksportu.
+- Usunięto przycisk Szczegóły z karty samolotu.

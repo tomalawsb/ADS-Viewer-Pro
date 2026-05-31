@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V28";
-const APP_VERSION_STAMP = "3105260955";
+const APP_VERSION_NUMBER = "V29";
+const APP_VERSION_STAMP = "3105260945";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3652,6 +3652,23 @@ async function exportSelectedAircraftToFolder() {
     return;
   }
 
+  let root = null;
+  if (window.showDirectoryPicker) {
+    try {
+      // Wywołanie wyboru katalogu musi nastąpić od razu po kliknięciu przycisku.
+      // Gdy najpierw pobieraliśmy zdjęcie i budowaliśmy pliki, przeglądarka potrafiła odrzucić wybór katalogu.
+      root = await window.showDirectoryPicker({ mode: "readwrite" });
+    } catch (error) {
+      if (error?.name === "AbortError") {
+        showToast("Anulowano wybór katalogu.");
+        return;
+      }
+      console.error(error);
+      showToast(`Nie udało się otworzyć wyboru katalogu: ${error?.message || "błąd"}`, 5200);
+      return;
+    }
+  }
+
   startBusy("Zapisuję kartę samolotu...");
   try {
     const aircraft = selectedAircraft;
@@ -3673,8 +3690,7 @@ async function exportSelectedAircraftToFolder() {
     ];
     if (photoInfo.url) files.push(["zdjecie_zrodlo.txt", blobFromText(photoInfo.url)]);
 
-    if (window.showDirectoryPicker) {
-      const root = await window.showDirectoryPicker({ mode: "readwrite" });
+    if (root) {
       const folder = await root.getDirectoryHandle(baseName, { create: true });
       for (const [fileName, blob] of files) {
         await writeBlobToDirectory(folder, fileName, blob);
@@ -3688,12 +3704,8 @@ async function exportSelectedAircraftToFolder() {
     }
     showToast("Przeglądarka nie obsługuje wyboru katalogu — pobrałem pliki osobno.", 5200);
   } catch (error) {
-    if (error?.name === "AbortError") {
-      showToast("Anulowano wybór katalogu.");
-    } else {
-      console.error(error);
-      showToast(`Nie udało się zapisać karty: ${error?.message || "błąd"}`, 5200);
-    }
+    console.error(error);
+    showToast(`Nie udało się zapisać karty: ${error?.message || "błąd"}`, 5200);
   } finally {
     finishBusy();
   }
@@ -6110,12 +6122,6 @@ aircraftSheetSave?.addEventListener("click", () => {
 });
 
 aircraftSheetExport?.addEventListener("click", exportSelectedAircraftToFolder);
-
-aircraftSheetRoute?.addEventListener("click", () => {
-  if (!selectedAircraft || !aircraftSheetMorePanel) return;
-  renderAircraftDetailsPanel(selectedAircraft);
-  setAircraftDetailsVisible(aircraftSheetMorePanel.hidden);
-});
 
 copyStatusButton?.addEventListener("click", async () => {
   const text = [lastStatusText?.textContent || "", lastStatusTime?.textContent || "", `Wersja: ${APP_VERSION}`].filter(Boolean).join("\n");
