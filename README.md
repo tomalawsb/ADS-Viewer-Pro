@@ -74,3 +74,4 @@ Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest 
 - Naprawiono błąd z V19: przywrócono komplet funkcji ładowania i filtrów samolotów.
 - Ikony samolotów działają jako SVG zamiast PNG.
 - Zachowano synchronizację Firestore z V17/V18.
+toria przelotów. Program zapisuje w przeglądarce samoloty widziane na mapie, łączy wpisy w 15-minutowe okna, pokazuje powód zapisu, pozwala wyszukać wpisy, otworzyć ADS, pokazać punkt na mapie, dodać samolot do obserwowanych, usunąć wpis i skopiować historię jako CSV. Zapis jest ograniczony do 450 pozycji, żeby nie spowalniać aplikacji.

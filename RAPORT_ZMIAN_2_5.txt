@@ -1,0 +1,33 @@
+ADS Viewer Pro 2.5 - 2905261853
+
+Zakres zmian:
+1. Panel zapisanych samolotów uproszczony:
+   - usunięto przyciski ADS, Śledź i Kopiuj,
+   - zostawiono Mapa i Usuń.
+
+2. Funkcja Szukaj poprawiona:
+   - dodano przycisk/lupkę wyszukiwania przy polu wpisywania samolotu,
+   - Enter uruchamia wyszukiwanie, a nie zapis,
+   - wyszukiwanie nie zapisuje samolotu automatycznie,
+   - znaleziony samolot jest pokazywany na mapie i w panelu informacji.
+
+3. Mapa i odświeżanie live:
+   - każdy samolot widoczny na mapie jest odświeżany automatycznie,
+   - odświeżanie działa w tle i nie blokuje interfejsu,
+   - ręczne śledzenie pojedynczego samolotu nie jest już potrzebne w panelu zapisanych,
+   - kliknięcie Mapa działa natychmiast z zapisanego punktu, a dane live aktualizują się w tle.
+
+4. Responsywność:
+   - skrócono timeouty dla zapytań pojedynczego samolotu,
+   - auto-odświeżanie nie pokazuje blokującej nakładki,
+   - mapa nie jest za każdym razem automatycznie centrowana podczas odświeżania w tle,
+   - zmniejszono liczbę zbędnych akcji w panelu zapisanych.
+
+Sprawdzenie techniczne:
+- node --check app.js: OK
+- node --check sw.js: OK
+- brak zduplikowanych id w index.html
+- brak querySelector("#...") wskazujących na nieistniejące elementy HTML
+
+Uwagi:
+- Nie testowano działania live API w realnej przeglądarce z mapą, bo środowisko kontenerowe nie uruchamia normalnie aplikacji PWA z zewnętrzną mapą.

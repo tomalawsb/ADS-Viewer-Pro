@@ -1,0 +1,18 @@
+ADS Viewer Pro V7 - 2905262151
+
+Zakres zmian:
+1. Dodano panel Historia przelotów.
+2. Historia zapisuje lokalnie samoloty widziane na mapie po pobraniu/odświeżeniu radaru.
+3. Wpisy są łączone w 15-minutowe okna dla tego samego ICAO, żeby nie tworzyć tysięcy rekordów.
+4. Każdy wpis zawiera: czas ostatniego widzenia, nazwę, hex, callsign, rejestrację, typ, trasę, pozycję, wysokość, prędkość i powód zapisu.
+5. Dodano wyszukiwanie w historii.
+6. Dodano akcje wpisu historii: ADS, Mapa, Obserwuj, Usuń.
+7. Dodano eksport historii do CSV przez schowek.
+8. Dodano przycisk czyszczenia historii.
+9. Ograniczono historię do 450 wpisów i zapis nie częściej niż raz na 60 sekund, aby utrzymać responsywność.
+
+Sprawdzenie:
+- node --check app.js
+- node --check sw.js
+- kontrola duplikatów id
+- kontrola querySelector do nieistniejących id

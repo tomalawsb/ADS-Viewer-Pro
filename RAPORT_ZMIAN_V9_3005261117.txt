@@ -1,0 +1,25 @@
+ADS Viewer Pro V9 - 3005261117
+
+Baza: ADS_Viewer_Pro_V8_2905262217_mobilny_panel.
+
+Wprowadzone zmiany:
+1. Dodano pływający przycisk lokalizacji na mapie.
+2. Przycisk „Lokalizuj” w panelu Radar oraz nowy przycisk na mapie centrują mapę na pozycji użytkownika.
+3. Dodano marker pozycji użytkownika i okrąg dokładności lokalizacji.
+4. Dodano konfigurację synchronizacji Firestore w ustawieniach programu.
+5. Dodano okno pierwszej konfiguracji Firebase/Firestore.
+6. Dodano wklejanie całego obiektu firebaseConfig i automatyczne uzupełnianie pól.
+7. Dodano prywatny kod synchronizacji używany na komputerze i telefonie.
+8. Dodano scalanie lokalnych zapisanych samolotów z Firestore.
+9. Dodano synchronizację usunięć przez tzw. tombstone, żeby usunięty zapis nie wracał z chmury.
+10. Dodano przyciski: Konfiguruj, Synchronizuj teraz, Wyłącz Firestore.
+11. Zaktualizowano manifest, service worker i cache aplikacji do wersji V9.
+
+Sprawdzenie techniczne:
+- node --check app.js: OK
+- node --check sw.js: OK
+- brak zdublowanych id w index.html
+- brak querySelector do nieistniejących id
+
+Uwaga:
+Nie testowano prawdziwego połączenia z Firestore, bo wymaga ono projektu Firebase i konfiguracji użytkownika.

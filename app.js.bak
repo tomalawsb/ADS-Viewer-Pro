@@ -1,9 +1,8 @@
-const APP_VERSION_NUMBER = "V20";
-const APP_VERSION_STAMP = "3005261828";
+const APP_VERSION_NUMBER = "V9";
+const APP_VERSION_STAMP = "3005261117";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
-const PWA_BROWSER_CHOICE_STORAGE_KEY = "adsb-pwa-browser-choice-v1";
 const FETCH_TIMEOUT_MS = 9000;
 const RADIUS_FETCH_TIMEOUT_MS = 5200;
 const HEX_FETCH_TIMEOUT_MS = 4200;
@@ -18,28 +17,18 @@ const PERFORMANCE_STORAGE_KEY = "adsb-performance-settings-v1";
 const WATCHLIST_STORAGE_KEY = "adsb-watchlist-v1";
 const ALERT_SETTINGS_STORAGE_KEY = "adsb-alert-settings-v1";
 const ALERT_LOG_STORAGE_KEY = "adsb-alert-log-v1";
-const ALERT_FIRED_STORAGE_KEY = "adsb-alert-fired-v1";
 const HISTORY_STORAGE_KEY = "adsb-flight-history-v1";
 const FIRESTORE_CONFIG_STORAGE_KEY = "adsb-firestore-config-v1";
 const FIRESTORE_SETUP_DISMISSED_KEY = "adsb-firestore-setup-dismissed-v1";
 const FIRESTORE_DELETED_FLIGHTS_STORAGE_KEY = "adsb-firestore-deleted-flights-v1";
 const FIRESTORE_CLIENT_ID_STORAGE_KEY = "adsb-firestore-client-id-v1";
-const FIRESTORE_STATE_META_STORAGE_KEY = "adsb-firestore-state-meta-v1";
-const FIRESTORE_STATE_DOC_ID = "__app_state";
-const FIRESTORE_STATE_SECTIONS = ["api", "theme", "filters", "performance", "watchlist", "alertSettings", "alertFired"];
 const FIREBASE_SDK_VERSION = "10.12.5";
-const NOTIFICATION_ICON = "icon-192.png";
 const FIRESTORE_COLLECTION_ROOT = "adsViewerSync";
 const TRACK_STORAGE_KEY = "adsb-live-tracks-v1";
 const ROUTE_CACHE_STORAGE_KEY = "adsb-route-cache-v1";
 const PHOTO_CACHE_STORAGE_KEY = "adsb-photo-cache-v1";
 const ADSB_BASE_URL = "https://adsb.lol/";
-// WAŻNE: przycisk ADS jest obowiązkowy w panelach, w których występuje. Nie usuwać i nie zastępować inną akcją.
-const ROUTE_API_URLS = [
-  "https://api.adsb.lol/api/0/routeset",
-  "https://adsb.im/api/0/routeset"
-];
-const ADSBDB_CALLSIGN_API_BASE_URL = "https://api.adsbdb.com/v0/callsign/";
+const ROUTE_API_URL = "https://api.adsb.lol/api/0/routeset";
 const PLANESPOTTERS_PHOTO_BASE_URL = "https://api.planespotters.net/pub/photos";
 const LIVE_TRACK_INTERVAL_MS = 30000;
 const AUTO_LOAD_RADIUS_NM = 60;
@@ -130,9 +119,6 @@ const emptyState = document.querySelector("#emptyState");
 const template = document.querySelector("#flightItemTemplate");
 const toast = document.querySelector("#toast");
 const installButton = document.querySelector("#installButton");
-const installPrompt = document.querySelector("#installPrompt");
-const installPromptInstallButton = document.querySelector("#installPromptInstallButton");
-const installPromptBrowserButton = document.querySelector("#installPromptBrowserButton");
 const themeInput = document.querySelector("#themeInput");
 const dataSourceInput = document.querySelector("#dataSourceInput");
 const apiKeyInput = document.querySelector("#apiKeyInput");
@@ -163,7 +149,6 @@ const aircraftTemplate = document.querySelector("#aircraftItemTemplate");
 const busyOverlay = document.querySelector("#busyOverlay");
 const busyText = document.querySelector("#busyText");
 const appVersionBadge = document.querySelector("#appVersionBadge");
-const settingsVersionBadge = document.querySelector("#settingsVersionBadge");
 const forceUpdateButton = document.querySelector("#forceUpdateButton");
 const lastStatusText = document.querySelector("#lastStatusText");
 const lastStatusTime = document.querySelector("#lastStatusTime");
@@ -273,9 +258,7 @@ let firestoreState = {
   unsubscribe: null,
   ready: false,
   initializing: false,
-  configSignature: "",
-  stateDocRef: null,
-  unsubscribeState: null
+  configSignature: ""
 };
 let firestoreApplyingRemote = false;
 let firestorePushTimer = null;
@@ -439,20 +422,12 @@ function updateAircraftSheetLiveDetails(aircraft) {
   if (!aircraft) return;
   const verticalRate = aircraftVerticalRate(aircraft);
   const freshness = aircraftFreshnessInfo(aircraft);
-  const hexValue = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych";
-  const positionValue = aircraftPositionText(aircraft);
   if (aircraftSheetFreshness) setFreshnessBadge(aircraftSheetFreshness, aircraft);
-  if (aircraftSheetHex) {
-    aircraftSheetHex.textContent = hexValue;
-    enableCopyableAircraftValue(aircraftSheetHex, hexValue, "HEX / #");
-  }
+  if (aircraftSheetHex) aircraftSheetHex.textContent = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych";
   if (aircraftSheetHeading) aircraftSheetHeading.textContent = formatHeading(aircraftHeading(aircraft));
   if (aircraftSheetVerticalRate) aircraftSheetVerticalRate.textContent = Number.isFinite(verticalRate) ? `${numberText(verticalRate)} ft/min` : "brak danych";
   if (aircraftSheetLastSignal) aircraftSheetLastSignal.textContent = freshness.ageText;
-  if (aircraftSheetPosition) {
-    aircraftSheetPosition.textContent = positionValue;
-    enableCopyableAircraftValue(aircraftSheetPosition, positionValue, "pozycję");
-  }
+  if (aircraftSheetPosition) aircraftSheetPosition.textContent = aircraftPositionText(aircraft);
   if (aircraftSheetSource) aircraftSheetSource.textContent = aircraftSourceText(aircraft);
 }
 
@@ -490,36 +465,25 @@ function escapeHtml(value) {
 }
 
 function aircraftTypeGroup(aircraft) {
-  const typeCode = firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType).toUpperCase();
-  const category = firstFilled(aircraft?.category, aircraft?.emitter_category, aircraft?.emergencyCategory).toUpperCase();
   const raw = [
-    typeCode,
-    category,
+    aircraft?.t,
+    aircraft?.type,
+    aircraft?.aircraftType,
+    aircraft?.category,
     aircraft?.kind,
     aircraft?.desc,
-    aircraft?.description,
     aircraft?.name,
-    aircraft?.operator,
     aircraft?.registration,
     aircraft?.r
   ].filter(Boolean).join(" ").toUpperCase();
 
-  // ADS-B/Mode-S kategorie: A7/C7 = rotorcraft, B1 = szybowiec,
-  // B4 = ultralekki, A1 = lekki, A5 = heavy, A6 = high performance/military.
-  if (/\b(A7|C7)\b/.test(category)) return "helicopter";
-  if (/\bB1\b/.test(category)) return "glider";
-  if (/\b(B4|A1)\b/.test(category)) return "prop";
-  if (/\bA5\b/.test(category)) return "heavy";
-  if (/\bA6\b/.test(category)) return "special";
-
-  if (/HELICOPTER|ROTORCRAFT|ŚMIGŁ|SMIGL|GYROCOPTER|GYROPLANE|\b(R44|R66|R22|R20|B06|B407|B429|B412|B212|B427|H500|H60|UH60|EC20|EC30|EC35|EC45|EC55|AS50|AS55|AS65|S76|S92|A109|AW09|AW10|AW11|AW13|AW16|AW18|MD50|MD52|MD60|MD90)\b/.test(raw)) return "helicopter";
-  if (/GLIDER|SAILPLANE|MOTORGLIDER|SZYBOW|\b(ASW|ASK|DG\d|LS\d|JS\d|SZD|VENTUS|JANUS|DISCUS|DUODISCUS|ARCUS|S12|GROB|TWIN\s?ASTIR)\b/.test(raw)) return "glider";
-  if (/ULTRALIGHT|MICROLIGHT|PARAGLIDER|MOTOL|\b(C150|C152|C162|C172|C175|C177|C180|C182|C185|C206|C207|C208|C210|P28A|P28R|PA28|PA32|PA34|PA44|SR20|SR22|DA20|DA40|DA42|DV20|DR40|BE20|BE30|BE35|BE36|BE58|PC12|PC24|TBM7|TBM8|TBM9|C25A|C25B|C25C|E50P|E55P|PRM1|M20P|M20T|C680|C750|BN2P|AN2|DHC2|DHC3|DHC6|DH8A|DH8B|DH8C|DH8D|AT43|AT45|AT72|SF34|L410|P180)\b/.test(raw)) return "prop";
-  if (/CARGO|FREIGHTER|HEAVY|\b(A300|A310|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B747|B748|B74S|B74R|B767|B763|B764|B777|B772|B773|B77L|B77W|B787|B788|B789|B78X|IL76|IL96|A124|A225|MD11|DC10|DC87)\b/.test(raw)) return "heavy";
-  if (/MILITARY|WOJSK|FIGHTER|TANKER|SPECIAL|POLICE|RESCUE|AMBULANCE|\b(C17|C5M|C130|C30J|KC\d|K35R|A400|P8|P3|E3|E7|E8|F16|F-16|F18|F-18|F22|F-22|F35|F-35|MIG|MIG\d|SU\d|TYPHOON|EUFI|RAFALE|GRIPEN|TORNADO|HAWK|L159|A10|B1|B2|B52)\b/.test(raw)) return "special";
+  if (/\b(H|HELI|HELICOPTER|EC\d|H\d|R44|R66|AS3|B06|B429|S76|AW1|MD9)\b/.test(raw)) return "helicopter";
+  if (/\b(GLID|GLIDER|S12|ASK|ASW|DG\d|LS\d|VENTUS|JANUS)\b/.test(raw)) return "glider";
+  if (/\b(C172|C182|C152|P28|PA28|PA34|SR20|SR22|DA40|DA42|BE20|PC12|TBM|C208|C206|BN2|AN2|DHC|DH8|ATR|SF34|L410)\b/.test(raw)) return "prop";
+  if (/\b(A330|A340|A350|A380|B747|B767|B777|B787|IL76|A124|MD11|DC10)\b/.test(raw)) return "heavy";
+  if (/\b(C17|C130|KC|A400|P8|E3|E7|MIL|F16|F-16|F35|F-35|MIG|SU\d|TYPHOON|RAFALE)\b/.test(raw)) return "special";
   return "jet";
 }
-
 
 function aircraftGroupLabel(group) {
   return {
@@ -530,55 +494,6 @@ function aircraftGroupLabel(group) {
     special: "samolot specjalny",
     jet: "samolot odrzutowy"
   }[group] || "samolot";
-}
-
-const AIRCRAFT_ICON_FILES = {
-  jet: "assets/aircraft/aircraft-jet.svg",
-  heavy: "assets/aircraft/aircraft-heavy.svg",
-  prop: "assets/aircraft/aircraft-prop.svg",
-  helicopter: "assets/aircraft/aircraft-helicopter.svg",
-  glider: "assets/aircraft/aircraft-glider.svg",
-  special: "assets/aircraft/aircraft-special.svg"
-};
-
-function aircraftIconAssetUrl(group) {
-  return AIRCRAFT_ICON_FILES[group] || AIRCRAFT_ICON_FILES.jet;
-}
-
-function aircraftPngIconMarkup(group) {
-  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_ICON_FILES, group) ? group : "jet";
-  const url = aircraftIconAssetUrl(safeGroup);
-  return `
-    <span class="aircraft-icon-stack aircraft-png-icon-${safeGroup}" aria-hidden="true">
-      <svg class="aircraft-icon-fallback" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" focusable="false">${aircraftShapeMarkup(safeGroup)}</svg>
-      <span class="aircraft-png-icon" style="-webkit-mask-image:url('${url}');mask-image:url('${url}');"></span>
-    </span>`;
-}
-
-function aircraftPngMaskSupported() {
-  const style = document.createElement("span").style;
-  if (("webkitMaskImage" in style) || ("maskImage" in style)) return true;
-  if (!window.CSS || typeof window.CSS.supports !== "function") return false;
-  return window.CSS.supports("-webkit-mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`) ||
-    window.CSS.supports("mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`);
-}
-
-function preloadAircraftPngIcons() {
-  if (!aircraftPngMaskSupported()) {
-    document.documentElement.classList.remove("aircraft-png-icons-ready");
-    return;
-  }
-  const urls = Object.values(AIRCRAFT_ICON_FILES);
-  Promise.all(urls.map((url) => new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = url;
-  }))).then(() => {
-    document.documentElement.classList.add("aircraft-png-icons-ready");
-  }).catch(() => {
-    document.documentElement.classList.remove("aircraft-png-icons-ready");
-  });
 }
 
 function aircraftAltitudeFeet(aircraft) {
@@ -653,7 +568,6 @@ function readPerformanceSettings() {
 function savePerformanceSettings() {
   const settings = readPerformanceSettings();
   storageJsonSet(PERFORMANCE_STORAGE_KEY, settings);
-  markFirestoreStateSectionDirty("performance");
   return settings;
 }
 
@@ -723,7 +637,6 @@ function saveAircraftFilters() {
     maxAlt: filters.maxAlt === null ? "" : String(filters.maxAlt),
     callsignOnly: filters.callsignOnly
   });
-  markFirestoreStateSectionDirty("filters");
 }
 
 function aircraftMatchesKindFilter(aircraft, kind) {
@@ -782,91 +695,40 @@ function readBrowseSettingsSafe() {
   }
 }
 
-const AIRCRAFT_SVG_MARKUP = Object.freeze({
-  jet: `
-<g transform="scale(0.125)">
-<path fill="currentColor" fill-rule="evenodd" d="
-    M 256 449.49 L 254 449.34 L 251.87 447 L 246.35 423 L 245 421.42 L 193 442.4 L 191.4 441 L 192 421.4 L 238.31 382 L 232 283.61 L 215 289.85 L 175 307.72 L 104 341.69 L 103.19 326 L 103.37 319 L 105 316.77 L 178.13 252 L 178.58 234 L 181 229.5 L 186 226.9 L 191 226.77 L 196 228.86 L 199 233.23 L 200 233.19 L 232.09 202 L 232.55 122 L 234.74 102 L 238.72 85 L 243.95 72 L 249 64.58 L 255 61.74 L 260.77 64 L 266.48 72 L 272.35 87 L 276.26 105 L 278.28 130 L 278.47 202 L 311 233.47 L 315 228.53 L 319 226.9 L 324 226.75 L 329 228.98 L 331.83 234 L 332.4 252 L 398 309.77 L 406.74 318 L 407.43 321 L 407.44 340 L 406 341.65 L 329 304.74 L 279 283.25 L 271.78 381 L 318.33 421 L 319.13 441 L 317 442.23 L 265 421.47 L 259.34 445 L 256 449.49 Z
-  "/>
-</g>
-  `,
-  heavy: `
-<g transform="scale(0.125)">
-<path fill="currentColor" fill-rule="evenodd" d="
-    M 256 435.57 L 254.82 435 L 248 413.3 L 181 429.34 L 173.86 430 L 175.75 416 L 177.56 413 L 240.02 376 L 234.69 333 L 230 280.35 L 193 291.86 L 189 303.48 L 186.77 302 L 184 294.74 L 155 304.6 L 151 315.66 L 148.81 315 L 147.23 309 L 146 307.99 L 136 311.9 L 132 322.6 L 130.33 322 L 128.54 316 L 127 315.28 L 63 339.21 L 61.74 338 L 65 317.05 L 117.75 280 L 116.18 261 L 118.24 247 L 125 245.31 L 131 245.58 L 134.32 247 L 136.13 257 L 136.12 267 L 137 267.36 L 167.54 246 L 166.11 226 L 166.83 218 L 169 213.13 L 176 211.97 L 184 213.59 L 187 230.49 L 231 181.99 L 232.44 176 L 233.61 131 L 237.82 103 L 241.76 90 L 245.59 82 L 251 75.85 L 256 74.39 L 260.7 76 L 265.25 81 L 269.38 89 L 273.27 101 L 276.26 116 L 278.13 134 L 278.92 175 L 280.41 182 L 324 230.25 L 325.25 230 L 325.59 219 L 328 213.03 L 335 211.91 L 343 213.82 L 345.17 228 L 343.55 246 L 374 267.2 L 375.27 267 L 375.37 255 L 377.08 247 L 383 245.31 L 390 245.64 L 393 246.86 L 395.03 262 L 393.48 280 L 446.37 317 L 449.42 338 L 449 339.32 L 446 338.36 L 384 315.18 L 382.6 316 L 381 321.79 L 379 322.56 L 375 311.67 L 365 307.89 L 362.36 315 L 361 316.04 L 359.54 315 L 356 304.53 L 327 294.74 L 324 302.78 L 322 303.38 L 318 291.75 L 281 280.33 L 276.3 334 L 271 375.48 L 333.64 413 L 335.33 416 L 337.24 430 L 330 429.33 L 263 413.28 L 256 435.57 Z
-  "/>
-</g>
-  `,
-  prop: `
-<g transform="scale(0.125)">
-<path fill="currentColor" fill-rule="evenodd" d="
-    M 255 419.4 L 253.09 417 L 251 384.83 L 246.6 398 L 245 398.89 L 185 393.6 L 181.61 391 L 181.57 370 L 185.44 366 L 245.91 358 L 230.56 246 L 64 226.1 L 61.69 224 L 61.33 222 L 61.34 188 L 62.63 183 L 68 179.31 L 172 174.61 L 174.34 173 L 174.49 169 L 176 168.21 L 179 174.56 L 229 174.59 L 232.69 120 L 233.83 116 L 237 111.53 L 249 107.11 L 249.06 101 L 248 99.81 L 224 101.14 L 207 99.47 L 205.56 98 L 224 95.72 L 249 96.92 L 252 92.57 L 256 90.87 L 259.51 93 L 262 96.94 L 287 95.72 L 305.34 98 L 304 99.47 L 287 101.13 L 263 99.86 L 261.94 101 L 262 107.11 L 273 110.9 L 277.39 117 L 279.36 131 L 281.15 173 L 282 174.59 L 332 174.47 L 333.43 173 L 333.6 169 L 335 168.21 L 336.3 169 L 336.43 173 L 338 174.6 L 444 179.61 L 447.39 182 L 449.39 186 L 449.59 220 L 449.14 224 L 446 226.3 L 280.39 246 L 264.58 358 L 319 365.75 L 323.02 370 L 323.21 390 L 322.45 392 L 320 393.6 L 264 398.97 L 262.46 398 L 259 385.72 L 257 416.72 L 255 419.4 Z
-    M 236.73 206 L 253 202.79 L 253 174.8 L 249 174.72 L 242 176.75 L 235.68 183 L 234.69 186 L 234.47 205 L 235 206.45 L 236.73 206 Z
-    M 276.31 206 L 276.3 187 L 275.13 183 L 269 176.83 L 258 174.67 L 258 203 L 276.31 206 Z
-  "/>
-</g>
-  `,
-  helicopter: `
-<g transform="scale(0.125)">
-<path fill="currentColor" fill-rule="evenodd" d="
-    M 263 206.58 L 256 205.07 L 249 206.37 L 219.01 178 L 218 158.39 L 209 158.67 L 208 167.49 L 202.93 163 L 203.3 137 L 206 135.58 L 208.13 137 L 208.47 152 L 218 152.68 L 218.73 120 L 220.62 109 L 223.59 100 L 228.79 90 L 236 81.57 L 243 76.55 L 253.13 73 L 253.47 63 L 256 61.62 L 258.73 63 L 259.16 73 L 268 75.84 L 275 80.5 L 281.29 87 L 288.28 99 L 293.23 118 L 294 152.65 L 303.6 152 L 303.79 138 L 305 136.03 L 307 135.56 L 309.37 138 L 309.29 163 L 304 167.44 L 303.54 159 L 294 158.45 L 293.34 178 L 263 206.58 Z
-    M 259 448.02 L 253 448.33 L 251.23 447 L 248 409.51 L 208 409.48 L 205.83 408 L 208.42 393 L 210 391.5 L 247.41 391 L 244.55 296 L 242.35 289 L 228.59 267 L 224.34 255 L 250 231.01 L 257 232.58 L 263 231.08 L 287.97 255 L 282.22 270 L 270.51 288 L 267.79 295 L 263.18 390 L 264 391.48 L 288 391.52 L 289.31 393 L 291.62 406 L 287 409.48 L 262.38 410 L 259 448.02 Z
-    M 379 333.33 L 376 332.66 L 349 308.25 L 280.06 245 L 264.14 230 L 264.41 229 L 268 225.36 L 269 225.81 L 324 268.74 L 386 320.38 L 387.4 322 L 387 324.92 L 379 333.33 Z
-    M 244 212.59 L 208 185.14 L 129 119.38 L 123.97 115 L 124.25 112 L 132 104.48 L 136 105.9 L 198 160.83 L 248 207.6 L 244 212.59 Z
-    M 269 212.18 L 268 212.59 L 263.79 208 L 314 160.77 L 376 105.37 L 380 104.93 L 387 112.22 L 387.56 114 L 386 116.19 L 311 179.38 L 269 212.18 Z
-    M 134 333.3 L 131 332.84 L 123.87 325 L 124.3 321 L 198 260.75 L 243 225.91 L 244.83 226 L 248 230.26 L 134 333.3 Z
-    M 205 253.38 L 202.94 251 L 202.92 184 L 204 183.68 L 208.41 188 L 209 235.35 L 220.42 235 L 219.03 197 L 220 196.51 L 223 198.72 L 243.19 215 L 243.1 224 L 220.65 241 L 209 241.57 L 208.4 250 L 205 253.38 Z
-    M 308 253.39 L 303.74 250 L 303 241.44 L 292 241.36 L 269.16 224 L 269.17 215 L 272 211.78 L 293 196.61 L 291.81 235 L 303.53 235 L 303.8 188 L 309 183.4 L 309.33 251 L 308 253.39 Z
-    M 225.28 134 L 236 128.7 L 252.37 126 L 252.73 100 L 239 100.77 L 231 103.61 L 226.53 107 L 223.96 116 L 224.06 133 L 225.28 134 Z
-    M 288.13 134 L 288.17 114 L 285.59 107 L 276 101.57 L 260 99.52 L 259.73 126 L 276 128.66 L 288.13 134 Z
-    M 260 230.36 L 252 230.3 L 247.37 227 L 244.68 223 L 244.32 217 L 245.67 213 L 249.23 209 L 254 206.81 L 258 206.75 L 262.82 209 L 266.46 213 L 268.28 218 L 266.41 225 L 260 230.36 Z
-    M 284 449.41 L 278.56 447 L 289.35 420 L 286.7 414 L 288 411.1 L 293.21 407 L 299.58 381 L 304 380.9 L 305.84 383 L 295.56 409 L 298 414 L 297.46 417 L 296 419.02 L 291.7 421 L 285.37 448 L 284 449.41 Z
-  "/>
-</g>
-  `,
-  glider: `
-<g transform="scale(0.125)">
-<path fill="currentColor" fill-rule="evenodd" d="
-    M 256 353.13 L 253 340.51 L 227 338.29 L 225.4 337 L 226 332.69 L 252 328.41 L 253.41 327 L 250.86 249 L 250.23 244 L 248 241.51 L 82 228.22 L 65 226.29 L 62 225.2 L 62.1 224 L 66 222.53 L 84 221.69 L 248 218.55 L 249.61 178 L 252.62 162 L 253.65 159 L 256 156.95 L 259.23 164 L 261.43 176 L 262.65 192 L 262.57 217 L 264 218.83 L 430 221.76 L 446 222.64 L 449.26 224 L 449 225.43 L 446 226.32 L 429 228.2 L 263 241.63 L 261.55 243 L 260.46 249 L 257.94 327 L 259 328.37 L 285 332.56 L 285.92 337 L 284 338.27 L 258 340.59 L 256 353.13 Z
-    M 258.61 202 L 260.69 200 L 260.14 181 L 258.41 175 L 255 173.54 L 252.84 175 L 251.59 178 L 250.55 200 L 253 202.13 L 258.61 202 Z
-  "/>
-</g>
-  `,
-  special: `
-<g transform="scale(0.125)">
-<path fill="currentColor" fill-rule="evenodd" d="
-    M 319 449.23 L 317 449.43 L 285.82 422 L 279 394.97 L 276 411.9 L 268.88 420 L 267 420.22 L 259.58 412 L 259.08 406 L 257.42 404 L 256.6 400 L 257.1 393 L 256 391.75 L 253.84 393 L 254.39 399 L 253.54 404 L 251.99 406 L 251.38 412 L 243 420.78 L 234.94 412 L 232 394.93 L 225.29 422 L 194 449.38 L 163 440.1 L 162 439 L 162.47 417 L 192 388.74 L 209 400.7 L 209.84 400 L 192.2 384 L 192.01 371 L 214.57 346 L 190.26 369 L 189 376.86 L 133 356.5 L 120.87 344 L 121.56 324 L 208 240.21 L 207 258.27 L 211.63 241 L 208.37 235 L 213.47 186 L 235.64 166 L 239.71 118 L 242.63 97 L 246.78 80 L 255 62.12 L 256 62.12 L 263.07 77 L 268.35 97 L 271.32 118 L 275.4 166 L 297.58 186 L 302.6 235 L 299.34 241 L 304 258.28 L 303 240.27 L 390.08 325 L 390.15 344 L 378.89 356 L 322 377.02 L 320.77 369 L 297 346.46 L 318.9 371 L 318.77 384 L 302.22 399 L 303 399.97 L 319 388.68 L 348.94 418 L 348.97 439 L 348.07 440 L 319 449.23 Z
-    M 259.36 186 L 262.25 185 L 263.04 180 L 264.26 148 L 261.3 132 L 256.17 125 L 255 124.81 L 249.65 132 L 247.64 141 L 246.47 151 L 246.75 167 L 248.78 185 L 254 186.47 L 259.36 186 Z
-    M 299.09 403 L 301.63 401 L 301 400.1 L 297.73 403 L 299.09 403 Z
-    M 213.24 403 L 210 400.18 L 209.33 401 L 213.24 403 Z
-  "/>
-</g>
-  `
-});
-
 function aircraftShapeMarkup(group) {
-  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_SVG_MARKUP, group) ? group : "jet";
-  return AIRCRAFT_SVG_MARKUP[safeGroup] || AIRCRAFT_SVG_MARKUP.jet;
+  if (group === "helicopter") {
+    return `
+      <path d="M7 14h50v5H7z" fill="currentColor"></path>
+      <path d="M30 19h4v9h-4z" fill="currentColor"></path>
+      <path d="M19 28h26c5 0 9 4 9 9v2H18c-6 0-10-4-10-10v-1h11z" fill="currentColor"></path>
+      <path d="M46 31l12-8 2 4-10 10zM17 40h30v4H17zM20 44h9v4h-9zM38 44h9v4h-9z" fill="currentColor"></path>`;
+  }
+  if (group === "glider") {
+    return `
+      <path d="M32 10c2 0 3 1 3 3v16l27 7v5l-27-3-1 12 8 5v4l-10-3-10 3v-4l8-5-1-12-27 3v-5l27-7V13c0-2 1-3 3-3z" fill="currentColor"></path>`;
+  }
+  if (group === "prop") {
+    return `
+      <path d="M32 4l7 25 21 9v8l-23-5-2 16 7 4v3l-10-3-10 3v-3l7-4-2-16-23 5v-8l21-9z" fill="currentColor"></path>
+      <path d="M27 8c0-5 10-5 10 0 0 4-3 8-5 11-2-3-5-7-5-11zM27 8c0 4 3 8 5 11" fill="currentColor"></path>`;
+  }
+  if (group === "heavy") {
+    return `
+      <path d="M32 2l9 27 21 8v9l-25-4-2 13 9 5v4l-12-3-12 3v-4l9-5-2-13-25 4v-9l21-8z" fill="currentColor"></path>
+      <path d="M15 39h8v5h-8zM41 39h8v5h-8z" fill="currentColor"></path>`;
+  }
+  if (group === "special") {
+    return `
+      <path d="M32 3l8 26 20 9v8l-23-5-2 16 7 4v3l-10-3-10 3v-3l7-4-2-16-23 5v-8l20-9z" fill="currentColor"></path>
+      <path d="M28 20h8v22h-8zM21 27h22v8H21z" fill="currentColor"></path>`;
+  }
+  return `
+    <path d="M32 4 39 29 60 38 60 46 37 41 35 57 42 61 42 64 32 61 22 64 22 61 29 57 27 41 4 46 4 38 25 29 32 4Z" fill="currentColor"></path>`;
 }
 
 function aircraftSvgMarkup(group) {
-  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_SVG_MARKUP, group) ? group : "jet";
-  const label = aircraftGroupLabel(safeGroup);
-  return `<svg class="aircraft-svg-icon aircraft-svg-icon-${safeGroup}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="${escapeHtml(label)}" focusable="false">${aircraftShapeMarkup(safeGroup)}</svg>`;
+  return `<svg viewBox="0 0 64 64" aria-hidden="true" focusable="false">${aircraftShapeMarkup(group)}</svg>`;
 }
-
-function aircraftIconDimensions(group) {
-  const dimensions = {
-    heavy: { width: 52, height: 52, anchorX: 26, anchorY: 26, svgWidth: 46, svgHeight: 46 },
-    jet: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 },
-    prop: { width: 38, height: 38, anchorX: 19, anchorY: 19, svgWidth: 32, svgHeight: 32 },
-    helicopter: { width: 44, height: 38, anchorX: 22, anchorY: 19, svgWidth: 40, svgHeight: 34 },
-    glider: { width: 52, height: 34, anchorX: 26, anchorY: 17, svgWidth: 48, svgHeight: 30 },
-    special: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 }
-  };
-  return dimensions[group] || dimensions.jet;
-}
-
 
 function aircraftMiniIconSvg(aircraft) {
   const group = aircraftTypeGroup(aircraft || {});
@@ -1110,28 +972,6 @@ function routeAirportPoints(aircraft) {
   return routeAirports(aircraft?._route).map(airportPoint).filter(validPoint);
 }
 
-function confirmedRouteEndpointPoints(aircraft) {
-  const route = aircraft?._route;
-  if (!route || route.plausible === false || route.confirmed === false) return null;
-  const airports = routeAirports(route);
-  if (airports.length < 2) return null;
-
-  const startAirport = airports[0];
-  const endAirport = airports[airports.length - 1];
-  const startPoint = airportPoint(startAirport);
-  const endPoint = airportPoint(endAirport);
-  if (!validPoint(startPoint) || !validPoint(endPoint)) return null;
-
-  const startLabel = routeAirportLabel(startAirport);
-  const endLabel = routeAirportLabel(endAirport);
-  if (!startLabel || !endLabel) return null;
-
-  return {
-    start: { ...startPoint, label: startLabel },
-    end: { ...endPoint, label: endLabel }
-  };
-}
-
 function aircraftListFromResponse(data) {
   if (Array.isArray(data?.ac)) return data.ac;
   if (Array.isArray(data?.aircraft)) return data.aircraft;
@@ -1305,9 +1145,8 @@ function loadWatchlist() {
   }
 }
 
-function saveWatchlist(items, options = {}) {
-  storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(Array.isArray(items) ? items : []));
-  if (!options.skipSync) markFirestoreStateSectionDirty("watchlist");
+function saveWatchlist(items) {
+  storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(items));
 }
 
 function loadAlertLog() {
@@ -1321,53 +1160,6 @@ function loadAlertLog() {
 
 function saveAlertLog(items) {
   storageSet(ALERT_LOG_STORAGE_KEY, JSON.stringify(items.slice(0, ALERT_LOG_MAX_ENTRIES)));
-}
-
-function loadFiredAlertState() {
-  const parsed = storageJsonGet(ALERT_FIRED_STORAGE_KEY, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-}
-
-function saveFiredAlertState(state, options = {}) {
-  storageJsonSet(ALERT_FIRED_STORAGE_KEY, state && typeof state === "object" ? state : {});
-  if (!options.skipSync) markFirestoreStateSectionDirty("alertFired");
-}
-
-function hasFiredAlertForIcao(icao) {
-  const cleanIcao = normalizeIcao(icao || "");
-  if (!isValidIcao(cleanIcao)) return false;
-  return Boolean(loadFiredAlertState()[cleanIcao]);
-}
-
-function markFiredAlertForIcao(icao) {
-  const cleanIcao = normalizeIcao(icao || "");
-  if (!isValidIcao(cleanIcao)) return;
-  const state = loadFiredAlertState();
-  state[cleanIcao] = new Date().toISOString();
-  saveFiredAlertState(state);
-}
-
-function clearFiredAlertForIcao(icao) {
-  const cleanIcao = normalizeIcao(icao || "");
-  if (!isValidIcao(cleanIcao)) return;
-  const state = loadFiredAlertState();
-  if (Object.prototype.hasOwnProperty.call(state, cleanIcao)) {
-    delete state[cleanIcao];
-    saveFiredAlertState(state);
-  }
-}
-
-function pruneFiredAlertStateToWatchlist(watchedIcaos) {
-  const allowed = watchedIcaos instanceof Set ? watchedIcaos : new Set();
-  const state = loadFiredAlertState();
-  let changed = false;
-  for (const key of Object.keys(state)) {
-    if (!allowed.has(normalizeIcao(key))) {
-      delete state[key];
-      changed = true;
-    }
-  }
-  if (changed) saveFiredAlertState(state);
 }
 
 function defaultAlertSettings() {
@@ -1387,9 +1179,8 @@ function loadAlertSettingsObject() {
   return { ...defaultAlertSettings(), ...(saved && typeof saved === "object" ? saved : {}) };
 }
 
-function saveAlertSettingsObject(settings, options = {}) {
+function saveAlertSettingsObject(settings) {
   storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, { ...defaultAlertSettings(), ...(settings || {}) });
-  if (!options.skipSync) markFirestoreStateSectionDirty("alertSettings");
 }
 
 function timeStampText() {
@@ -1419,244 +1210,6 @@ function showToast(message, durationMs = 1900) {
   toast.classList.add("show");
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(hideToast, durationMs);
-}
-
-
-function loadFirestoreStateMeta() {
-  const meta = storageJsonGet(FIRESTORE_STATE_META_STORAGE_KEY, {});
-  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta : {};
-}
-
-function saveFirestoreStateMeta(meta) {
-  storageJsonSet(FIRESTORE_STATE_META_STORAGE_KEY, meta && typeof meta === "object" ? meta : {});
-}
-
-function firestoreSectionUpdatedAt(section) {
-  const meta = loadFirestoreStateMeta();
-  const value = Number(meta[section] || 0);
-  return Number.isFinite(value) ? value : 0;
-}
-
-function ensureFirestoreStateMetaSeeded() {
-  const meta = loadFirestoreStateMeta();
-  let changed = false;
-  const now = Date.now();
-  for (const section of FIRESTORE_STATE_SECTIONS) {
-    const current = Number(meta[section] || 0);
-    if (!Number.isFinite(current) || current <= 0) {
-      meta[section] = now;
-      changed = true;
-    }
-  }
-  if (changed) saveFirestoreStateMeta(meta);
-}
-
-function markFirestoreStateSectionDirty(section, stamp = Date.now()) {
-  if (firestoreApplyingRemote) return;
-  if (!FIRESTORE_STATE_SECTIONS.includes(section)) return;
-  const meta = loadFirestoreStateMeta();
-  meta[section] = Math.max(Number(meta[section] || 0), Number(stamp) || Date.now());
-  saveFirestoreStateMeta(meta);
-  scheduleFirestorePush();
-}
-
-function normalizeFirestoreSection(section, value) {
-  if (section === "api") {
-    const source = value && typeof value === "object" ? value : {};
-    const dataSource = Object.prototype.hasOwnProperty.call(API_SOURCES, source.dataSource) ? source.dataSource : DEFAULT_DATA_SOURCE;
-    return {
-      dataSource,
-      apiBase: String(source.apiBase || apiSourceByName(dataSource).apiBase || ""),
-      apiKey: String(source.apiKey || "")
-    };
-  }
-  if (section === "theme") return String(value || "light") === "dark" ? "dark" : "light";
-  if (section === "filters") return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  if (section === "performance") return normalizePerformanceSettings(value && typeof value === "object" ? value : defaultPerformanceSettings());
-  if (section === "watchlist") return Array.isArray(value) ? value : [];
-  if (section === "alertSettings") return { ...defaultAlertSettings(), ...(value && typeof value === "object" ? value : {}) };
-  if (section === "alertFired") return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return value;
-}
-
-function localFirestoreSectionValue(section) {
-  if (section === "api") {
-    const dataSource = storageGet(DATA_SOURCE_STORAGE_KEY, DEFAULT_DATA_SOURCE);
-    return normalizeFirestoreSection("api", {
-      dataSource,
-      apiBase: storageGet(API_BASE_STORAGE_KEY, apiSourceByName(dataSource).apiBase),
-      apiKey: storageGet(API_KEY_STORAGE_KEY, "")
-    });
-  }
-  if (section === "theme") return normalizeFirestoreSection("theme", storageGet(THEME_STORAGE_KEY, "light"));
-  if (section === "filters") return normalizeFirestoreSection("filters", storageJsonGet(FILTER_STORAGE_KEY, {}));
-  if (section === "performance") return normalizeFirestoreSection("performance", storageJsonGet(PERFORMANCE_STORAGE_KEY, defaultPerformanceSettings()));
-  if (section === "watchlist") return normalizeFirestoreSection("watchlist", loadWatchlist());
-  if (section === "alertSettings") return normalizeFirestoreSection("alertSettings", loadAlertSettingsObject());
-  if (section === "alertFired") return normalizeFirestoreSection("alertFired", loadFiredAlertState());
-  return null;
-}
-
-function buildLocalFirestoreState() {
-  const config = loadFirestoreConfig();
-  const sections = {};
-  for (const section of FIRESTORE_STATE_SECTIONS) {
-    sections[section] = {
-      updatedAtMs: firestoreSectionUpdatedAt(section),
-      value: localFirestoreSectionValue(section)
-    };
-  }
-  return {
-    id: FIRESTORE_STATE_DOC_ID,
-    syncVersion: 2,
-    syncKey: sanitizeSyncKey(config?.syncKey || ""),
-    _clientId: firestoreClientId,
-    _updatedAtMs: Date.now(),
-    updatedAt: new Date().toISOString(),
-    sections
-  };
-}
-
-
-function encodeFirestoreAppStateForFlightDoc(state) {
-  const config = loadFirestoreConfig();
-  const now = Date.now();
-  return {
-    id: FIRESTORE_STATE_DOC_ID,
-    syncKey: sanitizeSyncKey(config?.syncKey || ""),
-    deleted: false,
-    icao: "",
-    hex: "",
-    name: "ADS Viewer Pro — stan aplikacji",
-    date: "app-state",
-    routeShort: "app-state-v2",
-    routeVerbose: JSON.stringify(state || buildLocalFirestoreState()),
-    createdAt: new Date(now).toISOString(),
-    updatedAt: new Date(now).toISOString(),
-    _clientId: firestoreClientId,
-    _updatedAtMs: now
-  };
-}
-
-function decodeFirestoreAppStateFromFlightDoc(data) {
-  if (!data || typeof data !== "object") return null;
-  if (data.sections && typeof data.sections === "object") return data;
-  const encoded = String(data.routeVerbose || "");
-  if (!encoded) return null;
-  try {
-    const parsed = JSON.parse(encoded);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function remoteFirestoreStateSections(data) {
-  const source = data && typeof data === "object" ? data.sections : null;
-  return source && typeof source === "object" && !Array.isArray(source) ? source : {};
-}
-
-function applyRemoteSectionToLocal(section, value) {
-  const normalized = normalizeFirestoreSection(section, value);
-  if (section === "api") {
-    storageSet(DATA_SOURCE_STORAGE_KEY, normalized.dataSource);
-    storageSet(API_BASE_STORAGE_KEY, normalized.apiBase);
-    storageSet(API_KEY_STORAGE_KEY, normalized.apiKey);
-    if (dataSourceInput) dataSourceInput.value = normalized.dataSource;
-    if (apiBaseInput) apiBaseInput.value = normalized.apiBase;
-    if (apiKeyInput) apiKeyInput.value = normalized.apiKey;
-    return;
-  }
-  if (section === "theme") {
-    storageSet(THEME_STORAGE_KEY, normalized);
-    applyTheme(normalized);
-    return;
-  }
-  if (section === "filters") {
-    storageJsonSet(FILTER_STORAGE_KEY, normalized);
-    loadAircraftFilters();
-    return;
-  }
-  if (section === "performance") {
-    storageJsonSet(PERFORMANCE_STORAGE_KEY, normalized);
-    loadPerformanceSettings();
-    return;
-  }
-  if (section === "watchlist") {
-    storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(normalized));
-    renderWatchlist();
-    updateAlertStatusText();
-    return;
-  }
-  if (section === "alertSettings") {
-    storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, normalized);
-    applyAlertSettingsToForm();
-    return;
-  }
-  if (section === "alertFired") {
-    storageJsonSet(ALERT_FIRED_STORAGE_KEY, normalized);
-    updateAlertStatusText();
-  }
-}
-
-function applyRemoteAppState(remoteData) {
-  const sections = remoteFirestoreStateSections(remoteData);
-  const meta = loadFirestoreStateMeta();
-  const changedSections = new Set();
-  let needsPush = false;
-
-  firestoreApplyingRemote = true;
-  try {
-    for (const section of FIRESTORE_STATE_SECTIONS) {
-      const remoteSection = sections[section];
-      if (!remoteSection || typeof remoteSection !== "object") continue;
-      const remoteUpdatedAt = Number(remoteSection.updatedAtMs || 0);
-      const localUpdatedAt = Number(meta[section] || 0);
-      if (!Number.isFinite(remoteUpdatedAt)) continue;
-      if (remoteUpdatedAt > localUpdatedAt) {
-        applyRemoteSectionToLocal(section, remoteSection.value);
-        meta[section] = remoteUpdatedAt;
-        changedSections.add(section);
-      } else if (localUpdatedAt > remoteUpdatedAt) {
-        needsPush = true;
-      }
-    }
-    saveFirestoreStateMeta(meta);
-  } finally {
-    firestoreApplyingRemote = false;
-  }
-
-  if (changedSections.has("performance")) restartAircraftAutoRefresh();
-  if (changedSections.has("filters") && lastAircraftCache.length) {
-    const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
-    renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
-    renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
-  }
-  return { changed: changedSections.size > 0, needsPush };
-}
-
-async function pullAppStateFromFirestore() {
-  if (!firestoreState.ready || !firestoreState.stateDocRef) return { changed: false, needsPush: false };
-  const modules = await loadFirestoreModules();
-  const { getDoc } = modules.firestore;
-  const snapshot = await getDoc(firestoreState.stateDocRef);
-  if (!snapshot.exists()) return { changed: false, needsPush: false };
-  const state = decodeFirestoreAppStateFromFlightDoc(snapshot.data());
-  if (!state) return { changed: false, needsPush: false };
-  return applyRemoteAppState(state);
-}
-
-async function pushAppStateToFirestore() {
-  if (!firestoreState.ready || !firestoreState.stateDocRef) return;
-  const modules = await loadFirestoreModules();
-  const { setDoc } = modules.firestore;
-  ensureFirestoreStateMetaSeeded();
-  const state = buildLocalFirestoreState();
-  await setDoc(firestoreState.stateDocRef, encodeFirestoreAppStateForFlightDoc(state), { merge: true });
-}
-
-function firestoreStatusSummary(prefix = "Synchronizacja aktywna") {
-  return `${prefix}. Zapisane: ${loadFlights().length}. Obserwowane: ${loadWatchlist().length}.`;
 }
 
 function firestoreConfigFromForm() {
@@ -1794,13 +1347,8 @@ async function resetFirestoreConnection() {
   if (firestoreState.unsubscribe) {
     firestoreState.unsubscribe();
   }
-  if (firestoreState.unsubscribeState) {
-    firestoreState.unsubscribeState();
-  }
   firestoreState.unsubscribe = null;
-  firestoreState.unsubscribeState = null;
   firestoreState.collectionRef = null;
-  firestoreState.stateDocRef = null;
   firestoreState.db = null;
   firestoreState.ready = false;
 }
@@ -1816,7 +1364,6 @@ function remoteDocsToFlightsAndTombstones(snapshot) {
   const tombstones = {};
   snapshot.forEach((docSnapshot) => {
     const data = docSnapshot.data();
-    if (docSnapshot.id === FIRESTORE_STATE_DOC_ID || data?.id === FIRESTORE_STATE_DOC_ID) return;
     if (!data || typeof data !== "object") return;
     if (data.deleted) {
       tombstones[docSnapshot.id] = Number(data.deletedAt || data._updatedAtMs || Date.now());
@@ -1931,11 +1478,10 @@ async function syncFirestoreNow(options = {}) {
   if (firestorePushInProgress) return true;
   firestorePushInProgress = true;
   try {
-    if (!options.silent) setFirestoreStatus("Synchronizuję dane programu...", "busy");
+    if (!options.silent) setFirestoreStatus("Synchronizuję zapisane samoloty...", "busy");
     await pushFlightsToFirestore(loadFlights());
     await pushLocalTombstonesToFirestore();
-    await pushAppStateToFirestore();
-    setFirestoreStatus(firestoreStatusSummary(), "ok");
+    setFirestoreStatus(`Synchronizacja aktywna. Zapisane: ${loadFlights().length}.`, "ok");
     return true;
   } finally {
     firestorePushInProgress = false;
@@ -1959,19 +1505,17 @@ async function initFirestoreSync(options = {}) {
     await resetFirestoreConnection();
     const modules = await loadFirestoreModules();
     const { initializeApp, getApps } = modules.app;
-    const { getFirestore, collection, doc, getDocs, onSnapshot } = modules.firestore;
+    const { getFirestore, collection, getDocs, onSnapshot } = modules.firestore;
     const appName = `ads-viewer-${sanitizeFirestoreDocId(config.projectId)}-${sanitizeFirestoreDocId(config.syncKey)}`;
     const existing = getApps().find((item) => item.name === appName);
     const app = existing || initializeApp(firebaseConfigForSdk(config), appName);
     const db = getFirestore(app);
     const collectionRef = collection(db, FIRESTORE_COLLECTION_ROOT, sanitizeSyncKey(config.syncKey), "flights");
-    const stateDocRef = doc(collectionRef, FIRESTORE_STATE_DOC_ID);
     firestoreState = {
       ...firestoreState,
       app,
       db,
       collectionRef,
-      stateDocRef,
       ready: true,
       configSignature: signature
     };
@@ -1981,31 +1525,16 @@ async function initFirestoreSync(options = {}) {
     const merged = applyRemoteFlights(remoteFlights, tombstones);
     await pushFlightsToFirestore(merged);
     await pushLocalTombstonesToFirestore();
-    const stateResult = await pullAppStateFromFirestore();
-    await pushAppStateToFirestore();
-    if (stateResult.needsPush) scheduleFirestorePush();
 
     firestoreState.unsubscribe = onSnapshot(collectionRef, (liveSnapshot) => {
       const { flights, tombstones: liveTombstones } = remoteDocsToFlightsAndTombstones(liveSnapshot);
       applyRemoteFlights(flights, liveTombstones);
-      setFirestoreStatus(firestoreStatusSummary(), "ok");
+      setFirestoreStatus(`Synchronizacja aktywna. Zapisane: ${loadFlights().length}.`, "ok");
     }, (error) => {
       setFirestoreStatus(`Błąd Firestore: ${error.message || error}`, "error");
     });
 
-    firestoreState.unsubscribeState = onSnapshot(stateDocRef, (stateSnapshot) => {
-      if (!stateSnapshot.exists()) return;
-      const state = decodeFirestoreAppStateFromFlightDoc(stateSnapshot.data());
-      if (!state) return;
-      const result = applyRemoteAppState(state);
-      if (result.needsPush) scheduleFirestorePush();
-      if (result.changed) setFirestoreStatus(firestoreStatusSummary(), "ok");
-    }, (error) => {
-      setFirestoreStatus(`Błąd synchronizacji ustawień: ${error.message || error}`, "error");
-    });
-
-
-    setFirestoreStatus(firestoreStatusSummary(), "ok");
+    setFirestoreStatus(`Synchronizacja aktywna. Zapisane: ${loadFlights().length}.`, "ok");
     return true;
   } catch (error) {
     firestoreState.ready = false;
@@ -2036,7 +1565,7 @@ async function deleteSavedFlight(flight) {
   showToast("Usunięto zapis.");
   try {
     await pushDeletedFlightToFirestore(id);
-    setFirestoreStatus(firestoreStatusSummary("Usunięcie zsynchronizowane z Firestore"), "ok");
+    setFirestoreStatus("Usunięcie zsynchronizowane z Firestore.", "ok");
   } catch (error) {
     setFirestoreStatus(`Usunięto lokalnie. Firestore zsynchronizuje później: ${error.message || error}`, "error");
   }
@@ -2050,7 +1579,7 @@ async function clearSavedFlights() {
   showToast("Lista wyczyszczona.");
   try {
     await pushLocalTombstonesToFirestore();
-    setFirestoreStatus(firestoreStatusSummary("Usunięcia zsynchronizowane z Firestore"), "ok");
+    setFirestoreStatus("Usunięcia zsynchronizowane z Firestore.", "ok");
   } catch (error) {
     setFirestoreStatus(`Wyczyszczono lokalnie. Firestore zsynchronizuje później: ${error.message || error}`, "error");
   }
@@ -2118,33 +1647,6 @@ function toggleBottomMoreMenu() {
   }
 }
 
-function selectedAircraftAlertQuery(aircraft) {
-  if (!aircraft) return "";
-  const icao = aircraftIcao(aircraft).toUpperCase();
-  const callsign = aircraftCallsign(aircraft).toUpperCase();
-  const registration = firstFilled(aircraft?.r, aircraft?.registration).toUpperCase();
-  return icao || callsign || registration || aircraftLabel(aircraft);
-}
-
-function prepareAlertsPanelForSelectedAircraft() {
-  if (!selectedAircraft || !alertQueryInput) return;
-  const query = selectedAircraftAlertQuery(selectedAircraft);
-  if (!query) return;
-
-  // Alerty mają działać wyłącznie dla listy obserwowanych.
-  // Nie tworzymy tu globalnego alertu po frazie, żeby program nie alarmował dla przypadkowych samolotów.
-  upsertWatchFromAircraft(selectedAircraft, { silent: true });
-  alertQueryInput.value = "";
-  if (alertsEnabledInput) alertsEnabledInput.checked = true;
-  if (alertWatchedInput) alertWatchedInput.checked = true;
-  if (alertSpecialInput) alertSpecialInput.checked = false;
-  if (alertSystemInput && "Notification" in window) alertSystemInput.checked = true;
-
-  const settings = readAlertSettingsFromForm();
-  saveAlertSettingsObject(settings);
-  updateAlertStatusText(`Alert włączony dla listy obserwowanych. Dodano: ${query}.`);
-}
-
 function closeDrawerPanel() {
   if (!drawer) return;
   drawer.classList.remove("is-open", "is-expanded", "is-dragging");
@@ -2159,8 +1661,6 @@ function closeDrawerPanel() {
 function openDrawerPanel(panelId, title = "Panel") {
   const panel = document.getElementById(panelId);
   if (!drawer || !panel) return;
-
-  if (panelId === "alertsPanel") prepareAlertsPanelForSelectedAircraft();
 
   const alreadyOpen = drawer.classList.contains("is-open") && panel.classList.contains("is-active");
   if (alreadyOpen) {
@@ -2189,7 +1689,6 @@ function openDrawerPanel(panelId, title = "Panel") {
 
 function applyAppVersion() {
   if (appVersionBadge) appVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
-  if (settingsVersionBadge) settingsVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
   document.title = `ADS Viewer Pro ${APP_VERSION}`;
   document.documentElement.dataset.appVersion = APP_VERSION_STAMP;
   storageSet(APP_BUILD_STORAGE_KEY, APP_VERSION);
@@ -2200,53 +1699,9 @@ function isStandaloneApp() {
 }
 
 function updateInstallButtonVisibility() {
-  if (installButton) {
-    const standalone = isStandaloneApp();
-    const markedInstalled = storageGet(PWA_INSTALLED_STORAGE_KEY, "") === "1";
-    installButton.hidden = standalone || markedInstalled;
-    installButton.disabled = false;
-    installButton.textContent = deferredInstallPrompt ? "Zainstaluj" : "Jak zainstalować";
-    installButton.title = deferredInstallPrompt
-      ? "Zainstaluj aplikację na urządzeniu"
-      : "Pokaż informację, jak zainstalować aplikację z menu przeglądarki";
-  }
-  updateInstallPromptVisibility();
-}
-
-function updateInstallPromptVisibility() {
-  if (!installPrompt) return;
-  const browserChoice = storageGet(PWA_BROWSER_CHOICE_STORAGE_KEY, "") === "browser";
+  if (!installButton) return;
   const markedInstalled = storageGet(PWA_INSTALLED_STORAGE_KEY, "") === "1";
-  installPrompt.hidden = isStandaloneApp() || markedInstalled || browserChoice;
-}
-
-function dismissInstallPromptForBrowser() {
-  storageSet(PWA_BROWSER_CHOICE_STORAGE_KEY, "browser");
-  updateInstallPromptVisibility();
-  showToast("Zostajesz w wersji przeglądarkowej. Instalację znajdziesz w ustawieniach programu.", 3600);
-}
-
-async function promptPwaInstall() {
-  if (isStandaloneApp()) {
-    showToast("Aplikacja jest już uruchomiona jako zainstalowana PWA.", 2600);
-    updateInstallButtonVisibility();
-    return;
-  }
-
-  if (!deferredInstallPrompt) {
-    updateInstallPromptVisibility();
-    showToast("Ta przeglądarka nie udostępniła przycisku instalacji. Użyj menu przeglądarki: Zainstaluj aplikację / Dodaj do ekranu głównego.", 6200);
-    return;
-  }
-
-  deferredInstallPrompt.prompt();
-  const choice = await deferredInstallPrompt.userChoice;
-  if (choice?.outcome === "accepted") {
-    storageSet(PWA_INSTALLED_STORAGE_KEY, "1");
-    storageSet(PWA_BROWSER_CHOICE_STORAGE_KEY, "installed");
-  }
-  deferredInstallPrompt = null;
-  updateInstallButtonVisibility();
+  installButton.hidden = markedInstalled || isStandaloneApp() || !deferredInstallPrompt;
 }
 
 function deleteWritableCookies() {
@@ -2434,7 +1889,7 @@ function drawDirectionLine(layer, point, heading, speed, options = {}) {
   }).addTo(layer);
 }
 
-function drawRoute(points, label = "Trasa", options = {}) {
+function drawRoute(points, label = "Trasa") {
   initMap();
   if (!map || !routeLayer) return;
   routeLayer.clearLayers();
@@ -2451,27 +1906,17 @@ function drawRoute(points, label = "Trasa", options = {}) {
     L.polyline(latLngs, {
       pane: "routePane",
       interactive: false,
-      color: "#ffffff",
-      weight: 9,
-      opacity: 0.88
-    }).addTo(routeLayer);
-
-    L.polyline(latLngs, {
-      pane: "routePane",
-      interactive: false,
-      color: "#f97316",
-      weight: 5,
-      opacity: 0.98
+      color: "#16a34a",
+      weight: 4,
+      opacity: 0.92
     }).addTo(routeLayer);
   } else if (Number.isFinite(Number(clean[0].track))) {
-    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#f97316", weight: 4, opacity: 0.96 });
+    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#0ea5e9", weight: 3, opacity: 0.9 });
   }
 
   const start = clean[0];
   const end = clean[clean.length - 1];
-  const endpoints = options.endpoints || null;
-
-  if (latLngs.length === 1 && options.showCurrentMarker !== false) {
+  if (latLngs.length === 1) {
     L.marker([start.lat, start.lon], {
       pane: "routePane",
       interactive: false,
@@ -2479,36 +1924,28 @@ function drawRoute(points, label = "Trasa", options = {}) {
       icon: routeEndpointIcon("AKTUALNIE", "start"),
       title: "Aktualna pozycja"
     }).addTo(routeLayer);
-  }
-
-  if (endpoints?.start && endpoints?.end) {
-    L.marker([endpoints.start.lat, endpoints.start.lon], {
+  } else {
+    L.marker([start.lat, start.lon], {
       pane: "routePane",
       interactive: false,
       keyboard: false,
       icon: routeEndpointIcon("START", "start"),
-      title: `Start: ${endpoints.start.label || "potwierdzony punkt startu"}`
+      title: "Start"
     }).addTo(routeLayer);
 
-    L.marker([endpoints.end.lat, endpoints.end.lon], {
+    L.marker([end.lat, end.lon], {
       pane: "routePane",
       interactive: false,
       keyboard: false,
-      icon: routeEndpointIcon("STOP", "end"),
-      title: `Stop: ${endpoints.end.label || "potwierdzony punkt lądowania"}`
+      icon: routeEndpointIcon("KONIEC", "end"),
+      title: "Koniec"
     }).addTo(routeLayer);
   }
 
   lastRouteBounds = L.latLngBounds(latLngs);
-  if (options.fitMap !== false) {
-    map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: latLngs.length === 1 ? 10 : 11 });
-  }
-
+  map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: latLngs.length === 1 ? 10 : 11 });
   const suffix = latLngs.length === 1 ? "1 punkt + kierunek lotu" : `${latLngs.length} punktów`;
-  const endpointText = endpoints?.start && endpoints?.end
-    ? ` Start ${endpoints.start.label}; stop ${endpoints.end.label}.`
-    : " Bez potwierdzonego startu i lądowania — nie pokazuję znaczników START/STOP.";
-  setRouteSummary(`${label}: ${suffix}.${endpointText}`);
+  setRouteSummary(`${label}: ${suffix}. Start ${start.lat.toFixed(4)}, ${start.lon.toFixed(4)} -> koniec ${end.lat.toFixed(4)}, ${end.lon.toFixed(4)}.`);
 }
 
 function clearRoute() {
@@ -2817,32 +2254,6 @@ function aircraftDetailsRows(aircraft) {
   return rows;
 }
 
-function renderAircraftDetailsPanel(aircraft) {
-  if (!aircraftSheetMorePanel) return;
-  aircraftSheetMorePanel.replaceChildren();
-  for (const [name, value] of aircraftDetailsRows(aircraft)) {
-    const row = document.createElement("div");
-    row.className = "detail-row";
-    const valueElement = createTextElement("strong", "detail-value", value);
-    if (["Callsign", "HEX", "Rejestracja", "Pozycja"].includes(name)) {
-      enableCopyableAircraftValue(valueElement, value, name);
-    }
-    row.append(createTextElement("span", "detail-name", name), valueElement);
-    aircraftSheetMorePanel.append(row);
-  }
-}
-
-function setAircraftDetailsVisible(visible) {
-  if (!aircraftSheet || !aircraftSheetMorePanel) return;
-  aircraftSheetMorePanel.hidden = !visible;
-  aircraftSheet.classList.toggle("is-expanded", visible);
-  if (aircraftSheetRoute) aircraftSheetRoute.textContent = visible ? "Ukryj szczegóły" : "Szczegóły";
-  if (visible) {
-    invalidateMapSoon();
-    window.setTimeout(() => aircraftSheetMorePanel.scrollIntoView({ block: "nearest", behavior: "smooth" }), 80);
-  }
-}
-
 function showSelectedAircraftSheet(aircraft) {
   if (!aircraftSheet || !aircraft) return;
   selectedAircraft = aircraft;
@@ -2865,8 +2276,17 @@ function showSelectedAircraftSheet(aircraft) {
   updateAircraftSheetLiveDetails(aircraft);
   if (aircraftSheetPhoto) setAircraftPhoto(aircraftSheetPhoto, aircraft, { realPhoto: true });
 
-  if (aircraftSheetMorePanel) renderAircraftDetailsPanel(aircraft);
-  setAircraftDetailsVisible(false);
+  if (aircraftSheetMorePanel) {
+    aircraftSheetMorePanel.replaceChildren();
+    for (const [name, value] of aircraftDetailsRows(aircraft)) {
+      const row = document.createElement("div");
+      row.className = "detail-row";
+      row.append(createTextElement("span", "detail-name", name), createTextElement("strong", "detail-value", value));
+      aircraftSheetMorePanel.append(row);
+    }
+    aircraftSheetMorePanel.hidden = true;
+  }
+  if (aircraftSheetRoute) aircraftSheetRoute.textContent = "Szczegóły";
   aircraftSheet.hidden = false;
   aircraftSheet.classList.remove("is-expanded", "is-dragging");
   aircraftSheet.style.removeProperty("--sheet-drag-y");
@@ -2930,10 +2350,6 @@ function aircraftPopupContent(aircraft) {
     createTextElement("strong", "route-code", route.to)
   );
 
-  const popupHex = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych";
-  const popupHexRow = createTextElement("span", "map-popup-hex copyable-aircraft-value", `# ${popupHex}`);
-  enableCopyableAircraftValue(popupHexRow, popupHex, "HEX / #");
-
   const metrics = document.createElement("div");
   metrics.className = "map-popup-metrics";
   metrics.append(
@@ -2947,7 +2363,6 @@ function aircraftPopupContent(aircraft) {
     head,
     photo,
     routeGrid,
-    popupHexRow,
     createTextElement("span", "map-popup-route", route.caption),
     metrics,
     createTextElement("span", "map-popup-meta", `${phase.label} • ${phase.detail}`)
@@ -3016,10 +2431,10 @@ function watchToFlight(item) {
   };
 }
 
-function upsertWatchItem(item, options = {}) {
+function upsertWatchItem(item) {
   const cleanIcao = normalizeIcao(item?.icao || item?.hex || "");
   if (!isValidIcao(cleanIcao)) {
-    if (!options.silent) showToast("Brak poprawnego kodu ICAO/hex do obserwowania.", 3600);
+    showToast("Brak poprawnego kodu ICAO/hex do obserwowania.", 3600);
     return false;
   }
   const watchItem = { ...item, icao: cleanIcao, updatedAt: new Date().toISOString() };
@@ -3027,19 +2442,18 @@ function upsertWatchItem(item, options = {}) {
   const existing = items.find((entry) => normalizeIcao(entry.icao || "") === cleanIcao);
   const next = items.filter((entry) => normalizeIcao(entry.icao || "") !== cleanIcao);
   next.unshift({ ...(existing || {}), ...watchItem, id: existing?.id || watchItem.id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${cleanIcao}`) });
-  if (!existing) clearFiredAlertForIcao(cleanIcao);
   saveWatchlist(next);
   renderWatchlist();
   return true;
 }
 
-function upsertWatchFromAircraft(aircraft, options = {}) {
+function upsertWatchFromAircraft(aircraft) {
   if (!aircraft) {
-    if (!options.silent) showToast("Najpierw wybierz samolot.", 2600);
+    showToast("Najpierw wybierz samolot.", 2600);
     return false;
   }
-  const ok = upsertWatchItem(watchItemFromAircraft(aircraft), options);
-  if (ok && !options.silent) showToast("Dodano do obserwowanych.");
+  const ok = upsertWatchItem(watchItemFromAircraft(aircraft));
+  if (ok) showToast("Dodano do obserwowanych.");
   return ok;
 }
 
@@ -3098,7 +2512,7 @@ function updateWatchlistFromAircraft(aircraftArray) {
     };
   });
 
-  if (changed) saveWatchlist(next, { skipSync: true });
+  if (changed) saveWatchlist(next);
   renderWatchlist();
 }
 
@@ -3143,7 +2557,6 @@ function renderWatchlist() {
     node.querySelector(".delete-watch").addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      clearFiredAlertForIcao(flight.icao);
       saveWatchlist(loadWatchlist().filter((entry) => entry.id !== item.id && normalizeIcao(entry.icao || "") !== flight.icao));
       renderWatchlist();
       showToast("Usunięto z obserwowanych.");
@@ -3397,7 +2810,7 @@ function readAlertSettingsFromForm() {
     query: alertQueryInput?.value?.trim?.() || "",
     distanceKm: alertDistanceKmInput?.value?.trim?.() || "",
     maxAltitudeFt: alertMaxAltitudeInput?.value?.trim?.() || "",
-    watched: true,
+    watched: alertWatchedInput?.checked === true,
     special: alertSpecialInput?.checked === true,
     system: alertSystemInput?.checked === true
   };
@@ -3409,10 +2822,7 @@ function applyAlertSettingsToForm() {
   if (alertQueryInput) alertQueryInput.value = settings.query || "";
   if (alertDistanceKmInput) alertDistanceKmInput.value = settings.distanceKm || "";
   if (alertMaxAltitudeInput) alertMaxAltitudeInput.value = settings.maxAltitudeFt || "";
-  if (alertWatchedInput) {
-    alertWatchedInput.checked = true;
-    alertWatchedInput.disabled = true;
-  }
+  if (alertWatchedInput) alertWatchedInput.checked = settings.watched !== false;
   if (alertSpecialInput) alertSpecialInput.checked = settings.special === true;
   if (alertSystemInput) alertSystemInput.checked = settings.system === true;
   updateAlertStatusText();
@@ -3428,15 +2838,14 @@ function saveAlertSettingsFromForm() {
 function updateAlertStatusText(message = "") {
   if (!alertStatus) return;
   const settings = loadAlertSettingsObject();
-  const watchedCount = loadWatchlist().length;
-  const firedCount = Object.keys(loadFiredAlertState()).length;
-  const activeParts = [`obserwowane: ${watchedCount}`, `wysłane jednorazowo: ${firedCount}`];
-  if (settings.query) activeParts.push(`filtr: ${settings.query}`);
-  if (settings.special) activeParts.push("tylko wojskowe/specjalne z obserwowanych");
+  const activeParts = [];
+  if (settings.query) activeParts.push(`samolot: ${settings.query}`);
+  if (settings.watched) activeParts.push("obserwowane");
+  if (settings.special) activeParts.push("wojskowe/specjalne");
   if (settings.distanceKm) activeParts.push(`do ${settings.distanceKm} km`);
   if (settings.maxAltitudeFt) activeParts.push(`poniżej ${settings.maxAltitudeFt} ft`);
   const prefix = settings.enabled ? "Alerty włączone" : "Alerty wyłączone";
-  alertStatus.textContent = message || `${prefix}: ${activeParts.join(", ")}.`;
+  alertStatus.textContent = message || `${prefix}${activeParts.length ? `: ${activeParts.join(", ")}.` : "."}`;
 }
 
 function renderAlertLog() {
@@ -3499,48 +2908,14 @@ function aircraftMatchesAlertQuery(aircraft, query) {
   return aircraftSearchValues(aircraft).some((value) => value === cleanQuery || value.includes(cleanQuery) || cleanQuery.includes(value));
 }
 
-async function ensureNotificationPermission() {
-  if (!("Notification" in window)) return "unsupported";
-  if (Notification.permission === "granted") return "granted";
-  if (Notification.permission === "denied") return "denied";
-  return Notification.requestPermission();
-}
-
-async function showSystemAlertNotification(message) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-
-  const options = {
-    body: message,
-    icon: NOTIFICATION_ICON,
-    badge: NOTIFICATION_ICON,
-    tag: `ads-viewer-alert-${String(message).slice(0, 80)}`,
-    renotify: true,
-    requireInteraction: false,
-    data: { url: location.href },
-    vibrate: [180, 80, 180]
-  };
-
-  if ("serviceWorker" in navigator) {
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      if (registration?.showNotification) {
-        await registration.showNotification("ADS Viewer Pro", options);
-        return;
-      }
-    } catch {
-      // Jeżeli service worker nie jest gotowy, użyj zwykłego Notification.
-    }
-  }
-
-  new Notification("ADS Viewer Pro", options);
-}
-
 function notifyAlertUser(message, settings) {
   showToast(message, 6500);
-  if (settings.system) {
-    showSystemAlertNotification(message).catch(() => {
+  if (settings.system && "Notification" in window && Notification.permission === "granted") {
+    try {
+      new Notification("ADS Viewer Pro", { body: message, icon: "icon.svg" });
+    } catch {
       // Powiadomienie systemowe jest dodatkiem. Toast nadal działa.
-    });
+    }
   }
 }
 
@@ -3560,20 +2935,13 @@ function checkAircraftAlerts(aircraftArray, options = {}) {
     return;
   }
 
-  const watchedIcaos = new Set(loadWatchlist().map((item) => normalizeIcao(item.icao || "")).filter(isValidIcao));
-  pruneFiredAlertStateToWatchlist(watchedIcaos);
-  if (!watchedIcaos.size) {
-    if (options.toastIfEmpty) showToast("Lista obserwowanych jest pusta. Alerty działają tylko dla obserwowanych samolotów.", 3800);
-    updateAlertStatusText("Alerty: brak samolotów na liście obserwowanych.");
-    return;
-  }
-
   const source = Array.isArray(aircraftArray) ? aircraftArray : [];
   if (!source.length) {
     if (options.toastIfEmpty) showToast("Brak samolotów do sprawdzenia alertów.", 3000);
     return;
   }
 
+  const watchedIcaos = new Set(loadWatchlist().map((item) => normalizeIcao(item.icao || "")).filter(isValidIcao));
   const maxDistanceKm = numericSetting(settings.distanceKm);
   const maxAltitudeFt = numericSetting(settings.maxAltitudeFt);
   const basePoint = maxDistanceKm !== null ? alertBasePoint() : null;
@@ -3584,54 +2952,38 @@ function checkAircraftAlerts(aircraftArray, options = {}) {
     const icao = aircraftIcao(aircraft);
     if (!isValidIcao(icao)) continue;
 
-    // Główna zasada: alerty wolno wywoływać tylko dla samolotów dodanych do listy obserwowanych.
-    if (!watchedIcaos.has(icao)) continue;
-
-    // Druga zasada: dla jednego obserwowanego samolotu wysyłamy tylko jeden alert.
-    // Ponowny alert będzie możliwy dopiero po usunięciu i ponownym dodaniu samolotu do obserwowanych.
-    if (!options.force && hasFiredAlertForIcao(icao)) continue;
-
-    if (settings.query && !aircraftMatchesAlertQuery(aircraft, settings.query)) continue;
-
-    const reasons = ["obserwowany"];
-
-    if (settings.special) {
-      if (aircraftTypeGroup(aircraft) !== "special") continue;
-      reasons.push("wojskowy/specjalny");
-    }
+    const reasons = [];
+    if (settings.query && aircraftMatchesAlertQuery(aircraft, settings.query)) reasons.push("pasuje do szukanej frazy");
+    if (settings.watched && watchedIcaos.has(icao)) reasons.push("obserwowany");
+    if (settings.special && aircraftTypeGroup(aircraft) === "special") reasons.push("wojskowy/specjalny");
 
     const altitude = aircraftAltitudeFeet(aircraft);
-    if (maxAltitudeFt !== null) {
-      if (altitude === null || altitude > maxAltitudeFt) continue;
-      reasons.push(`niski przelot ${formatAltitude(altitude)}`);
-    }
+    if (maxAltitudeFt !== null && altitude !== null && altitude <= maxAltitudeFt) reasons.push(`niski przelot ${formatAltitude(altitude)}`);
 
     const point = pointFromAircraft(aircraft);
-    if (maxDistanceKm !== null) {
-      if (!basePoint || !point) continue;
+    if (maxDistanceKm !== null && basePoint && point) {
       const distance = distanceKmBetween(basePoint, point);
-      if (distance > maxDistanceKm) continue;
-      reasons.push(`blisko: ${distance.toFixed(1)} km`);
+      if (distance <= maxDistanceKm) reasons.push(`blisko: ${distance.toFixed(1)} km`);
     }
 
-    const key = icao;
+    if (!reasons.length) continue;
+    const key = `${icao}:${reasons.join("|")}`;
     if (!canTriggerAlert(key, options.force)) continue;
     const message = `${aircraftLabel(aircraft)} — ${reasons.join(", ")}`;
-    triggered.push({ icao, message });
+    triggered.push(message);
   }
 
   if (!triggered.length) {
-    if (options.toastIfEmpty) showToast("Brak obserwowanych samolotów w aktualnych danych.", 3200);
+    if (options.toastIfEmpty) showToast("Brak pasujących alertów w aktualnych danych.", 3200);
     updateAlertStatusText();
     return;
   }
 
-  for (const alert of triggered) {
-    if (!options.force) markFiredAlertForIcao(alert.icao);
-    pushAlertLog(alert.message);
-    notifyAlertUser(`Alert: ${alert.message}`, settings);
+  for (const message of triggered) {
+    pushAlertLog(message);
+    notifyAlertUser(`Alert: ${message}`, settings);
   }
-  updateAlertStatusText(`Ostatni alert: ${triggered[0].message}`);
+  updateAlertStatusText(`Ostatni alert: ${triggered[0]}`);
 }
 
 function aircraftToFlight(aircraft) {
@@ -3818,131 +3170,22 @@ function routeFromCache(cache, callsign) {
   return item.route;
 }
 
-function parseJsonLoose(text) {
-  if (!text) return null;
+async function fetchRouteset(planes) {
+  const response = await fetchWithTimeout(ROUTE_API_URL, {
+    method: "POST",
+    headers: {
+      "Accept": "application/json",
+      "Content-Type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify({ planes })
+  }, 15000);
+  if (!response.ok) throw new Error(`API trasy zwróciło błąd ${response.status}.`);
+  const text = await response.text();
   try {
     return JSON.parse(text);
   } catch {
-    return null;
+    return [];
   }
-}
-
-function normalizeRouteResult(route, callsign = "") {
-  if (!route || typeof route !== "object") return null;
-  const airports = routeAirports(route);
-  if (airports.length >= 2) {
-    return {
-      ...route,
-      callsign: normalizeCallsign(route.callsign || route.flight || callsign),
-      _airports: airports,
-      confirmed: route.confirmed !== false
-    };
-  }
-
-  const from = firstRouteValue(
-    route.from,
-    route.origin,
-    route.departure,
-    route.dep,
-    route.fromAirport,
-    route.originAirport,
-    route.departureAirport,
-    route?.flightroute?.origin?.iata_code,
-    route?.flightroute?.origin?.icao_code,
-    route?.response?.flightroute?.origin?.iata_code,
-    route?.response?.flightroute?.origin?.icao_code
-  );
-  const to = firstRouteValue(
-    route.to,
-    route.destination,
-    route.dest,
-    route.arrival,
-    route.arr,
-    route.toAirport,
-    route.destinationAirport,
-    route.arrivalAirport,
-    route?.flightroute?.destination?.iata_code,
-    route?.flightroute?.destination?.icao_code,
-    route?.response?.flightroute?.destination?.iata_code,
-    route?.response?.flightroute?.destination?.icao_code
-  );
-  if (!from || !to) return null;
-
-  const originName = firstRouteValue(
-    route?.flightroute?.origin?.name,
-    route?.flightroute?.origin?.municipality,
-    route?.response?.flightroute?.origin?.name,
-    route?.response?.flightroute?.origin?.municipality
-  );
-  const destName = firstRouteValue(
-    route?.flightroute?.destination?.name,
-    route?.flightroute?.destination?.municipality,
-    route?.response?.flightroute?.destination?.name,
-    route?.response?.flightroute?.destination?.municipality
-  );
-
-  return {
-    callsign: normalizeCallsign(route.callsign || route.flight || route?.response?.callsign || callsign),
-    from,
-    to,
-    verbose: `${originName || from} → ${destName || to}`,
-    confirmed: route.confirmed !== false
-  };
-}
-
-function routeEntriesFromResponse(rawRoutes) {
-  if (!rawRoutes) return [];
-  if (Array.isArray(rawRoutes)) {
-    return rawRoutes.map((route) => [route?.callsign || route?.flight || route?.hex || "", route]);
-  }
-  const root = rawRoutes.routes || rawRoutes.results || rawRoutes.planes || rawRoutes.response || rawRoutes;
-  if (Array.isArray(root)) {
-    return root.map((route) => [route?.callsign || route?.flight || route?.hex || "", route]);
-  }
-  if (root && typeof root === "object") {
-    return Object.entries(root).map(([key, value]) => [value?.callsign || value?.flight || key, Array.isArray(value) ? { callsign: key, _airports: value } : value]);
-  }
-  return [];
-}
-
-async function fetchRouteset(planes) {
-  let lastError = null;
-  const safePlanes = (planes || []).map((plane) => ({
-    callsign: normalizeCallsign(plane.callsign),
-    lat: Number.isFinite(Number(plane.lat)) ? Number(plane.lat) : 0,
-    lng: Number.isFinite(Number(plane.lng)) ? Number(plane.lng) : 0
-  })).filter((plane) => plane.callsign);
-
-  for (const url of ROUTE_API_URLS) {
-    try {
-      const response = await fetchWithTimeout(url, {
-        method: "POST",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json; charset=utf-8"
-        },
-        body: JSON.stringify({ planes: safePlanes })
-      }, 15000);
-      if (!response.ok) throw new Error(`API trasy ${url} zwróciło błąd ${response.status}.`);
-      const text = await response.text();
-      return parseJsonLoose(text) || [];
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("Nie udało się pobrać tras z API.");
-}
-
-async function fetchAdsbDbRoute(callsign) {
-  const clean = normalizeCallsign(callsign);
-  if (!clean) return null;
-  const response = await fetchWithTimeout(`${ADSBDB_CALLSIGN_API_BASE_URL}${encodeURIComponent(clean)}`, {
-    method: "GET",
-    headers: { "Accept": "application/json" }
-  }, 8000);
-  if (!response.ok) return null;
-  const text = await response.text();
-  return normalizeRouteResult(parseJsonLoose(text), clean);
 }
 
 async function enrichAircraftRoutes(aircraft) {
@@ -3950,7 +3193,7 @@ async function enrichAircraftRoutes(aircraft) {
   const toLookup = [];
   const seen = new Set();
 
-  for (const item of aircraft.slice(0, 120)) {
+  for (const item of aircraft.slice(0, 100)) {
     const callsign = aircraftCallsign(item);
     if (!callsign || seen.has(callsign)) continue;
     seen.add(callsign);
@@ -3960,72 +3203,35 @@ async function enrichAircraftRoutes(aircraft) {
       continue;
     }
     const point = pointFromAircraft(item);
-    toLookup.push({
-      callsign,
-      lat: point?.lat ?? 0,
-      lng: point?.lon ?? 0
-    });
+    if (!point) continue;
+    toLookup.push({ callsign, lat: point.lat, lng: point.lon });
   }
 
   if (!toLookup.length) return;
 
-  const now = Date.now();
-  const byCallsign = new Map();
-
   try {
     const rawRoutes = await fetchRouteset(toLookup);
-    for (const [rawCallsign, rawRoute] of routeEntriesFromResponse(rawRoutes)) {
-      const callsign = normalizeCallsign(rawCallsign || rawRoute?.callsign || rawRoute?.flight || "");
-      const route = normalizeRouteResult(rawRoute, callsign);
-      if (!callsign || !route) continue;
+    const entries = Array.isArray(rawRoutes)
+      ? rawRoutes.map((route) => [route?.callsign || route?.flight || route?.hex || "", route])
+      : Object.entries(rawRoutes?.routes || rawRoutes?.results || rawRoutes?.planes || rawRoutes || {}).map(([key, value]) => [value?.callsign || value?.flight || key, Array.isArray(value) ? { callsign: key, _airports: value } : value]);
+    const now = Date.now();
+    const byCallsign = new Map();
+    for (const [rawCallsign, route] of entries) {
+      if (!route) continue;
+      const callsign = normalizeCallsign(rawCallsign || route.callsign || route.flight || "");
+      if (!callsign) continue;
       cache[callsign] = { route, savedAt: now };
       byCallsign.set(callsign, route);
     }
+    saveRouteCache(cache);
+    for (const item of aircraft) {
+      const route = byCallsign.get(aircraftCallsign(item)) || routeFromCache(cache, aircraftCallsign(item));
+      if (route) item._route = route;
+    }
   } catch {
-    // Pierwsze źródło tras bywa niedostępne albo blokowane przez CORS. Niżej działa zapasowe uzupełnianie po callsign.
-  }
-
-  const missing = toLookup.filter((plane) => !byCallsign.has(plane.callsign) && !routeFromCache(cache, plane.callsign)).slice(0, 25);
-  for (const plane of missing) {
-    try {
-      const route = await fetchAdsbDbRoute(plane.callsign);
-      if (!route) continue;
-      cache[plane.callsign] = { route, savedAt: now };
-      byCallsign.set(plane.callsign, route);
-    } catch {
-      // Zapasowe API jest dodatkiem. Brak trasy nie może zatrzymać radaru.
-    }
-  }
-
-  saveRouteCache(cache);
-  for (const item of aircraft) {
-    const callsign = aircraftCallsign(item);
-    const route = byCallsign.get(callsign) || routeFromCache(cache, callsign);
-    if (route) item._route = route;
+    // Trasa skąd/dokąd jest dodatkiem. Brak odpowiedzi z route API nie blokuje mapy.
   }
 }
-
-function applyCachedRoutesToAircraft(aircraft) {
-  const cache = loadRouteCache();
-  for (const item of aircraft || []) {
-    const route = routeFromCache(cache, aircraftCallsign(item));
-    if (route) item._route = route;
-  }
-}
-
-function refreshSelectedAircraftRouteUi() {
-  if (!selectedAircraft) return;
-  const updated = findAircraftByIcaoInCache(aircraftIcao(selectedAircraft));
-  if (updated) selectedAircraft = updated;
-  if (aircraftSheet?.classList.contains("is-open")) {
-    showSelectedAircraftSheet(selectedAircraft);
-    if (aircraftSheetMorePanel && !aircraftSheetMorePanel.hidden) {
-      renderAircraftDetailsPanel(selectedAircraft);
-    }
-  }
-  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(selectedAircraft, { fitMap: false });
-}
-
 
 function trackKey(icao, date) {
   return `${normalizeIcao(icao)}:${date || todayLocalDate()}`;
@@ -4102,12 +3308,10 @@ async function enrichAircraftRoutesInBackground(aircraft, candidate, sourceName)
     await enrichAircraftRoutes(aircraft);
     const visibleAircraft = filterAircraftForDisplay(aircraft);
     renderAircraft(visibleAircraft, candidate);
-    renderAircraftMap(visibleAircraft, candidate, { preserveView: true });
-    refreshSelectedAircraftRouteUi();
-    setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Trasy skąd/dokąd zaktualizowane automatycznie.`);
+    setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Trasy skąd/dokąd zaktualizowane w tle.`);
   } catch {
     const visibleAircraft = filterAircraftForDisplay(aircraft);
-    setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Danych skąd/dokąd nie udało się uzupełnić automatycznie.`);
+    setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Danych skąd/dokąd nie udało się uzupełnić w tle.`);
   }
 }
 
@@ -4117,7 +3321,7 @@ function updateSelectedAircraftAfterRefresh(aircraft) {
   const updated = findAircraftByIcaoInCache(selectedIcao, aircraft);
   if (!updated) return;
   selectedAircraft = updated;
-  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(updated, { fitMap: false });
+  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(updated);
   if (aircraftSheet?.classList.contains("is-open")) {
     if (aircraftSheetAltitude) aircraftSheetAltitude.textContent = formatAltitude(updated?.alt_baro);
     if (aircraftSheetSpeed) aircraftSheetSpeed.textContent = formatSpeed(updated?.gs);
@@ -4128,7 +3332,13 @@ function updateSelectedAircraftAfterRefresh(aircraft) {
     if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(updated);
     updateAircraftSheetLiveDetails(updated);
     if (aircraftSheetMorePanel && !aircraftSheetMorePanel.hidden) {
-      renderAircraftDetailsPanel(updated);
+      aircraftSheetMorePanel.replaceChildren();
+      for (const [name, value] of aircraftDetailsRows(updated)) {
+        const row = document.createElement("div");
+        row.className = "detail-row";
+        row.append(createTextElement("span", "detail-name", name), createTextElement("strong", "detail-value", value));
+        aircraftSheetMorePanel.append(row);
+      }
     }
   }
 }
@@ -4152,10 +3362,8 @@ async function refreshFocusedAircraftInBackground() {
   try {
     const updated = await fetchAircraftByHex(cleanIcao, { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
     if (!updated) return;
-    applyCachedRoutesToAircraft([updated]);
     selectedAircraft = updated;
-    focusAircraftOnMap(updated, { singleMarker: true, showSheet: aircraftSheet?.classList.contains("is-open"), drawRoute: true, centerMap: false });
-    enrichAircraftRoutesInBackground([updated], lastRenderSettings || {}, "auto");
+    focusAircraftOnMap(updated, { singleMarker: true, showSheet: aircraftSheet?.classList.contains("is-open"), drawRoute: true });
     setAircraftStatus(`Auto-odświeżenie: ${aircraftLabel(updated)}.`);
   } catch (error) {
     setAircraftStatus(`Auto-odświeżenie wybranego samolotu nieudane: ${explainFetchError(error)}.`);
@@ -4185,7 +3393,6 @@ async function refreshAircraftInBackground() {
     const headers = { "Accept": "application/json" };
     if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
     const result = await fetchFirstAircraftResult(settings, headers);
-    applyCachedRoutesToAircraft(result.aircraft);
     const visibleAircraft = filterAircraftForDisplay(result.aircraft);
     lastAircraftCache = result.aircraft;
     lastRenderSettings = result.candidate;
@@ -4196,7 +3403,6 @@ async function refreshAircraftInBackground() {
     recordAircraftHistory(result.aircraft);
     checkAircraftAlerts(result.aircraft);
     setAircraftStatus(`Auto-odświeżenie: ${aircraftFilterSummary(result.aircraft.length, visibleAircraft.length)}. Źródło: ${result.sourceName}.`);
-    enrichAircraftRoutesInBackground(result.aircraft, result.candidate, result.sourceName);
   } catch (error) {
     setAircraftStatus(`Auto-odświeżenie nieudane: ${explainFetchError(error)}.`);
   } finally {
@@ -4236,7 +3442,6 @@ async function loadAircraft() {
       const aircraft = result.aircraft;
       const candidate = result.candidate;
       const sourceName = result.sourceName;
-      applyCachedRoutesToAircraft(aircraft);
       const visibleAircraft = filterAircraftForDisplay(aircraft);
 
       lastAircraftCache = aircraft;
@@ -4271,22 +3476,20 @@ function aircraftIcon(aircraft) {
   const heading = Number.isFinite(Number(rawHeading)) ? Number(rawHeading) : 0;
   const label = aircraftCallsign(aircraft) || firstFilled(aircraft?.callsign, aircraft?.name, aircraft?.flight, normalizeIcao(aircraft?.hex || "").toUpperCase(), "SAMOLOT");
   const group = aircraftTypeGroup(aircraft || {});
-  const dimensions = aircraftIconDimensions(group);
   const special = group === "special" || (aircraft?.dbFlags && (aircraft.dbFlags & 1)) ? " special" : "";
   const freshness = aircraftFreshnessInfo(aircraft);
   const performance = readPerformanceSettings();
   const lifecycle = aircraftLifecycleState(aircraft, performance);
   const escapedLabel = escapeHtml(label);
-  const typeTitle = aircraftGroupLabel(group);
   const freshnessHtml = performance.showFreshnessLabels ? `<span class="plane-freshness freshness-${freshness.state}">${escapeHtml(freshness.label)}</span>` : "";
   return L.divIcon({
     className: `aircraft-div-icon aircraft-kind-${group} aircraft-freshness-${freshness.state} aircraft-lifecycle-${lifecycle}`,
-    iconSize: [dimensions.width, dimensions.height],
-    iconAnchor: [dimensions.anchorX, dimensions.anchorY],
-    popupAnchor: [0, -Math.round(dimensions.height / 2)],
+    iconSize: [42, 38],
+    iconAnchor: [21, 19],
+    popupAnchor: [0, -20],
     html: `
-      <div class="plane-marker-wrap aircraft-kind-${group}" title="${escapeHtml(typeTitle)}">
-        <div class="plane-marker${special}" style="--heading:${heading}deg; --plane-svg-width:${dimensions.svgWidth}px; --plane-svg-height:${dimensions.svgHeight}px;">
+      <div class="plane-marker-wrap aircraft-kind-${group}">
+        <div class="plane-marker${special}" style="--heading:${heading}deg">
           ${aircraftSvgMarkup(group)}
         </div>
         <span class="plane-label">${escapedLabel}</span>
@@ -4294,7 +3497,6 @@ function aircraftIcon(aircraft) {
       </div>`
   });
 }
-
 
 
 function aircraftIcao(aircraft) {
@@ -4349,12 +3551,10 @@ function focusAircraftOnMap(aircraft, options = {}) {
   if (options.drawRoute !== false) drawSelectedAircraftRoute(aircraft);
   if (options.showSheet !== false) showSelectedAircraftSheet(aircraft);
 
-  if (options.centerMap !== false) {
-    const requestedZoom = Number(options.zoom ?? zoomInput?.value ?? 9.2);
-    const currentZoom = Number(map.getZoom?.() || 0);
-    const nextZoom = Number.isFinite(requestedZoom) ? Math.min(13, Math.max(currentZoom || 0, requestedZoom)) : Math.max(currentZoom || 0, 9);
-    map.setView([point.lat, point.lon], nextZoom || 9, { animate: false });
-  }
+  const requestedZoom = Number(options.zoom ?? zoomInput?.value ?? 9.2);
+  const currentZoom = Number(map.getZoom?.() || 0);
+  const nextZoom = Number.isFinite(requestedZoom) ? Math.min(13, Math.max(currentZoom || 0, requestedZoom)) : Math.max(currentZoom || 0, 9);
+  map.setView([point.lat, point.lon], nextZoom || 9, { animate: false });
   return true;
 }
 
@@ -4378,21 +3578,18 @@ function drawStoredTrackForAircraft(aircraft) {
   return clean;
 }
 
-function drawSelectedAircraftRoute(aircraft, options = {}) {
+function drawSelectedAircraftRoute(aircraft) {
   const flight = aircraftToFlight(aircraft);
   fillForm(flight);
 
   const point = pointFromAircraft(aircraft);
   let points = [];
-  const confirmedEndpoints = confirmedRouteEndpointPoints(aircraft);
+  const airportPoints = routeAirportPoints(aircraft);
 
-  if (confirmedEndpoints) {
-    points = point ? [confirmedEndpoints.start, point, confirmedEndpoints.end] : [confirmedEndpoints.start, confirmedEndpoints.end];
-    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`, {
-      endpoints: confirmedEndpoints,
-      fitMap: options.fitMap !== false
-    });
-    setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję potwierdzony START i STOP oraz aktualną pozycję wybranego samolotu.`);
+  if (airportPoints.length >= 2) {
+    points = point ? [airportPoints[0], point, airportPoints[airportPoints.length - 1]] : airportPoints;
+    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`);
+    setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję trasę start → aktualna pozycja → cel dla wybranego samolotu.`);
     return;
   }
 
@@ -4403,14 +3600,11 @@ function drawSelectedAircraftRoute(aircraft, options = {}) {
   if (!points.length && point) points = [point];
 
   if (points.length) {
-    drawRoute(points, `${aircraftLabel(aircraft)} • ślad live`, {
-      fitMap: options.fitMap !== false,
-      showCurrentMarker: points.length === 1
-    });
+    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`);
     if (points.length === 1) {
-      setRouteSummary(`${aircraftLabel(aircraft)}: brak potwierdzonego startu i lądowania. Pokazuję aktualny punkt i kierunek tylko dla wybranego samolotu.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: API nie zwróciło pełnej trasy start-lądowanie. Pokazuję aktualny punkt i kierunek tylko dla wybranego samolotu.`);
     } else {
-      setRouteSummary(`${aircraftLabel(aircraft)}: brak potwierdzonego startu i lądowania. Pokazuję wyraźny ślad live budowany od uruchomienia programu.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję ślad z tej sesji tylko dla wybranego samolotu. Pełna trasa wymaga źródła z historią/trace.`);
     }
     return;
   }
@@ -4456,9 +3650,20 @@ function visibleTrackSets(aircraft) {
 function drawVisibleAircraftTracks(aircraft) {
   if (!trailLayer) return;
   trailLayer.clearLayers();
-  // Ślady wszystkich samolotów są nadal zapisywane w pamięci sesji,
-  // ale na mapie rysujemy wyłącznie ścieżkę wybranego samolotu.
-  visibleTrackSets(aircraft);
+  const performance = readPerformanceSettings();
+  if (!performance.showTrails || performance.trailLimit <= 0) return;
+
+  for (const trackSet of visibleTrackSets(aircraft)) {
+    if (trackSet.points.length < 2) continue;
+
+    L.polyline(trackSet.points.map((trackPoint) => [trackPoint.lat, trackPoint.lon]), {
+      pane: "trailPane",
+      interactive: false,
+      color: "#2563eb",
+      weight: 2,
+      opacity: 0.38
+    }).addTo(trailLayer);
+  }
 }
 
 function renderAircraftMap(aircraft, settings = {}, options = {}) {
@@ -4682,6 +3887,8 @@ function stopLiveTracking() {
   if (liveTrackTimer) window.clearInterval(liveTrackTimer);
   liveTrackTimer = null;
   activeTrack = null;
+  const stopButton = document.getElementById("stopTrackButton");
+  if (stopButton) stopButton.hidden = true;
   setRouteSummary("Śledzenie zatrzymane.");
 }
 
@@ -4722,6 +3929,8 @@ async function startLiveTracking(flight = null) {
       name: target.name || target.icao.toUpperCase()
     };
     if (liveTrackTimer) window.clearInterval(liveTrackTimer);
+    const stopButton = document.getElementById("stopTrackButton");
+    if (stopButton) stopButton.hidden = false;
     setRouteSummary(`Uruchamiam śledzenie live dla ${activeTrack.icao.toUpperCase()}...`);
     await pollLiveTrack();
     liveTrackTimer = window.setInterval(pollLiveTrack, LIVE_TRACK_INTERVAL_MS);
@@ -4941,25 +4150,6 @@ function renderFlights() {
   }
 }
 
-function enableCopyableAircraftValue(element, value, label = "wartość") {
-  if (!element) return;
-  const text = String(value ?? "").trim();
-  if (!text || text === "brak danych") {
-    element.classList.remove("copyable-aircraft-value");
-    delete element.dataset.copyValue;
-    element.removeAttribute("title");
-    return;
-  }
-  element.classList.add("copyable-aircraft-value");
-  element.dataset.copyValue = text;
-  element.title = `Kliknij, aby skopiować ${label}: ${text}`;
-}
-
-function hasActiveTextSelection() {
-  const selection = window.getSelection?.();
-  return Boolean(selection && !selection.isCollapsed && String(selection).trim());
-}
-
 async function copyText(value) {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -5070,20 +4260,16 @@ clearWatchButton?.addEventListener("click", () => {
   if (!loadWatchlist().length) return;
   if (!confirm("Usunąć wszystkie obserwowane samoloty?")) return;
   saveWatchlist([]);
-  saveFiredAlertState({});
   renderWatchlist();
   showToast("Lista obserwowanych wyczyszczona.");
 });
 saveAlertSettingsButton?.addEventListener("click", saveAlertSettingsFromForm);
 requestNotificationsButton?.addEventListener("click", async () => {
-  const permission = await ensureNotificationPermission();
-  if (permission === "unsupported") {
+  if (!("Notification" in window)) {
     showToast("Ta przeglądarka nie obsługuje powiadomień systemowych.", 4200);
     return;
   }
-  if (alertSystemInput) alertSystemInput.checked = permission === "granted";
-  saveAlertSettingsObject(readAlertSettingsFromForm());
-  updateAlertStatusText(permission === "granted" ? "Powiadomienia systemowe włączone." : "Brak zgody na powiadomienia systemowe.");
+  const permission = await Notification.requestPermission();
   showToast(permission === "granted" ? "Powiadomienia systemowe włączone." : "Brak zgody na powiadomienia systemowe.", 4200);
 });
 testAlertsButton?.addEventListener("click", () => checkAircraftAlerts(lastAircraftCache, { force: true, toastIfEmpty: true }));
@@ -5172,7 +4358,6 @@ document.querySelector("#saveApiKeyButton").addEventListener("click", () => {
     storageSet(DATA_SOURCE_STORAGE_KEY, dataSourceInput.value);
     storageSet(API_KEY_STORAGE_KEY, apiKeyInput.value.trim());
     storageSet(API_BASE_STORAGE_KEY, apiBase);
-    markFirestoreStateSectionDirty("api");
     apiBaseInput.value = apiBase;
     showToast(persistentStorageAvailable ? "Ustawienia zapisane lokalnie." : "Zapis jest tylko tymczasowy w trybie pliku.");
   } catch (error) {
@@ -5182,7 +4367,6 @@ document.querySelector("#saveApiKeyButton").addEventListener("click", () => {
 
 themeInput.addEventListener("change", () => {
   applyTheme(themeInput.value);
-  markFirestoreStateSectionDirty("theme");
 });
 
 dataSourceInput.addEventListener("change", () => {
@@ -5504,9 +4688,6 @@ function installBottomDrag(handle, panel, closeCallback) {
     } else if (delta < -45) {
       panel.classList.add("is-expanded");
       invalidateMapSoon();
-    } else if (Math.abs(delta) <= 8) {
-      // Krótkie dotknięcie uchwytu nie chowa i nie rozwija panelu przypadkowo.
-      invalidateMapSoon();
     } else {
       panel.classList.toggle("is-expanded");
       invalidateMapSoon();
@@ -5528,14 +4709,8 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-document.querySelector("#locateButton").addEventListener("click", () => {
-  savedMapFocusActive = false;
-  locateUser({ autoLoad: false, startup: false, centerMap: true });
-});
-mapLocateButton?.addEventListener("click", () => {
-  savedMapFocusActive = false;
-  locateUser({ autoLoad: false, startup: false, centerMap: true });
-});
+document.querySelector("#locateButton").addEventListener("click", () => locateUser({ autoLoad: false, startup: false, centerMap: true }));
+mapLocateButton?.addEventListener("click", () => locateUser({ autoLoad: false, startup: false, centerMap: true }));
 
 window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
@@ -5556,24 +4731,13 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) refreshAircraftInBackground();
 });
 
-installButton?.addEventListener("click", promptPwaInstall);
-installPromptInstallButton?.addEventListener("click", promptPwaInstall);
-installPromptBrowserButton?.addEventListener("click", dismissInstallPromptForBrowser);
-
-document.addEventListener("click", async (event) => {
-  const copyTarget = event.target?.closest?.(".copyable-aircraft-value");
-  if (!copyTarget) return;
-  if (hasActiveTextSelection()) return;
-  const value = String(copyTarget.dataset.copyValue || copyTarget.textContent || "").replace(/^#\s*/, "").trim();
-  if (!value || value === "brak danych") return;
-  event.preventDefault();
-  event.stopPropagation();
-  try {
-    await copyText(value);
-    showToast(`Skopiowano: ${value}`);
-  } catch (error) {
-    showToast("Nie udało się skopiować do schowka.");
-  }
+installButton.addEventListener("click", async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  const choice = await deferredInstallPrompt.userChoice;
+  if (choice?.outcome === "accepted") storageSet(PWA_INSTALLED_STORAGE_KEY, "1");
+  deferredInstallPrompt = null;
+  updateInstallButtonVisibility();
 });
 
 aircraftSheetAds?.addEventListener("click", () => {
@@ -5592,8 +4756,9 @@ aircraftSheetSave?.addEventListener("click", () => {
 
 aircraftSheetRoute?.addEventListener("click", () => {
   if (!selectedAircraft || !aircraftSheetMorePanel) return;
-  renderAircraftDetailsPanel(selectedAircraft);
-  setAircraftDetailsVisible(aircraftSheetMorePanel.hidden);
+  drawSelectedAircraftRoute(selectedAircraft);
+  aircraftSheetMorePanel.hidden = !aircraftSheetMorePanel.hidden;
+  if (aircraftSheetRoute) aircraftSheetRoute.textContent = aircraftSheetMorePanel.hidden ? "Szczegóły" : "Ukryj szczegóły";
 });
 
 copyStatusButton?.addEventListener("click", async () => {

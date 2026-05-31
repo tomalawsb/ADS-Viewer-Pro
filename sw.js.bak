@@ -1,0 +1,68 @@
+const APP_VERSION_STAMP = "3005261117";
+const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
+const ASSETS = [
+  "./",
+  `./index.html?v=${APP_VERSION_STAMP}`,
+  `./styles.css?v=${APP_VERSION_STAMP}`,
+  `./app.js?v=${APP_VERSION_STAMP}`,
+  `./manifest.webmanifest?v=${APP_VERSION_STAMP}`,
+  "./icon.svg"
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS).catch(() => {})));
+  self.skipWaiting();
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches.keys().then((names) =>
+      Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)))
+    )
+  );
+  self.clients.claim();
+});
+
+async function networkFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  try {
+    const freshRequest = new Request(request, { cache: "no-store" });
+    const response = await fetch(freshRequest);
+    if (response.ok || response.type === "opaque") {
+      cache.put(request, response.clone()).catch(() => {});
+    }
+    return response;
+  } catch (error) {
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    throw error;
+  }
+}
+
+async function cacheFirst(request) {
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok || response.type === "opaque") {
+    cache.put(request, response.clone()).catch(() => {});
+  }
+  return response;
+}
+
+self.addEventListener("fetch", (event) => {
+  if (event.request.method !== "GET") return;
+
+  const url = new URL(event.request.url);
+  const isAppFile = url.origin === self.location.origin;
+  const isStaticLibrary = url.hostname === "cdn.jsdelivr.net" && url.pathname.includes("/leaflet@");
+
+  if (isAppFile) {
+    event.respondWith(networkFirst(event.request));
+    return;
+  }
+
+  if (isStaticLibrary) {
+    event.respondWith(cacheFirst(event.request));
+  }
+});

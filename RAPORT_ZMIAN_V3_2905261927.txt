@@ -1,0 +1,15 @@
+ADS Viewer Pro V3 - 2905261927
+
+Wykonane zmiany:
+- Dodano ślad lotu na mapie dla widocznych samolotów.
+- Ślad jest budowany z kolejnych odświeżeń pozycji samolotu.
+- Dodano filtry: typ samolotu, min. wysokość, max. wysokość, tylko z callsign.
+- Filtry nie pobierają danych ponownie, tylko natychmiast filtrują aktualną listę.
+- Dodano osobną warstwę trailLayer dla śladów, żeby nie mieszać ich z trasą wybranego samolotu.
+- Włączono preferCanvas w Leaflet dla lepszej wydajności przy większej liczbie markerów i linii.
+- Zostawiono przyciski ADS, Mapa i Usuń w zapisanych samolotach.
+- Nie przywrócono przycisku Kopiuj ani starego Śledź.
+
+Ograniczenia:
+- Ślad lotu nie jest pełną historyczną trasą z całego dnia. Jest lokalnym śladem z punktów, które program zobaczy podczas działania.
+- Pełny historyczny trace nadal zależy od źródła danych/API.

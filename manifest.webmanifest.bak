@@ -1,0 +1,27 @@
+{
+  "name": "ADS Viewer Pro V9",
+  "short_name": "ADS Viewer",
+  "description": "Mapa ADS-B z automatycznym odświeżaniem, śladami lotu, filtrami, alertami, obserwowanymi samolotami, historią przelotów i uproszczonym dolnym panelem mobilnym.",
+  "start_url": "./?v=3005261117",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f6fb",
+  "theme_color": "#f3f6fb",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

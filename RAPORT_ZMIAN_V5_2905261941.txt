@@ -1,0 +1,33 @@
+ADS Viewer Pro V5 - 2905261941
+
+Zakres zmian:
+1. Dodano rozszerzony panel szczegółów samolotu.
+   - Widoczne pola: HEX, kurs, wznoszenie/opadanie, ostatni sygnał, pozycja GPS, źródło danych.
+   - Przycisk „Trasa” zmieniony na „Szczegóły”.
+   - Sekcja szczegółów pokazuje pełniejsze dane: callsign, typ, rejestrację, operatora, trasę, status pozycji, wysokość barometryczną i geometryczną, prędkość, kurs, squawk, zadaną wysokość, pozycję i źródło.
+
+2. Dodano wskaźnik świeżości danych.
+   - W panelu samolotu pojawia się badge: LIVE / Świeże / Opóźnione / Stare / brak czasu.
+   - Lista samolotów pokazuje skrócony wskaźnik świeżości.
+   - Markery na mapie mają małą etykietę świeżości danych.
+   - Stare lub niepewne pozycje są wizualnie przygaszane.
+
+3. Zachowano poprzednie funkcje.
+   - ADS, Mapa, Usuń.
+   - Brak przycisku Kopiuj.
+   - Brak starego przycisku Śledź.
+   - Automatyczne odświeżanie samolotów na mapie.
+   - Ślady lotu.
+   - Filtry.
+   - Alerty.
+   - Lista obserwowanych.
+
+Sprawdzenie techniczne:
+- node --check app.js: OK
+- node --check sw.js: OK
+- brak zduplikowanych id w index.html
+- brak querySelector do nieistniejących id
+
+Uwagi:
+- Świeżość danych zależy od pól zwracanych przez źródło API, głównie seen_pos / seen.
+- Nie testowano live API w prawdziwej przeglądarce w tym środowisku.

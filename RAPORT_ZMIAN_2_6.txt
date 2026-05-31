@@ -1,0 +1,13 @@
+ADS Viewer Pro 2.6 - 2905261912
+
+Poprawka po zgłoszeniu użytkownika:
+- Przywrócono przycisk ADS w panelu zapisanych samolotów.
+- Nie przywrócono przycisku Kopiuj.
+- Nie przywrócono przycisku Śledź w starym znaczeniu.
+- Panel zapisanych ma teraz akcje: ADS, Mapa, Usuń.
+- Przycisk ADS dla zapisanych samolotów otwiera link ADS na podstawie zapisanego ICAO, daty, pozycji i zoomu.
+
+Sprawdzenie techniczne:
+- app.js: node --check OK.
+- sw.js: node --check OK.
+- HTML: brak zduplikowanych id.

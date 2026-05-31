@@ -1,0 +1,17 @@
+ADS Viewer Pro V6 - 2905262145
+
+Zakres zmian:
+1. Dodano automatyczne wygaszanie i ukrywanie starych samolotów.
+2. Samoloty z opóźnionymi/starymi danymi są przygaszane wizualnie.
+3. Samoloty starsze niż ustawiony limit są ukrywane z mapy i listy.
+4. Dodano panel "Tryb wydajności" w ustawieniach programu.
+5. Dodano profile: Responsywny, Zrównoważony, Oszczędny.
+6. Dodano regulację interwału odświeżania, limitu markerów mapy, limitu listy i czasu ukrywania starych samolotów.
+7. Dodano przełączniki: ślady lotu, etykiety świeżości, zdjęcia samolotów, automatyczne ukrywanie starych samolotów.
+8. Auto-odświeżanie używa ustawień wydajności bez przeładowania programu.
+
+Kontrola techniczna:
+- node --check app.js: OK
+- node --check sw.js: OK
+- brak zduplikowanych id w HTML
+- brak brakujących querySelector("#...") względem index.html

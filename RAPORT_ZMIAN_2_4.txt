@@ -1,0 +1,19 @@
+ADS Viewer Pro 2.4 - 2905261815
+
+Poprawki wykonane w paczce:
+1. Obsługa przycisku ADS została przeniesiona do app.js.
+2. Usunięto doklejony skrypt z końca index.html, który nadpisywał funkcje aplikacji.
+3. Przycisk ADS na liście samolotów otwiera teraz link ADS dla konkretnego samolotu.
+4. Przycisk Otwórz ADS w dolnym panelu działa na aktualnie wybranym samolocie.
+5. Poprawiono układ listy samolotów: 4 elementy na komputerze, osobny układ na telefonie.
+6. Ograniczono nadmiarowe zapytania do API przy pobieraniu z kilku źródeł.
+7. Dodano czyszczenie cache tras, zdjęć i lokalnych śladów.
+8. Zabezpieczono asynchroniczne ładowanie zdjęć przed nadpisywaniem aktualnego samolotu zdjęciem poprzedniego.
+9. Usunięto martwe odwołania JS do elementów, których nie było w HTML.
+10. Zaktualizowano wersję i cache PWA.
+
+Sprawdzenie techniczne:
+- node --check app.js: OK
+- node --check sw.js: OK
+- brak zduplikowanych id w index.html
+- brak odwołań querySelector("#...") do nieistniejących id

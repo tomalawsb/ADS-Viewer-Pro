@@ -1,0 +1,15 @@
+ADS Viewer Pro V10 - 3005261146
+
+Zmiany:
+- Zmieniono ikonę aplikacji na nową ikonę radar/samolot.
+- Dodano ikony PNG 192x192 i 512x512 do manifestu PWA.
+- Poprawiono powiadomienia systemowe alertów przez service worker, z fallbackiem do Notification API.
+- Dodano obsługę kliknięcia powiadomienia, która otwiera/fokusuje aplikację.
+- Dodano handler push w service workerze jako przygotowanie pod prawdziwe Web Push/FCM.
+- Po kliknięciu panelu „Alerty” przy wybranym samolocie pole alertu automatycznie ustawia się na ten samolot.
+- Usunięto duplikat przycisku „Kopiuj status” z HTML.
+- Dodano instrukcję INSTRUKCJA_ALERTY_PUSH.txt.
+
+Uwagi:
+- Lokalny alert systemowy działa po zgodzie przeglądarki i gdy aplikacja/PWA pracuje.
+- Pełny push po całkowitym zamknięciu aplikacji wymaga backendu/FCM.

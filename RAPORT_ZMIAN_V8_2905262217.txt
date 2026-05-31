@@ -1,0 +1,13 @@
+ADS Viewer Pro V8 - 2905262217
+
+Zmiany:
+- Przebudowano dolny panel nawigacji pod telefon.
+- Na dole zostały: Radar, Szukaj, Zapisane, Alerty, Więcej.
+- Do menu Więcej przeniesiono: Obserwowane, Historia, Status, Ustawienia, Z linku.
+- Naprawiono wizualny problem zlewających się podpisów na małym ekranie.
+- Zachowano wszystkie dotychczasowe funkcje z V7.
+
+Kontrola:
+- app.js: sprawdzony składniowo.
+- sw.js: sprawdzony składniowo.
+- manifest.webmanifest: poprawny JSON.

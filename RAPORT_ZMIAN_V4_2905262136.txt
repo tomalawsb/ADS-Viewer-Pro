@@ -1,0 +1,16 @@
+ADS Viewer Pro
+Wersja: V4 - 2905262136
+
+Zrobione:
+- Dodano alerty.
+- Dodano listę obserwowanych samolotów.
+- Dodano przycisk Obserwuj w dolnym panelu wybranego samolotu.
+- Alerty sprawdzają dane po każdym ręcznym i automatycznym odświeżeniu mapy.
+- Dodano log alertów.
+- Dodano opcjonalne powiadomienia systemowe przeglądarki.
+- Zachowano ADS, Mapa, Usuń, filtry, ślady lotu i automatyczne odświeżanie.
+- Zaktualizowano wersję w HTML, JS, manifest i service worker.
+
+Uwaga:
+- Alerty działają na samolotach widocznych w aktualnie pobranych danych.
+- Lista obserwowanych nie odpytuje API sama osobno; aktualizuje się przy normalnym odświeżaniu radaru.
