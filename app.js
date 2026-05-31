@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V29";
-const APP_VERSION_STAMP = "3105260945";
+const APP_VERSION_NUMBER = "V30";
+const APP_VERSION_STAMP = "3105261010";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3628,11 +3628,29 @@ async function aircraftPhotoBlobForExport(aircraft) {
   return { blob: fallbackBlob, fileName: "zdjecie_pogladowe.svg", url: photoUrl, real: false };
 }
 
+async function ensureDirectoryWritable(directoryHandle) {
+  if (!directoryHandle || typeof directoryHandle.queryPermission !== "function") return true;
+  const options = { mode: "readwrite" };
+  let permission = await directoryHandle.queryPermission(options);
+  if (permission === "granted") return true;
+  if (typeof directoryHandle.requestPermission === "function") {
+    permission = await directoryHandle.requestPermission(options);
+  }
+  return permission === "granted";
+}
+
 async function writeBlobToDirectory(directoryHandle, fileName, blob) {
   const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
   const writable = await fileHandle.createWritable();
-  await writable.write(blob);
-  await writable.close();
+  try {
+    await writable.write(blob);
+  } finally {
+    await writable.close();
+  }
+}
+
+async function writeTextToDirectory(directoryHandle, fileName, text, type = "text/plain;charset=utf-8") {
+  await writeBlobToDirectory(directoryHandle, fileName, blobFromText(text, type));
 }
 
 function downloadBlob(fileName, blob) {
@@ -3655,9 +3673,12 @@ async function exportSelectedAircraftToFolder() {
   let root = null;
   if (window.showDirectoryPicker) {
     try {
-      // Wywołanie wyboru katalogu musi nastąpić od razu po kliknięciu przycisku.
-      // Gdy najpierw pobieraliśmy zdjęcie i budowaliśmy pliki, przeglądarka potrafiła odrzucić wybór katalogu.
       root = await window.showDirectoryPicker({ mode: "readwrite" });
+      const writable = await ensureDirectoryWritable(root);
+      if (!writable) {
+        showToast("Brak zgody na zapis w wybranym katalogu.", 5200);
+        return;
+      }
     } catch (error) {
       if (error?.name === "AbortError") {
         showToast("Anulowano wybór katalogu.");
@@ -3669,43 +3690,90 @@ async function exportSelectedAircraftToFolder() {
     }
   }
 
-  startBusy("Zapisuję kartę samolotu...");
+  startBusy("Eksportuję kartę samolotu...");
   try {
     const aircraft = selectedAircraft;
     const baseName = makeAircraftExportBaseName(aircraft);
-    const photoInfo = await aircraftPhotoBlobForExport(aircraft);
+    let folder = null;
+
+    if (root) {
+      folder = await root.getDirectoryHandle(baseName, { create: true });
+      const writable = await ensureDirectoryWritable(folder);
+      if (!writable) throw new Error("Brak zgody na zapis w folderze eksportu.");
+
+      // Plik kontrolny zapisujemy od razu. Dzięki temu od razu widać, że eksport fizycznie ruszył.
+      await writeTextToDirectory(
+        folder,
+        "_eksport_start.txt",
+        `Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\n`
+      );
+    }
+
+    const photoInfo = { blob: null, fileName: "zdjecie_pogladowe.svg", url: "", real: false };
     const jsonText = JSON.stringify(aircraftExportJson(aircraft, photoInfo), null, 2);
     const txtText = aircraftExportText(aircraft, photoInfo);
     const trackCsv = aircraftTrackCsv(aircraft);
     const seenCsv = aircraftSeenHistoryCsv(aircraft);
-    const htmlText = aircraftExportHtml(aircraft, photoInfo.fileName, photoInfo);
 
-    const files = [
+    const textFiles = [
       ["dane.json", blobFromText(jsonText, "application/json;charset=utf-8")],
       ["opis.txt", blobFromText(txtText)],
       ["historia_trasy.csv", blobFromText(trackCsv, "text/csv;charset=utf-8")],
-      ["historia_widzen.csv", blobFromText(seenCsv, "text/csv;charset=utf-8")],
-      ["raport.html", blobFromText(htmlText, "text/html;charset=utf-8")],
-      [photoInfo.fileName, photoInfo.blob]
+      ["historia_widzen.csv", blobFromText(seenCsv, "text/csv;charset=utf-8")]
     ];
-    if (photoInfo.url) files.push(["zdjecie_zrodlo.txt", blobFromText(photoInfo.url)]);
 
-    if (root) {
-      const folder = await root.getDirectoryHandle(baseName, { create: true });
-      for (const [fileName, blob] of files) {
+    if (folder) {
+      for (const [fileName, blob] of textFiles) {
         await writeBlobToDirectory(folder, fileName, blob);
       }
-      showToast(`Zapisano kartę samolotu w katalogu: ${baseName}`, 4200);
+    } else {
+      for (const [fileName, blob] of textFiles) {
+        downloadBlob(`${baseName}_${fileName}`, blob);
+      }
+    }
+
+    // Zdjęcie zapisujemy na końcu, żeby ewentualny problem CORS/timeout nie blokował danych tekstowych.
+    let realPhotoInfo = photoInfo;
+    try {
+      realPhotoInfo = await aircraftPhotoBlobForExport(aircraft);
+    } catch (photoError) {
+      console.warn("Nie udało się pobrać zdjęcia, zapisuję grafikę poglądową.", photoError);
+      realPhotoInfo = {
+        blob: await blobFromDataUrl(aircraftThumbDataUrl(aircraft)),
+        fileName: "zdjecie_pogladowe.svg",
+        url: "",
+        real: false
+      };
+    }
+
+    const htmlText = aircraftExportHtml(aircraft, realPhotoInfo.fileName, realPhotoInfo);
+
+    if (folder) {
+      await writeBlobToDirectory(folder, "raport.html", blobFromText(htmlText, "text/html;charset=utf-8"));
+      if (realPhotoInfo.blob) {
+        await writeBlobToDirectory(folder, realPhotoInfo.fileName, realPhotoInfo.blob);
+      }
+      await writeTextToDirectory(
+        folder,
+        "zdjecie_zrodlo.txt",
+        realPhotoInfo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową."
+      );
+      await writeTextToDirectory(
+        folder,
+        "_eksport_zakonczony.txt",
+        `Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\n`
+      );
+      showToast(`Zapisano eksport w folderze: ${baseName}`, 5200);
       return;
     }
 
-    for (const [fileName, blob] of files) {
-      downloadBlob(`${baseName}_${fileName}`, blob);
-    }
+    downloadBlob(`${baseName}_raport.html`, blobFromText(htmlText, "text/html;charset=utf-8"));
+    if (realPhotoInfo.blob) downloadBlob(`${baseName}_${realPhotoInfo.fileName}`, realPhotoInfo.blob);
+    downloadBlob(`${baseName}_zdjecie_zrodlo.txt`, blobFromText(realPhotoInfo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową."));
     showToast("Przeglądarka nie obsługuje wyboru katalogu — pobrałem pliki osobno.", 5200);
   } catch (error) {
     console.error(error);
-    showToast(`Nie udało się zapisać karty: ${error?.message || "błąd"}`, 5200);
+    showToast(`Nie udało się zapisać eksportu: ${error?.message || "błąd"}`, 6200);
   } finally {
     finishBusy();
   }
