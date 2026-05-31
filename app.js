@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V27";
-const APP_VERSION_STAMP = "3105260930";
+const APP_VERSION_NUMBER = "V28";
+const APP_VERSION_STAMP = "3105260955";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -226,6 +226,7 @@ const aircraftSheetMorePanel = document.querySelector("#aircraftSheetMorePanel")
 const aircraftSheetAds = document.querySelector("#aircraftSheetAds");
 const aircraftSheetWatch = document.querySelector("#aircraftSheetWatch");
 const aircraftSheetSave = document.querySelector("#aircraftSheetSave");
+const aircraftSheetExport = document.querySelector("#aircraftSheetExport");
 const aircraftSheetRoute = document.querySelector("#aircraftSheetRoute");
 const firestoreSyncStatus = document.querySelector("#firestoreSyncStatus");
 const firestoreSettingsButton = document.querySelector("#firestoreSettingsButton");
@@ -3465,6 +3466,239 @@ async function exportFlightHistory() {
   showToast("Historia skopiowana jako CSV.");
 }
 
+
+function sanitizeFileName(value, fallback = "samolot") {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 90);
+  return cleaned || fallback;
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  return /[;"\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function makeAircraftExportBaseName(aircraft) {
+  const icao = aircraftIcao(aircraft).toUpperCase();
+  const callsign = aircraftCallsign(aircraft) || "";
+  const registration = firstFilled(aircraft?.r, aircraft?.registration);
+  return sanitizeFileName([icao, registration, callsign].filter(Boolean).join("_"), "samolot");
+}
+
+function aircraftExportHistoryRows(aircraft) {
+  const icao = aircraftIcao(aircraft);
+  const flight = aircraftToFlight(aircraft);
+  const latestTrack = loadLatestTrackPoints(icao);
+  const points = loadTrackPoints(icao, flight.date).length ? loadTrackPoints(icao, flight.date) : latestTrack.points;
+  const history = loadFlightHistory().filter((item) => normalizeIcao(item?.icao || "") === icao);
+  return { points, history, trackDate: latestTrack.date || flight.date };
+}
+
+function aircraftTrackCsv(aircraft) {
+  const { points } = aircraftExportHistoryRows(aircraft);
+  const header = "czas;lat;lon;wysokosc_ft;predkosc_kt;kurs;wznoszenie_ft_min";
+  const rows = points.map((point) => [
+    point.at || "",
+    point.lat ?? "",
+    point.lon ?? "",
+    point.altitude ?? "",
+    point.speed ?? "",
+    point.track ?? "",
+    point.verticalRate ?? ""
+  ].map(csvCell).join(";"));
+  return [header, ...rows].join("\n");
+}
+
+function aircraftSeenHistoryCsv(aircraft) {
+  const { history } = aircraftExportHistoryRows(aircraft);
+  const header = "pierwszy_wpis;ostatni_wpis;icao;callsign;rejestracja;typ;lat;lon;wysokosc;predkosc;kurs;powod;liczba";
+  const rows = history.map((item) => [
+    item.firstSeenAt || "",
+    item.lastSeenAt || "",
+    item.icao || "",
+    item.callsign || "",
+    item.registration || "",
+    item.type || "",
+    item.lat || "",
+    item.lon || "",
+    item.altitude ?? "",
+    item.speed ?? "",
+    item.heading ?? "",
+    item.reason || "",
+    item.count || 1
+  ].map(csvCell).join(";"));
+  return [header, ...rows].join("\n");
+}
+
+function aircraftExportJson(aircraft, photoInfo = {}) {
+  const flight = aircraftToFlight(aircraft);
+  const details = Object.fromEntries(aircraftDetailsRows(aircraft));
+  const routeDetails = Object.fromEntries(routeDetailRows(aircraft));
+  const { points, history, trackDate } = aircraftExportHistoryRows(aircraft);
+  return {
+    exportedAt: new Date().toISOString(),
+    appVersion: APP_VERSION,
+    flight,
+    details,
+    routeDetails,
+    route: routeInfoFromAircraft(aircraft),
+    rawAircraft: aircraft,
+    photo: photoInfo,
+    adsbUrl: buildAdsbUrl(flight),
+    localTrack: { date: trackDate, count: points.length, points },
+    localSeenHistory: history
+  };
+}
+
+function aircraftExportText(aircraft, photoInfo = {}) {
+  const flight = aircraftToFlight(aircraft);
+  const rows = aircraftDetailsRows(aircraft).map(([name, value]) => `${name}: ${value}`);
+  const { points, history } = aircraftExportHistoryRows(aircraft);
+  return [
+    `ADS Viewer Pro — karta samolotu`,
+    `Eksport: ${new Date().toLocaleString("pl-PL")}`,
+    `Wersja programu: ${APP_VERSION}`,
+    "",
+    ...rows,
+    "",
+    `Link ADS: ${buildAdsbUrl(flight)}`,
+    photoInfo.url ? `Zdjęcie źródłowe: ${photoInfo.url}` : "Zdjęcie źródłowe: brak danych",
+    "",
+    `Lokalne punkty trasy/przelotu zapisane przez program: ${points.length}`,
+    `Lokalne wpisy historii widzeń: ${history.length}`,
+    "",
+    "Uwaga: pełna historyczna lista dawnych przelotów jest dostępna tylko wtedy, gdy źródło API ją udostępnia albo program wcześniej obserwował ten samolot."
+  ].join("\n");
+}
+
+function aircraftExportHtml(aircraft, imageFileName, photoInfo = {}) {
+  const detailsRows = aircraftDetailsRows(aircraft).map(([name, value]) => `<tr><th>${escapeHtml(name)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
+  const routeRows = routeDetailRows(aircraft).map(([name, value]) => `<tr><th>${escapeHtml(name)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
+  const { points, history } = aircraftExportHistoryRows(aircraft);
+  const title = aircraftLabel(aircraft);
+  return `<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><title>${escapeHtml(title)} — ADS Viewer Pro</title>
+<style>
+body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f8fafc;color:#0f172a}main{max-width:980px;margin:auto;background:white;border-radius:18px;padding:24px;box-shadow:0 12px 40px #0002}img{max-width:360px;border-radius:14px}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:8px}th{width:230px;color:#475569}.muted{color:#64748b}.grid{display:grid;grid-template-columns:380px 1fr;gap:20px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+</style></head><body><main>
+<h1>${escapeHtml(title)}</h1>
+<p class="muted">Eksport: ${escapeHtml(new Date().toLocaleString("pl-PL"))} · ${escapeHtml(APP_VERSION)}</p>
+<div class="grid"><div><img src="${escapeHtml(imageFileName)}" alt="Zdjęcie samolotu"></div><div><table>${detailsRows}</table></div></div>
+<h2>Trasa / przelot</h2><table>${routeRows}</table>
+<p>Lokalne punkty trasy zapisane przez program: <strong>${points.length}</strong></p>
+<p>Lokalne wpisy historii widzeń: <strong>${history.length}</strong></p>
+<p>Link ADS: <a href="${escapeHtml(buildAdsbUrl(aircraftToFlight(aircraft)))}">otwórz</a></p>
+${photoInfo.url ? `<p>Źródło zdjęcia: <a href="${escapeHtml(photoInfo.url)}">${escapeHtml(photoInfo.url)}</a></p>` : ""}
+</main></body></html>`;
+}
+
+function blobFromText(text, type = "text/plain;charset=utf-8") {
+  return new Blob([text], { type });
+}
+
+async function blobFromDataUrl(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
+}
+
+async function aircraftPhotoBlobForExport(aircraft) {
+  const fallbackBlob = await blobFromDataUrl(aircraftThumbDataUrl(aircraft));
+  let photoUrl = "";
+  try {
+    photoUrl = await findRealAircraftPhotoUrl(aircraft);
+    if (photoUrl) {
+      const response = await fetchWithTimeout(photoUrl, {}, 8000);
+      if (response.ok) {
+        const blob = await response.blob();
+        if (blob && blob.size > 0) {
+          const mime = blob.type || "image/jpeg";
+          const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
+          return { blob, fileName: `zdjecie.${ext}`, url: photoUrl, real: true };
+        }
+      }
+    }
+  } catch {
+    // Jeśli zdjęcia realnego nie da się pobrać przez CORS/API, zapisujemy grafikę poglądową i link źródłowy.
+  }
+  return { blob: fallbackBlob, fileName: "zdjecie_pogladowe.svg", url: photoUrl, real: false };
+}
+
+async function writeBlobToDirectory(directoryHandle, fileName, blob) {
+  const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
+function downloadBlob(fileName, blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function exportSelectedAircraftToFolder() {
+  if (!selectedAircraft) {
+    showToast("Najpierw wybierz samolot.");
+    return;
+  }
+
+  startBusy("Zapisuję kartę samolotu...");
+  try {
+    const aircraft = selectedAircraft;
+    const baseName = makeAircraftExportBaseName(aircraft);
+    const photoInfo = await aircraftPhotoBlobForExport(aircraft);
+    const jsonText = JSON.stringify(aircraftExportJson(aircraft, photoInfo), null, 2);
+    const txtText = aircraftExportText(aircraft, photoInfo);
+    const trackCsv = aircraftTrackCsv(aircraft);
+    const seenCsv = aircraftSeenHistoryCsv(aircraft);
+    const htmlText = aircraftExportHtml(aircraft, photoInfo.fileName, photoInfo);
+
+    const files = [
+      ["dane.json", blobFromText(jsonText, "application/json;charset=utf-8")],
+      ["opis.txt", blobFromText(txtText)],
+      ["historia_trasy.csv", blobFromText(trackCsv, "text/csv;charset=utf-8")],
+      ["historia_widzen.csv", blobFromText(seenCsv, "text/csv;charset=utf-8")],
+      ["raport.html", blobFromText(htmlText, "text/html;charset=utf-8")],
+      [photoInfo.fileName, photoInfo.blob]
+    ];
+    if (photoInfo.url) files.push(["zdjecie_zrodlo.txt", blobFromText(photoInfo.url)]);
+
+    if (window.showDirectoryPicker) {
+      const root = await window.showDirectoryPicker({ mode: "readwrite" });
+      const folder = await root.getDirectoryHandle(baseName, { create: true });
+      for (const [fileName, blob] of files) {
+        await writeBlobToDirectory(folder, fileName, blob);
+      }
+      showToast(`Zapisano kartę samolotu w katalogu: ${baseName}`, 4200);
+      return;
+    }
+
+    for (const [fileName, blob] of files) {
+      downloadBlob(`${baseName}_${fileName}`, blob);
+    }
+    showToast("Przeglądarka nie obsługuje wyboru katalogu — pobrałem pliki osobno.", 5200);
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      showToast("Anulowano wybór katalogu.");
+    } else {
+      console.error(error);
+      showToast(`Nie udało się zapisać karty: ${error?.message || "błąd"}`, 5200);
+    }
+  } finally {
+    finishBusy();
+  }
+}
+
 function readAlertSettingsFromForm() {
   return {
     enabled: alertsEnabledInput?.checked === true,
@@ -5874,6 +6108,8 @@ aircraftSheetSave?.addEventListener("click", () => {
   upsertFlight(aircraftToFlight(selectedAircraft));
   showToast("Samolot zapisany.");
 });
+
+aircraftSheetExport?.addEventListener("click", exportSelectedAircraftToFolder);
 
 aircraftSheetRoute?.addEventListener("click", () => {
   if (!selectedAircraft || !aircraftSheetMorePanel) return;

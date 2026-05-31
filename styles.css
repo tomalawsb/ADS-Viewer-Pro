@@ -1304,6 +1304,7 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   font-weight: 900;
 }
 .aircraft-sheet-actions #aircraftSheetSave { color: #052e16; background: var(--accent); }
+.aircraft-sheet-actions #aircraftSheetExport { color: #0f172a; background: #bfdbfe; }
 .aircraft-sheet-more {
   display: grid;
   gap: 4px;

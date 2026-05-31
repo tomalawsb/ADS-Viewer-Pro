@@ -1,8 +1,8 @@
-# ADS Viewer Pro V27 - 3105260930
+# ADS Viewer Pro V28 - 3105260955
 
 # ADS Viewer Pro
 
-Wersja: **V27 - 3105260930**
+Wersja: **V28 - 3105260955**
 
 ## Opis
 
@@ -94,3 +94,10 @@ Poprawki:
 ## Zmiany V27 - 3105260930
 - Po ręcznym wyszukaniu samolotu spoza aktualnego obszaru program najpierw przenosi mapę do pozycji samolotu, automatycznie odświeża obszar według ustawionego promienia, a dopiero potem pokazuje kartę samolotu z danymi.
 - Współrzędne przeglądania są aktualizowane do znalezionego samolotu, żeby kolejne odświeżenie dotyczyło tej samej sekcji mapy.
+
+## Zmiany V28 - 3105260955
+
+- Dodano przycisk **Eksportuj** w karcie wybranego samolotu.
+- Eksport zapisuje do wskazanego katalogu: `dane.json`, `opis.txt`, `raport.html`, `historia_trasy.csv`, `historia_widzen.csv`, zdjęcie lub grafikę poglądową oraz link do źródła zdjęcia, jeśli jest dostępny.
+- W Chrome/Edge program używa wyboru katalogu. Gdy przeglądarka tego nie obsługuje, pobiera pliki osobno.
+- Historia przelotów obejmuje dane zapisane lokalnie przez program oraz punkty trasy zebrane podczas odświeżania/obserwowania.
