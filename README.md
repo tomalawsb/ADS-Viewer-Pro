@@ -1,8 +1,8 @@
-# ADS Viewer Pro V24 - 3105260715
+# ADS Viewer Pro V26 - 3105260915
 
 # ADS Viewer Pro
 
-Wersja: **V24 - 3105260715**
+Wersja: **V26 - 3105260915**
 
 ## Opis
 
@@ -63,19 +63,19 @@ Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest 
 - Kolory ikon pozostają zgodne z dotychczasowym ustawieniem programu.
 - Naprawiono przycisk „Szczegóły” w panelu samolotu: teraz pokazuje/ukrywa panel szczegółów i rozwija kartę.
 
-## Zmiany V24 - 3105260715
+## Zmiany V26 - 3105260915
 - Rozszerzono synchronizację Firestore: oprócz zapisanych samolotów synchronizowane są teraz ustawienia programu i lista obserwowanych.
 - Synchronizowane sekcje: źródło danych/API, motyw, filtry samolotów, ustawienia wydajności, obserwowane samoloty, ustawienia alertów i stan alertów jednorazowych.
 - Dodano techniczny dokument stanu aplikacji w Firestore: `adsViewerSync/{kod}/flights/__app_state`, żeby zachować zgodność z dotychczasowymi regułami Firestore.
 - Status synchronizacji pokazuje teraz liczbę zapisanych i obserwowanych samolotów.
 
 
-## V24 - 3105260715
+## V26 - 3105260915
 - Naprawiono błąd z V19: przywrócono komplet funkcji ładowania i filtrów samolotów.
 - Ikony samolotów działają jako SVG zamiast PNG.
 - Zachowano synchronizację Firestore z V17/V18.
 
-## V24 - 3105260715
+## V26 - 3105260915
 
 Poprawki:
 - wyszukiwanie po HEX jest ścisłe: program nie pokazuje innego samolotu, jeśli API zwróci wynik niezgodny z wpisanym HEX;
@@ -83,3 +83,9 @@ Poprawki:
 - ręczne wyszukanie samolotu przenosi mapę do jego pozycji;
 - kliknięcie samolotu na mapie nadal nie wymusza centrowania;
 - przy pobieraniu samolotów z mapy program bierze aktualny środek mapy i promień ustawiony w opcjach.
+
+
+## Zmiany V26 - 3105260915
+- Ręczne wyszukanie samolotu przenosi mapę do znalezionej pozycji.
+- Kliknięcie samolotu na mapie nadal nie centruje mapy.
+- Przy wyszukiwaniu zachowany jest bliski zoom na ikonę samolotu, bez dopasowywania do całej trasy.

@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V24";
-const APP_VERSION_STAMP = "3105260715";
+const APP_VERSION_NUMBER = "V26";
+const APP_VERSION_STAMP = "3105260915";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -284,6 +284,27 @@ const firestoreClientId = getOrCreateFirestoreClientId();
 let lastHistoryWriteAt = 0;
 const alertCooldownMap = new Map();
 
+function isSavePanelOpen() {
+  const panel = document.getElementById("savePanel");
+  return Boolean(drawer?.classList.contains("is-open") && panel?.classList.contains("is-active"));
+}
+
+function markManualSearchInput(value = icaoInput?.value || "") {
+  if (!icaoInput) return;
+  icaoInput.dataset.manualSearchActive = "1";
+  icaoInput.dataset.manualSearchValue = String(value || "");
+}
+
+function clearManualSearchInputLock() {
+  if (!icaoInput) return;
+  delete icaoInput.dataset.manualSearchActive;
+  delete icaoInput.dataset.manualSearchValue;
+}
+
+function shouldPreserveManualSearchInput(options = {}) {
+  return options.force !== true && icaoInput?.dataset.manualSearchActive === "1" && isSavePanelOpen();
+}
+
 function storageGet(key, fallback = "") {
   try {
     const value = localStorage.getItem(key);
@@ -353,6 +374,15 @@ function normalizeIcao(value) {
 
 function isValidIcao(value) {
   return /^[a-f0-9]{6}$/.test(value);
+}
+
+function explicitIcaoFromInput(value) {
+  const clean = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^hex[:\s-]*/i, "")
+    .replace(/\s+/g, "");
+  return isValidIcao(clean) ? clean : "";
 }
 
 function createTextElement(tag, className, text) {
@@ -2146,6 +2176,7 @@ function prepareAlertsPanelForSelectedAircraft() {
 }
 
 function closeDrawerPanel() {
+  clearManualSearchInputLock();
   if (!drawer) return;
   drawer.classList.remove("is-open", "is-expanded", "is-dragging");
   drawer.style.removeProperty("--sheet-drag-y");
@@ -3177,7 +3208,8 @@ function renderWatchlist() {
     node.querySelector(".map-watch").addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      fillForm(flight);
+      clearManualSearchInputLock();
+      fillForm(flight, { force: true });
       await showSavedFlightOnMap(flight);
     });
 
@@ -3369,7 +3401,8 @@ function renderFlightHistory() {
     node.querySelector(".map-history").addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      fillForm(flight);
+      clearManualSearchInputLock();
+      fillForm(flight, { force: true });
       await showSavedFlightOnMap(flight);
     });
     node.querySelector(".watch-history").addEventListener("click", (event) => {
@@ -4812,7 +4845,7 @@ async function fetchAircraftByLiveQuery(rawValue, options = {}) {
   const raw = String(rawValue || "").trim();
   if (!raw) return null;
 
-  const directIcao = normalizeIcao(raw);
+  const directIcao = explicitIcaoFromInput(raw);
   if (isValidIcao(directIcao)) {
     return fetchAircraftByHex(directIcao, {
       preferCache: false,
@@ -4912,7 +4945,7 @@ function findAircraftByExactSearchQuery(rawValue) {
 
 function aircraftMatchesSearchInput(aircraft, rawValue) {
   const raw = String(rawValue || '').trim();
-  const directIcao = normalizeIcao(raw);
+  const directIcao = explicitIcaoFromInput(raw);
   if (isValidIcao(directIcao)) return aircraftIcao(aircraft) === directIcao;
 
   const query = normalizeSearchText(raw);
@@ -4927,7 +4960,7 @@ function aircraftMatchesSearchInput(aircraft, rawValue) {
 
 function resolveSmartFlightInput(rawValue) {
   const raw = String(rawValue || "").trim();
-  const directIcao = normalizeIcao(raw);
+  const directIcao = explicitIcaoFromInput(raw);
   if (isValidIcao(directIcao)) {
     const match = findAircraftBySmartQuery(directIcao);
     const point = match ? pointFromAircraft(match) : null;
@@ -5018,7 +5051,9 @@ function parseFlightText(text) {
   };
 }
 
-function fillForm(parsed) {
+function fillForm(parsed, options = {}) {
+  if (shouldPreserveManualSearchInput(options)) return;
+
   const icao = normalizeIcao(parsed.icao || parsed.hex || "");
   const displayName = parsed.name || parsed.callsign || parsed.flight || (icao ? icao.toUpperCase() : "");
   icaoInput.value = displayName;
@@ -5073,7 +5108,8 @@ function renderFlights() {
     node.querySelector(".map-flight").addEventListener("click", async (event) => {
       event.preventDefault();
       event.stopPropagation();
-      fillForm(flight);
+      clearManualSearchInputLock();
+      fillForm(flight, { force: true });
       await showSavedFlightOnMap(flight);
     });
 
@@ -5129,7 +5165,8 @@ function importFromText() {
     return;
   }
 
-  fillForm(parsed);
+  clearManualSearchInputLock();
+  fillForm(parsed, { force: true });
   showToast("Dane wpisane do formularza.");
 }
 
@@ -5156,23 +5193,33 @@ async function searchAircraftFromInput() {
     return;
   }
 
-  const directIcao = normalizeIcao(raw);
+  markManualSearchInput(raw);
+
+  const directIcao = explicitIcaoFromInput(raw);
   const localMatch = isValidIcao(directIcao) ? findAircraftByIcaoInCache(directIcao) : findAircraftByExactSearchQuery(raw);
   if (localMatch) {
-    let aircraft = localMatch.icao && !localMatch.hex ? flightToAircraft(localMatch) : localMatch;
-    const localIcao = aircraftIcao(aircraft);
-    if (!pointFromAircraft(aircraft) && isValidIcao(localIcao)) {
-      try {
-        const live = await fetchAircraftByHex(localIcao, { preferCache: false, fallbackAllSources: true, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: true });
-        if (live) aircraft = mergeFlightRouteIntoAircraft(live, localMatch);
-      } catch {
-        // Jeśli live nie odpowie, pokazujemy dane lokalne bez zapisywania.
+    try {
+      let aircraft = localMatch.icao && !localMatch.hex ? flightToAircraft(localMatch) : localMatch;
+      const localIcao = aircraftIcao(aircraft);
+      if (!pointFromAircraft(aircraft) && isValidIcao(localIcao)) {
+        try {
+          const live = await fetchAircraftByHex(localIcao, { preferCache: false, fallbackAllSources: true, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: true });
+          if (live) aircraft = mergeFlightRouteIntoAircraft(live, localMatch);
+        } catch {
+          // Jeśli live nie odpowie, pokazujemy dane lokalne bez zapisywania.
+        }
       }
+      if (!aircraftMatchesSearchInput(aircraft, raw)) throw new Error(`Znaleziony lokalnie samolot nie pasuje do wpisu: ${raw}.`);
+      clearManualSearchInputLock();
+      fillForm(aircraftToFlight(aircraft), { force: true });
+      focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: true, fitMap: false, zoom: 10 });
+      showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot i przeniesiono mapę do jego pozycji." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
+    } catch (error) {
+      icaoInput.value = originalValue;
+      markManualSearchInput(originalValue);
+      setAircraftStatus(`Nie znaleziono samolotu: ${raw}. ${explainFetchError(error)}.`);
+      showToast(`Nie znaleziono samolotu: ${raw}`, 5200);
     }
-    fillForm(aircraftToFlight(aircraft));
-    if (!aircraftMatchesSearchInput(aircraft, raw)) throw new Error(`Znaleziony lokalnie samolot nie pasuje do wpisu: ${raw}.`);
-    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: false, fitMap: false });
-    showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot. Użyj przycisku Centruj, aby przenieść mapę." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
     return;
   }
 
@@ -5189,11 +5236,13 @@ async function searchAircraftFromInput() {
     updateWatchlistFromAircraft(lastAircraftCache);
     recordAircraftHistory([aircraft]);
     checkAircraftAlerts([aircraft]);
-    fillForm(aircraftToFlight(aircraft));
-    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(cleanIcao), showSheet: true, centerMap: false, fitMap: false });
-    showToast("Znaleziono samolot. Użyj przycisku Centruj, aby przenieść mapę do jego pozycji.", 4200);
+    clearManualSearchInputLock();
+    fillForm(aircraftToFlight(aircraft), { force: true });
+    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(cleanIcao), showSheet: true, centerMap: true, fitMap: false, zoom: 10 });
+    showToast("Znaleziono samolot i przeniesiono mapę do jego pozycji.", 4200);
   } catch (error) {
     icaoInput.value = originalValue;
+    markManualSearchInput(originalValue);
     setAircraftStatus(`Nie znaleziono samolotu: ${raw}. ${explainFetchError(error)}.`);
     showToast(`Nie znaleziono samolotu: ${raw}`, 5200);
   } finally {
@@ -5246,6 +5295,7 @@ clearAlertLogButton?.addEventListener("click", () => {
 });
 
 icaoInput.addEventListener("input", () => {
+  markManualSearchInput(icaoInput.value);
   if (icaoInput.value.trim() !== nameInput.value.trim()) {
     delete icaoInput.dataset.resolvedIcao;
   }
@@ -5288,7 +5338,8 @@ document.querySelector("#pasteButton").addEventListener("click", async () => {
     const text = await navigator.clipboard.readText();
     const parsed = parseFlightText(text);
     if (!parsed) throw new Error("W schowku nie ma kodu ICAO.");
-    fillForm(parsed);
+    clearManualSearchInputLock();
+    fillForm(parsed, { force: true });
     showToast("Wklejono dane.");
   } catch (error) {
     showToast(error.message || "Nie udało się wkleić.");
@@ -5767,7 +5818,8 @@ function readShareTargetParams() {
   const parsed = parseFlightText(incoming);
   if (parsed) {
     importText.value = incoming;
-    fillForm(parsed);
+    clearManualSearchInputLock();
+    fillForm(parsed, { force: true });
     showToast("Odczytano udostępniony samolot.");
   }
 }
