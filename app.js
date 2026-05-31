@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V20";
-const APP_VERSION_STAMP = "3005261828";
+const APP_VERSION_NUMBER = "V22";
+const APP_VERSION_STAMP = "3105260615";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -2593,6 +2593,47 @@ function buildHexUrl(settings, icao) {
   return `${settings.apiBase}/hex/${endpointHex}`;
 }
 
+function buildCallsignUrls(settings, callsign) {
+  const clean = normalizeCallsign(callsign);
+  if (!clean) return [];
+  const source = apiSourceByName(settings.sourceName);
+  if (source.hexCollection) {
+    return [`${settings.apiBase}/call/${encodeURIComponent(clean)}`];
+  }
+  return [`${settings.apiBase}/callsign/${encodeURIComponent(clean)}`];
+}
+
+function buildRegistrationUrls(settings, registration) {
+  const clean = cleanAircraftRegistration(registration).toUpperCase();
+  if (!clean) return [];
+  const source = apiSourceByName(settings.sourceName);
+  if (source.hexCollection) {
+    return [`${settings.apiBase}/registration/${encodeURIComponent(clean)}`];
+  }
+  return [
+    `${settings.apiBase}/reg/${encodeURIComponent(clean)}`,
+    `${settings.apiBase}/registration/${encodeURIComponent(clean)}`
+  ];
+}
+
+function looksLikeRegistration(value) {
+  const clean = cleanAircraftRegistration(value).toUpperCase();
+  return /^[A-Z0-9]{1,3}-[A-Z0-9]{2,5}$/.test(clean) || /^N[0-9][A-Z0-9]{1,5}$/.test(clean);
+}
+
+function iataFlightToLikelyCallsigns(value) {
+  const clean = normalizeSearchText(value).replace(/-/g, "");
+  const match = clean.match(/^([A-Z]{2})([0-9]{1,4}[A-Z]?)$/);
+  if (!match) return [];
+  const airlineMap = {
+    BA: "BAW", BT: "BTI", FR: "RYR", W6: "WZZ", LO: "LOT", LH: "DLH", KL: "KLM", AF: "AFR",
+    UA: "UAL", AA: "AAL", DL: "DAL", EK: "UAE", QR: "QTR", TK: "THY", LX: "SWR", OS: "AUA",
+    SK: "SAS", AY: "FIN", EI: "EIN", IB: "IBE", VY: "VLG", U2: "EZY", LS: "EXS", PC: "PGT"
+  };
+  const prefix = airlineMap[match[1]];
+  return prefix ? [`${prefix}${match[2]}`] : [];
+}
+
 async function fetchJsonWithFallback(url, settings, headers = {}, options = {}) {
   const source = apiSourceByName(settings.sourceName);
   const timeoutMs = options.timeoutMs || FETCH_TIMEOUT_MS;
@@ -4349,7 +4390,7 @@ function focusAircraftOnMap(aircraft, options = {}) {
   if (options.drawRoute !== false) drawSelectedAircraftRoute(aircraft);
   if (options.showSheet !== false) showSelectedAircraftSheet(aircraft);
 
-  if (options.centerMap !== false) {
+  if (options.centerMap === true) {
     const requestedZoom = Number(options.zoom ?? zoomInput?.value ?? 9.2);
     const currentZoom = Number(map.getZoom?.() || 0);
     const nextZoom = Number.isFinite(requestedZoom) ? Math.min(13, Math.max(currentZoom || 0, requestedZoom)) : Math.max(currentZoom || 0, 9);
@@ -4733,6 +4774,69 @@ async function startLiveTracking(flight = null) {
   }
 }
 
+async function fetchAircraftByEndpointUrls(settings, urls, headers, options = {}) {
+  let lastError = null;
+  for (const url of urls) {
+    try {
+      const data = await fetchJsonWithFallback(url, settings, headers, {
+        timeoutMs: options.timeoutMs || HEX_FETCH_TIMEOUT_MS,
+        allowProxy: options.allowProxy !== false
+      });
+      const aircraft = aircraftListFromResponse(data)
+        .filter((item) => isValidIcao(normalizeIcao(item.hex || item.icao || item.icao24 || "")))
+        .map((item) => ({ ...item, _sourceName: sourceLabel(settings.sourceName) }));
+      if (aircraft.length) return aircraft[0];
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+async function fetchAircraftByLiveQuery(rawValue, options = {}) {
+  const raw = String(rawValue || "").trim();
+  if (!raw) return null;
+
+  const directIcao = normalizeIcao(raw);
+  if (isValidIcao(directIcao)) {
+    return fetchAircraftByHex(directIcao, {
+      preferCache: false,
+      fallbackAllSources: options.fallbackAllSources !== false,
+      timeoutMs: options.timeoutMs || HEX_FETCH_TIMEOUT_MS,
+      allowProxy: options.allowProxy !== false
+    });
+  }
+
+  const settings = readApiOnlySettings();
+  const headers = { "Accept": "application/json" };
+  if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
+
+  const cleanCallsign = normalizeCallsign(raw);
+  const cleanReg = cleanAircraftRegistration(raw).toUpperCase();
+  const callsignCandidates = [...new Set([cleanCallsign, ...iataFlightToLikelyCallsigns(raw)].filter(Boolean))];
+  const candidates = candidateSettings(settings);
+  let lastError = null;
+
+  for (const candidate of candidates) {
+    const endpointSets = [];
+    for (const callsign of callsignCandidates) endpointSets.push(buildCallsignUrls(candidate, callsign));
+    if (looksLikeRegistration(raw) || cleanReg.includes("-")) endpointSets.push(buildRegistrationUrls(candidate, cleanReg));
+
+    for (const urls of endpointSets) {
+      try {
+        const aircraft = await fetchAircraftByEndpointUrls(candidate, urls, headers, options);
+        if (aircraft) return aircraft;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+  }
+
+  if (lastError) throw lastError;
+  return null;
+}
+
 function normalizeSearchText(value) {
   return String(value || "")
     .trim()
@@ -5004,6 +5108,7 @@ function saveFlightFromForm() {
 
 async function searchAircraftFromInput() {
   const raw = icaoInput.value.trim();
+  const originalValue = icaoInput.value;
   if (!raw) {
     showToast("Wpisz hex, callsign, rejestrację albo nazwę samolotu.");
     return;
@@ -5015,40 +5120,33 @@ async function searchAircraftFromInput() {
     const localIcao = aircraftIcao(aircraft);
     if (!pointFromAircraft(aircraft) && isValidIcao(localIcao)) {
       try {
-        const live = await fetchAircraftByHex(localIcao, { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
+        const live = await fetchAircraftByHex(localIcao, { preferCache: false, fallbackAllSources: true, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: true });
         if (live) aircraft = mergeFlightRouteIntoAircraft(live, localMatch);
       } catch {
         // Jeśli live nie odpowie, pokazujemy dane lokalne bez zapisywania.
       }
     }
     fillForm(aircraftToFlight(aircraft));
-    if (focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true })) {
-      showToast("Znaleziono samolot i pokazano na mapie.");
-    } else {
-      showSelectedAircraftSheet(aircraft);
-      showToast("Znaleziono samolot, ale brak pozycji GPS.", 3200);
-    }
+    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: false });
+    showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
     return;
   }
 
-  const directIcao = normalizeIcao(raw);
-  if (!isValidIcao(directIcao)) {
-    showToast("Nie znalazłem samolotu w aktualnej liście. Wpisz 6-znakowy hex albo odśwież radar.", 4200);
-    return;
-  }
-
-  const finishBusy = beginBusy("Szukam samolotu...");
+  const finishBusy = beginBusy("Szukam samolotu globalnie...");
   try {
-    const aircraft = await fetchAircraftByHex(directIcao, { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
+    const aircraft = await fetchAircraftByLiveQuery(raw, { timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: true, fallbackAllSources: true });
     if (!aircraft) throw new Error("API nie zwróciło tego samolotu.");
-    lastAircraftCache = [aircraft, ...lastAircraftCache.filter((item) => aircraftIcao(item) !== aircraftIcao(aircraft))];
+
+    const cleanIcao = aircraftIcao(aircraft);
+    lastAircraftCache = [aircraft, ...lastAircraftCache.filter((item) => aircraftIcao(item) !== cleanIcao)];
     updateWatchlistFromAircraft(lastAircraftCache);
     recordAircraftHistory([aircraft]);
     checkAircraftAlerts([aircraft]);
     fillForm(aircraftToFlight(aircraft));
-    focusAircraftOnMap(aircraft, { singleMarker: true, showSheet: true });
-    showToast("Znaleziono samolot i pokazano na mapie.");
+    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(cleanIcao), showSheet: true, centerMap: false });
+    showToast("Znaleziono samolot. Mapa nie została przesunięta — użyj „Centruj”, jeżeli chcesz przejść do pozycji samolotu.", 5200);
   } catch (error) {
+    icaoInput.value = originalValue;
     showToast(`Nie udało się znaleźć samolotu: ${explainFetchError(error)}`, 5200);
   } finally {
     finishBusy();
@@ -5127,7 +5225,13 @@ document.querySelector("#openPreviewButton").addEventListener("click", () => {
 document.querySelector("#drawRouteButton").addEventListener("click", drawRouteFromForm);
 document.querySelector("#fitMapButton").addEventListener("click", () => {
   initMap();
-  if (map && lastRouteBounds) map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: 11 });
+  if (!map) return;
+  const point = selectedAircraft ? pointFromAircraft(selectedAircraft) : null;
+  if (point) {
+    focusAircraftOnMap(selectedAircraft, { singleMarker: false, showSheet: true, drawRoute: true, centerMap: true });
+    return;
+  }
+  if (lastRouteBounds) map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: 11 });
 });
 document.querySelector("#clearRouteButton").addEventListener("click", clearRoute);
 
