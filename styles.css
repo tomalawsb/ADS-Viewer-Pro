@@ -2058,3 +2058,50 @@ body.modal-open { overflow: hidden; }
     max-height: calc(100dvh - 92px - var(--safe-bottom));
   }
 }
+
+
+/* V35: gdy karta samolotu jest otwarta, dolne menu jest zastępowane stałymi przyciskami karty */
+body.aircraft-actions-mode .bottom-nav {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-50%) translateY(110%);
+}
+body.aircraft-actions-mode .bottom-more-menu {
+  display: none !important;
+}
+
+@media (max-width: 899px) {
+  body.aircraft-actions-mode .aircraft-sheet {
+    bottom: calc(8px + var(--safe-bottom));
+    max-height: calc(100dvh - 82px - var(--safe-bottom));
+    padding-bottom: 8px;
+  }
+  body.aircraft-actions-mode .aircraft-sheet.is-expanded {
+    max-height: calc(100dvh - 82px - var(--safe-bottom));
+  }
+  body.aircraft-actions-mode .aircraft-sheet-actions {
+    position: sticky;
+    bottom: -2px;
+    z-index: 35;
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6px;
+    margin: 4px -2px -2px;
+    padding: 6px;
+    border: 1px solid rgba(15, 23, 42, 0.12);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 -8px 22px rgba(15, 23, 42, 0.12);
+    backdrop-filter: blur(14px);
+  }
+  [data-theme="dark"] body.aircraft-actions-mode .aircraft-sheet-actions,
+  [data-theme="dark"] .aircraft-sheet-actions {
+    background: rgba(15, 23, 42, 0.96);
+  }
+  body.aircraft-actions-mode .aircraft-sheet-actions button {
+    min-height: 38px;
+    padding: 0 4px;
+    border-radius: 12px;
+    font-size: 0.64rem;
+  }
+}

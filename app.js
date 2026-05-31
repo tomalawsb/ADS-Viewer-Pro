@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V34";
-const APP_VERSION_STAMP = "3105261125";
+const APP_VERSION_NUMBER = "V35";
+const APP_VERSION_STAMP = "3105261305";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -2122,6 +2122,20 @@ async function runBusy(message, callback) {
   }
 }
 
+let manualBusyRelease = null;
+
+function startBusy(message) {
+  if (manualBusyRelease) manualBusyRelease();
+  manualBusyRelease = beginBusy(message);
+}
+
+function finishBusy() {
+  if (!manualBusyRelease) return;
+  const release = manualBusyRelease;
+  manualBusyRelease = null;
+  release();
+}
+
 function invalidateMapSoon() {
   if (!map) return;
   window.setTimeout(() => map.invalidateSize?.(), 80);
@@ -2134,6 +2148,11 @@ function closeBottomMoreMenu({ keepActive = false } = {}) {
   bottomMoreMenu.hidden = true;
   bottomMoreButton?.setAttribute("aria-expanded", "false");
   if (!keepActive) bottomMoreButton?.classList.remove("is-active");
+}
+
+function setAircraftActionsMode(active) {
+  document.body.classList.toggle("aircraft-actions-mode", active === true);
+  if (active) closeBottomMoreMenu();
 }
 
 function toggleBottomMoreMenu() {
@@ -2944,10 +2963,12 @@ function showSelectedAircraftSheet(aircraft) {
   aircraftSheet.classList.remove("is-expanded", "is-dragging");
   aircraftSheet.style.removeProperty("--sheet-drag-y");
   aircraftSheet.classList.add("is-open");
+  setAircraftActionsMode(true);
 }
 
 function hideSelectedAircraftSheet() {
   if (!aircraftSheet) return;
+  setAircraftActionsMode(false);
   aircraftSheet.classList.remove("is-open", "is-expanded", "is-dragging");
   aircraftSheet.style.removeProperty("--sheet-drag-y");
   window.setTimeout(() => { if (!aircraftSheet.classList.contains("is-open")) aircraftSheet.hidden = true; }, 160);
@@ -3535,6 +3556,52 @@ function aircraftSeenHistoryCsv(aircraft) {
   return [header, ...rows].join("\n");
 }
 
+function aircraftExportPhotoMeta(photoInfo = {}) {
+  return {
+    fileName: photoInfo.fileName || "zdjecie_pogladowe.svg",
+    url: photoInfo.url || "",
+    real: photoInfo.real === true,
+    mimeType: photoInfo.blob?.type || photoInfo.mimeType || "",
+    sizeBytes: photoInfo.blob?.size || photoInfo.sizeBytes || 0,
+    note: photoInfo.real === true
+      ? "Zapisano prawdziwe zdjęcie z API zdjęć."
+      : "Zapisano grafikę poglądową; link do prawdziwego zdjęcia jest podany, jeśli API go zwróciło."
+  };
+}
+
+function flattenExportValue(value, prefix = "", rows = []) {
+  if (value === undefined || typeof value === "function") return rows;
+  if (value === null || typeof value !== "object") {
+    rows.push([prefix || "wartosc", value ?? ""]);
+    return rows;
+  }
+  if (Array.isArray(value)) {
+    if (!value.length) rows.push([prefix, "[]"]);
+    value.forEach((item, index) => flattenExportValue(item, `${prefix}[${index}]`, rows));
+    return rows;
+  }
+  const keys = Object.keys(value);
+  if (!keys.length) rows.push([prefix, "{}"]);
+  for (const key of keys) {
+    const nextPrefix = prefix ? `${prefix}.${key}` : key;
+    flattenExportValue(value[key], nextPrefix, rows);
+  }
+  return rows;
+}
+
+function aircraftCurrentDataCsv(aircraft, photoInfo = {}) {
+  const photo = aircraftExportPhotoMeta(photoInfo);
+  const rows = [["sekcja", "pole", "wartosc"]];
+  for (const [name, value] of aircraftDetailsRows(aircraft)) rows.push(["dane", name, value]);
+  for (const [name, value] of routeDetailRows(aircraft)) rows.push(["trasa", name, value]);
+  rows.push(["linki", "ADS", buildAdsbUrl(aircraftToFlight(aircraft))]);
+  rows.push(["zdjecie", "plik", photo.fileName]);
+  rows.push(["zdjecie", "url", photo.url || "brak danych"]);
+  rows.push(["zdjecie", "prawdziwe_zdjecie", photo.real ? "tak" : "nie"]);
+  for (const [path, value] of flattenExportValue(aircraft)) rows.push(["raw", path, value]);
+  return rows.map((row) => row.map(csvCell).join(";")).join("\n");
+}
+
 function aircraftExportJson(aircraft, photoInfo = {}) {
   const flight = aircraftToFlight(aircraft);
   const details = Object.fromEntries(aircraftDetailsRows(aircraft));
@@ -3548,7 +3615,7 @@ function aircraftExportJson(aircraft, photoInfo = {}) {
     routeDetails,
     route: routeInfoFromAircraft(aircraft),
     rawAircraft: aircraft,
-    photo: photoInfo,
+    photo: aircraftExportPhotoMeta(photoInfo),
     adsbUrl: buildAdsbUrl(flight),
     localTrack: { date: trackDate, count: points.length, points },
     localSeenHistory: history
@@ -3557,6 +3624,7 @@ function aircraftExportJson(aircraft, photoInfo = {}) {
 
 function aircraftExportText(aircraft, photoInfo = {}) {
   const flight = aircraftToFlight(aircraft);
+  const photo = aircraftExportPhotoMeta(photoInfo);
   const rows = aircraftDetailsRows(aircraft).map(([name, value]) => `${name}: ${value}`);
   const { points, history } = aircraftExportHistoryRows(aircraft);
   return [
@@ -3567,7 +3635,9 @@ function aircraftExportText(aircraft, photoInfo = {}) {
     ...rows,
     "",
     `Link ADS: ${buildAdsbUrl(flight)}`,
-    photoInfo.url ? `Zdjęcie źródłowe: ${photoInfo.url}` : "Zdjęcie źródłowe: brak danych",
+    `Plik zdjęcia: ${photo.fileName}`,
+    photo.url ? `Zdjęcie źródłowe: ${photo.url}` : "Zdjęcie źródłowe: brak danych",
+    `Prawdziwe zdjęcie zapisane: ${photo.real ? "tak" : "nie"}`,
     "",
     `Lokalne punkty trasy/przelotu zapisane przez program: ${points.length}`,
     `Lokalne wpisy historii widzeń: ${history.length}`,
@@ -3579,6 +3649,7 @@ function aircraftExportText(aircraft, photoInfo = {}) {
 function aircraftExportHtml(aircraft, imageFileName, photoInfo = {}) {
   const detailsRows = aircraftDetailsRows(aircraft).map(([name, value]) => `<tr><th>${escapeHtml(name)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
   const routeRows = routeDetailRows(aircraft).map(([name, value]) => `<tr><th>${escapeHtml(name)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
+  const photo = aircraftExportPhotoMeta(photoInfo);
   const { points, history } = aircraftExportHistoryRows(aircraft);
   const title = aircraftLabel(aircraft);
   return `<!doctype html>
@@ -3588,12 +3659,12 @@ body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f8fafc;color:
 </style></head><body><main>
 <h1>${escapeHtml(title)}</h1>
 <p class="muted">Eksport: ${escapeHtml(new Date().toLocaleString("pl-PL"))} · ${escapeHtml(APP_VERSION)}</p>
-<div class="grid"><div><img src="${escapeHtml(imageFileName)}" alt="Zdjęcie samolotu"></div><div><table>${detailsRows}</table></div></div>
+<div class="grid"><div><img src="${escapeHtml(imageFileName)}" alt="Zdjęcie samolotu"><p class="muted">Plik zdjęcia: ${escapeHtml(photo.fileName)} · prawdziwe: ${photo.real ? "tak" : "nie"}</p></div><div><table>${detailsRows}</table></div></div>
 <h2>Trasa / przelot</h2><table>${routeRows}</table>
 <p>Lokalne punkty trasy zapisane przez program: <strong>${points.length}</strong></p>
 <p>Lokalne wpisy historii widzeń: <strong>${history.length}</strong></p>
 <p>Link ADS: <a href="${escapeHtml(buildAdsbUrl(aircraftToFlight(aircraft)))}">otwórz</a></p>
-${photoInfo.url ? `<p>Źródło zdjęcia: <a href="${escapeHtml(photoInfo.url)}">${escapeHtml(photoInfo.url)}</a></p>` : ""}
+${photo.url ? `<p>Źródło zdjęcia: <a href="${escapeHtml(photo.url)}">${escapeHtml(photo.url)}</a></p>` : ""}
 </main></body></html>`;
 }
 
@@ -3760,19 +3831,7 @@ async function downloadAircraftExportZip(baseName, files) {
 }
 
 async function buildAircraftExportFiles(aircraft, baseName) {
-  const initialPhotoInfo = { blob: null, fileName: "zdjecie_pogladowe.svg", url: "", real: false };
-  const files = [
-    {
-      name: "_eksport_start.txt",
-      blob: blobFromText(`Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\n`)
-    },
-    { name: "dane.json", blob: blobFromText(JSON.stringify(aircraftExportJson(aircraft, initialPhotoInfo), null, 2), "application/json;charset=utf-8") },
-    { name: "opis.txt", blob: blobFromText(aircraftExportText(aircraft, initialPhotoInfo)) },
-    { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
-    { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") }
-  ];
-
-  let photoInfo = initialPhotoInfo;
+  let photoInfo;
   try {
     photoInfo = await aircraftPhotoBlobForExport(aircraft);
   } catch (photoError) {
@@ -3785,10 +3844,29 @@ async function buildAircraftExportFiles(aircraft, baseName) {
     };
   }
 
-  files.push({ name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, photoInfo.fileName, photoInfo), "text/html;charset=utf-8") });
-  if (photoInfo.blob) files.push({ name: photoInfo.fileName, blob: photoInfo.blob });
-  files.push({ name: "zdjecie_zrodlo.txt", blob: blobFromText(photoInfo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową.") });
-  files.push({ name: "_eksport_zakonczony.txt", blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\n`) });
+  const photo = aircraftExportPhotoMeta(photoInfo);
+  const files = [
+    {
+      name: "_eksport_start.txt",
+      blob: blobFromText(`Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\nFolder: ${baseName}\n`)
+    },
+    { name: "dane.json", blob: blobFromText(JSON.stringify(aircraftExportJson(aircraft, photoInfo), null, 2), "application/json;charset=utf-8") },
+    { name: "aktualne_dane.csv", blob: blobFromText(aircraftCurrentDataCsv(aircraft, photoInfo), "text/csv;charset=utf-8") },
+    { name: "opis.txt", blob: blobFromText(aircraftExportText(aircraft, photoInfo)) },
+    { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
+    { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") },
+    { name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, photo.fileName, photoInfo), "text/html;charset=utf-8") },
+    { name: "zdjecie_zrodlo.txt", blob: blobFromText(photo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową.") },
+    {
+      name: "_eksport_zakonczony.txt",
+      blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\nPlik zdjęcia: ${photo.fileName}\nPrawdziwe zdjęcie: ${photo.real ? "tak" : "nie"}\n`)
+    }
+  ];
+
+  if (photoInfo.blob) {
+    files.splice(7, 0, { name: photo.fileName, blob: photoInfo.blob });
+  }
+
   return files;
 }
 
@@ -3834,33 +3912,11 @@ async function exportSelectedAircraftToFolder(event) {
   const aircraft = { ...selectedAircraft };
   const baseName = makeAircraftExportBaseName(aircraft);
 
-  startBusy("Przygotowuję eksport...");
   let files = [];
   try {
-    const fallbackPhotoInfo = {
-      blob: await blobFromDataUrl(aircraftThumbDataUrl(aircraft)),
-      fileName: "zdjecie_pogladowe.svg",
-      url: "",
-      real: false
-    };
-
-    files = [
-      {
-        name: "_eksport_start.txt",
-        blob: blobFromText(`Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\nFolder: ${baseName}\n`)
-      },
-      { name: "dane.json", blob: blobFromText(JSON.stringify(aircraftExportJson(aircraft, fallbackPhotoInfo), null, 2), "application/json;charset=utf-8") },
-      { name: "opis.txt", blob: blobFromText(aircraftExportText(aircraft, fallbackPhotoInfo)) },
-      { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
-      { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") },
-      { name: fallbackPhotoInfo.fileName, blob: fallbackPhotoInfo.blob },
-      { name: "zdjecie_zrodlo.txt", blob: blobFromText("Zapisano grafikę poglądową. Jeśli źródło zdjęć pozwoli, program dopisze prawdziwe zdjęcie w kolejnej wersji eksportu.") },
-      { name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, fallbackPhotoInfo.fileName, fallbackPhotoInfo), "text/html;charset=utf-8") },
-      {
-        name: "_eksport_zakonczony.txt",
-        blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\nPlik zdjęcia: ${fallbackPhotoInfo.fileName}\n`)
-      }
-    ];
+    startBusy("Przygotowuję eksport danych i zdjęcia...");
+    files = await buildAircraftExportFiles(aircraft, baseName);
+    finishBusy();
   } catch (error) {
     finishBusy();
     console.error("Nie udało się przygotować eksportu:", error);
@@ -3869,19 +3925,17 @@ async function exportSelectedAircraftToFolder(event) {
   }
 
   try {
-    // Najpierw prawidłowy zapis do wskazanego katalogu.
     if (typeof window.showDirectoryPicker !== "function") {
       throw new Error("Brak obsługi wyboru katalogu w tej przeglądarce/PWA.");
     }
 
-    finishBusy();
     const root = await window.showDirectoryPicker({ mode: "readwrite" });
 
-    startBusy("Zapisuję pliki eksportu...");
+    startBusy("Zapisuję folder eksportu...");
     await writeAircraftFilesToChosenDirectory(root, baseName, files);
-
     finishBusy();
-    alert(`Eksport zakończony.\nUtworzono folder:\n${baseName}`);
+
+    alert(`Eksport zakończony.\nUtworzono folder:\n${baseName}\n\nW środku są dane JSON/CSV/HTML i plik zdjęcia.`);
     showToast(`Eksport zapisany: ${baseName}`, 9000);
   } catch (error) {
     finishBusy();
@@ -3891,18 +3945,27 @@ async function exportSelectedAircraftToFolder(event) {
       return;
     }
 
-    console.error("Eksport do wybranego katalogu nie zadziałał, uruchamiam pobieranie osobnych plików:", error);
-    alert(`Zapis do wskazanego katalogu nie zadziałał.\nProgram pobierze teraz te same dane jako zwykłe osobne pliki, bez ZIP.\n\nBłąd: ${error?.message || error?.name || "nieznany błąd"}`);
+    console.warn("Eksport do katalogu nie zadziałał, pobieram jedną paczkę ZIP:", error);
 
     try {
-      startBusy("Pobieram osobne pliki eksportu...");
-      await downloadAircraftExportAsNormalFiles(baseName, files);
+      startBusy("Pobieram jeden plik ZIP z eksportem...");
+      await downloadAircraftExportZip(baseName, files);
       finishBusy();
-      showToast("Eksport pobrany jako osobne pliki.", 9000);
-    } catch (downloadError) {
+      alert(`Eksport pobrany jako ZIP.\nPlik zawiera dane JSON/CSV/HTML oraz zdjęcie.\n\nNazwa: ${safeZipName(baseName)}.zip`);
+      showToast("Eksport pobrany jako ZIP ze zdjęciem.", 9000);
+    } catch (zipError) {
       finishBusy();
-      console.error("Nie udało się pobrać osobnych plików eksportu:", downloadError);
-      alert(`Eksport nie zadziałał także jako osobne pliki:\n${downloadError?.message || downloadError?.name || "nieznany błąd"}`);
+      console.error("ZIP nie zadziałał, próbuję pobrać osobne pliki:", zipError);
+      try {
+        startBusy("Pobieram osobne pliki eksportu...");
+        await downloadAircraftExportAsNormalFiles(baseName, files);
+        finishBusy();
+        showToast("Eksport pobrany jako osobne pliki.", 9000);
+      } catch (downloadError) {
+        finishBusy();
+        console.error("Nie udało się pobrać eksportu:", downloadError);
+        alert(`Eksport nie zadziałał:\n${downloadError?.message || downloadError?.name || "nieznany błąd"}`);
+      }
     }
   }
 }
