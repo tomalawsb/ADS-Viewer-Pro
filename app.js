@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V26";
-const APP_VERSION_STAMP = "3105260915";
+const APP_VERSION_NUMBER = "V27";
+const APP_VERSION_STAMP = "3105260930";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -4181,6 +4181,81 @@ function readBrowseSettings() {
   };
 }
 
+function browseSettingsAroundAircraft(aircraft) {
+  const point = pointFromAircraft(aircraft);
+  if (!point) return null;
+
+  let base;
+  try {
+    base = readBrowseSettings();
+  } catch {
+    const source = selectedApiSource();
+    base = {
+      apiKey: apiKeyInput?.value?.trim?.() || "",
+      apiBase: validatedApiBase(apiBaseInput?.value || source.apiBase),
+      sourceName: dataSourceInput?.value || DEFAULT_DATA_SOURCE,
+      lat: point.lat,
+      lon: point.lon,
+      dist: Number.parseInt(browseDistInput?.value || AUTO_LOAD_RADIUS_NM, 10) || AUTO_LOAD_RADIUS_NM
+    };
+  }
+
+  return {
+    ...base,
+    lat: point.lat,
+    lon: point.lon,
+    dist: Number.isFinite(Number(base.dist)) ? base.dist : AUTO_LOAD_RADIUS_NM
+  };
+}
+
+async function refreshAreaAroundFoundAircraft(aircraft, options = {}) {
+  const point = pointFromAircraft(aircraft);
+  const cleanIcao = aircraftIcao(aircraft);
+  if (!point || !isValidIcao(cleanIcao)) return aircraft;
+
+  if (browseLatInput) browseLatInput.value = point.lat.toFixed(5);
+  if (browseLonInput) browseLonInput.value = point.lon.toFixed(5);
+  const settings = browseSettingsAroundAircraft(aircraft);
+  if (!settings) return aircraft;
+
+  setAircraftStatus(`Odświeżam obszar znalezionego samolotu: ${aircraftLabel(aircraft)}...`);
+  const headers = { "Accept": "application/json" };
+  if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
+
+  try {
+    const result = await fetchFirstAircraftResult(settings, headers);
+    let areaAircraft = Array.isArray(result.aircraft) ? result.aircraft : [];
+    const foundInArea = findAircraftByIcaoInCache(cleanIcao, areaAircraft);
+    const finalAircraft = foundInArea ? mergeFlightRouteIntoAircraft(foundInArea, aircraft) : aircraft;
+
+    if (!foundInArea) {
+      areaAircraft = [finalAircraft, ...areaAircraft.filter((item) => aircraftIcao(item) !== cleanIcao)];
+    }
+
+    applyCachedRoutesToAircraft(areaAircraft);
+    lastAircraftCache = areaAircraft;
+    lastRenderSettings = result.candidate || settings;
+
+    const visibleAircraft = filterAircraftForDisplay(areaAircraft);
+    renderAircraft(visibleAircraft, lastRenderSettings);
+    renderAircraftMap(visibleAircraft, lastRenderSettings, { preserveView: true });
+    updateWatchlistFromAircraft(areaAircraft);
+    recordAircraftHistory(areaAircraft);
+    checkAircraftAlerts(areaAircraft);
+    enrichAircraftRoutesInBackground(areaAircraft, lastRenderSettings, result.sourceName || sourceLabel(settings.sourceName));
+
+    setAircraftStatus(`Odświeżono obszar znalezionego samolotu: ${aircraftLabel(finalAircraft)}. ${aircraftFilterSummary(areaAircraft.length, visibleAircraft.length, areaAircraft)}.`);
+    return finalAircraft;
+  } catch (error) {
+    const fallbackAircraft = aircraft;
+    lastAircraftCache = [fallbackAircraft, ...lastAircraftCache.filter((item) => aircraftIcao(item) !== cleanIcao)];
+    renderAircraft(filterAircraftForDisplay(lastAircraftCache), lastRenderSettings || settings);
+    renderAircraftMap(filterAircraftForDisplay(lastAircraftCache), lastRenderSettings || settings, { preserveView: true });
+    setAircraftStatus(`Nie udało się odświeżyć obszaru po wyszukaniu. Pokazuję znaleziony samolot: ${aircraftLabel(fallbackAircraft)}. ${explainFetchError(error)}.`);
+    return fallbackAircraft;
+  }
+}
+
 async function enrichAircraftRoutesInBackground(aircraft, candidate, sourceName) {
   try {
     await enrichAircraftRoutes(aircraft);
@@ -5232,14 +5307,21 @@ async function searchAircraftFromInput() {
     }
 
     const cleanIcao = aircraftIcao(aircraft);
-    lastAircraftCache = [aircraft, ...lastAircraftCache.filter((item) => aircraftIcao(item) !== cleanIcao)];
-    updateWatchlistFromAircraft(lastAircraftCache);
-    recordAircraftHistory([aircraft]);
-    checkAircraftAlerts([aircraft]);
+    const point = pointFromAircraft(aircraft);
     clearManualSearchInputLock();
     fillForm(aircraftToFlight(aircraft), { force: true });
-    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(cleanIcao), showSheet: true, centerMap: true, fitMap: false, zoom: 10 });
-    showToast("Znaleziono samolot i przeniesiono mapę do jego pozycji.", 4200);
+
+    if (point && map) {
+      const requestedZoom = Number(zoomInput?.value || 10);
+      map.setView([point.lat, point.lon], Number.isFinite(requestedZoom) ? Math.max(10, Math.min(13, requestedZoom)) : 10, { animate: false });
+      invalidateMapSoon();
+    }
+
+    const finalAircraft = await refreshAreaAroundFoundAircraft(aircraft);
+    const finalIcao = aircraftIcao(finalAircraft) || cleanIcao;
+    fillForm(aircraftToFlight(finalAircraft), { force: true });
+    focusAircraftOnMap(finalAircraft, { singleMarker: !findAircraftByIcaoInCache(finalIcao), showSheet: true, centerMap: false, fitMap: false, zoom: 10 });
+    showToast("Znaleziono samolot, odświeżono jego obszar i pokazano dane.", 4200);
   } catch (error) {
     icaoInput.value = originalValue;
     markManualSearchInput(originalValue);

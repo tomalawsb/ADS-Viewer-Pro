@@ -1,8 +1,8 @@
-# ADS Viewer Pro V26 - 3105260915
+# ADS Viewer Pro V27 - 3105260930
 
 # ADS Viewer Pro
 
-Wersja: **V26 - 3105260915**
+Wersja: **V27 - 3105260930**
 
 ## Opis
 
@@ -63,19 +63,19 @@ Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest 
 - Kolory ikon pozostają zgodne z dotychczasowym ustawieniem programu.
 - Naprawiono przycisk „Szczegóły” w panelu samolotu: teraz pokazuje/ukrywa panel szczegółów i rozwija kartę.
 
-## Zmiany V26 - 3105260915
+## Zmiany V27 - 3105260930
 - Rozszerzono synchronizację Firestore: oprócz zapisanych samolotów synchronizowane są teraz ustawienia programu i lista obserwowanych.
 - Synchronizowane sekcje: źródło danych/API, motyw, filtry samolotów, ustawienia wydajności, obserwowane samoloty, ustawienia alertów i stan alertów jednorazowych.
 - Dodano techniczny dokument stanu aplikacji w Firestore: `adsViewerSync/{kod}/flights/__app_state`, żeby zachować zgodność z dotychczasowymi regułami Firestore.
 - Status synchronizacji pokazuje teraz liczbę zapisanych i obserwowanych samolotów.
 
 
-## V26 - 3105260915
+## V27 - 3105260930
 - Naprawiono błąd z V19: przywrócono komplet funkcji ładowania i filtrów samolotów.
 - Ikony samolotów działają jako SVG zamiast PNG.
 - Zachowano synchronizację Firestore z V17/V18.
 
-## V26 - 3105260915
+## V27 - 3105260930
 
 Poprawki:
 - wyszukiwanie po HEX jest ścisłe: program nie pokazuje innego samolotu, jeśli API zwróci wynik niezgodny z wpisanym HEX;
@@ -85,7 +85,12 @@ Poprawki:
 - przy pobieraniu samolotów z mapy program bierze aktualny środek mapy i promień ustawiony w opcjach.
 
 
-## Zmiany V26 - 3105260915
+## Zmiany V27 - 3105260930
 - Ręczne wyszukanie samolotu przenosi mapę do znalezionej pozycji.
 - Kliknięcie samolotu na mapie nadal nie centruje mapy.
 - Przy wyszukiwaniu zachowany jest bliski zoom na ikonę samolotu, bez dopasowywania do całej trasy.
+
+
+## Zmiany V27 - 3105260930
+- Po ręcznym wyszukaniu samolotu spoza aktualnego obszaru program najpierw przenosi mapę do pozycji samolotu, automatycznie odświeża obszar według ustawionego promienia, a dopiero potem pokazuje kartę samolotu z danymi.
+- Współrzędne przeglądania są aktualizowane do znalezionego samolotu, żeby kolejne odświeżenie dotyczyło tej samej sekcji mapy.
