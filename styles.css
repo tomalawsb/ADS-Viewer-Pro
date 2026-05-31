@@ -2028,3 +2028,32 @@ body.modal-open { overflow: hidden; }
   .install-prompt-actions { justify-content: stretch; }
   .install-prompt-actions button { flex: 1 1 130px; }
 }
+
+
+/* V24: panel danych na desktopie nie zasłania środka mapy i wybranego samolotu */
+@media (min-width: 900px) {
+  .aircraft-sheet {
+    left: auto;
+    right: 18px;
+    bottom: calc(86px + var(--safe-bottom));
+    width: min(520px, 34vw);
+    max-height: min(72dvh, 720px);
+    transform: translate(18px, 0);
+  }
+  .aircraft-sheet.is-open {
+    transform: translate(0, var(--sheet-drag-y, 0px));
+  }
+  .aircraft-sheet.is-expanded {
+    max-height: min(82dvh, 820px);
+  }
+}
+
+/* V24: na mniejszych ekranach karta startuje niżej i jest niższa, żeby mapa została widoczna */
+@media (max-width: 899px) {
+  .aircraft-sheet {
+    max-height: 42dvh;
+  }
+  .aircraft-sheet.is-expanded {
+    max-height: calc(100dvh - 92px - var(--safe-bottom));
+  }
+}

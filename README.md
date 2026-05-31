@@ -1,8 +1,8 @@
-# ADS Viewer Pro V20 - 3005261828
+# ADS Viewer Pro V24 - 3105260715
 
 # ADS Viewer Pro
 
-Wersja: **V20 - 3005261828**
+Wersja: **V24 - 3105260715**
 
 ## Opis
 
@@ -63,19 +63,19 @@ Przycisk **Obserwowane** jest na głównym pasku na dole. Panel **Alerty** jest 
 - Kolory ikon pozostają zgodne z dotychczasowym ustawieniem programu.
 - Naprawiono przycisk „Szczegóły” w panelu samolotu: teraz pokazuje/ukrywa panel szczegółów i rozwija kartę.
 
-## Zmiany V20 - 3005261828
+## Zmiany V24 - 3105260715
 - Rozszerzono synchronizację Firestore: oprócz zapisanych samolotów synchronizowane są teraz ustawienia programu i lista obserwowanych.
 - Synchronizowane sekcje: źródło danych/API, motyw, filtry samolotów, ustawienia wydajności, obserwowane samoloty, ustawienia alertów i stan alertów jednorazowych.
 - Dodano techniczny dokument stanu aplikacji w Firestore: `adsViewerSync/{kod}/flights/__app_state`, żeby zachować zgodność z dotychczasowymi regułami Firestore.
 - Status synchronizacji pokazuje teraz liczbę zapisanych i obserwowanych samolotów.
 
 
-## V20 - 3005261828
+## V24 - 3105260715
 - Naprawiono błąd z V19: przywrócono komplet funkcji ładowania i filtrów samolotów.
 - Ikony samolotów działają jako SVG zamiast PNG.
 - Zachowano synchronizację Firestore z V17/V18.
 
-## V23 - 3105260645
+## V24 - 3105260715
 
 Poprawki:
 - wyszukiwanie po HEX jest ścisłe: program nie pokazuje innego samolotu, jeśli API zwróci wynik niezgodny z wpisanym HEX;

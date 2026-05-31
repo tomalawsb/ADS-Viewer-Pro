@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V23";
-const APP_VERSION_STAMP = "3105260645";
+const APP_VERSION_NUMBER = "V24";
+const APP_VERSION_STAMP = "3105260715";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -4374,7 +4374,7 @@ function makeAircraftMarker(aircraft) {
     if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
     closeDrawerPanel();
     savedMapFocusActive = false;
-    drawSelectedAircraftRoute(aircraft);
+    drawSelectedAircraftRoute(aircraft, { fitMap: false });
     showSelectedAircraftSheet(aircraft);
   });
   return marker;
@@ -4398,7 +4398,7 @@ function focusAircraftOnMap(aircraft, options = {}) {
     makeAircraftMarker(aircraft);
   }
 
-  if (options.drawRoute !== false) drawSelectedAircraftRoute(aircraft);
+  if (options.drawRoute !== false) drawSelectedAircraftRoute(aircraft, { fitMap: options.fitMap === true });
   if (options.showSheet !== false) showSelectedAircraftSheet(aircraft);
 
   if (options.centerMap === true) {
@@ -4442,7 +4442,7 @@ function drawSelectedAircraftRoute(aircraft, options = {}) {
     points = point ? [confirmedEndpoints.start, point, confirmedEndpoints.end] : [confirmedEndpoints.start, confirmedEndpoints.end];
     drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`, {
       endpoints: confirmedEndpoints,
-      fitMap: options.fitMap !== false
+      fitMap: options.fitMap === true
     });
     setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję potwierdzony START i STOP oraz aktualną pozycję wybranego samolotu.`);
     return;
@@ -4456,7 +4456,7 @@ function drawSelectedAircraftRoute(aircraft, options = {}) {
 
   if (points.length) {
     drawRoute(points, `${aircraftLabel(aircraft)} • ślad live`, {
-      fitMap: options.fitMap !== false,
+      fitMap: options.fitMap === true,
       showCurrentMarker: points.length === 1
     });
     if (points.length === 1) {
@@ -5171,8 +5171,8 @@ async function searchAircraftFromInput() {
     }
     fillForm(aircraftToFlight(aircraft));
     if (!aircraftMatchesSearchInput(aircraft, raw)) throw new Error(`Znaleziony lokalnie samolot nie pasuje do wpisu: ${raw}.`);
-    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: true });
-    showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot i przeniesiono mapę." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
+    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: false, fitMap: false });
+    showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot. Użyj przycisku Centruj, aby przenieść mapę." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
     return;
   }
 
@@ -5190,8 +5190,8 @@ async function searchAircraftFromInput() {
     recordAircraftHistory([aircraft]);
     checkAircraftAlerts([aircraft]);
     fillForm(aircraftToFlight(aircraft));
-    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(cleanIcao), showSheet: true, centerMap: true });
-    showToast("Znaleziono samolot i przeniesiono mapę do jego pozycji.", 4200);
+    focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(cleanIcao), showSheet: true, centerMap: false, fitMap: false });
+    showToast("Znaleziono samolot. Użyj przycisku Centruj, aby przenieść mapę do jego pozycji.", 4200);
   } catch (error) {
     icaoInput.value = originalValue;
     setAircraftStatus(`Nie znaleziono samolotu: ${raw}. ${explainFetchError(error)}.`);
@@ -5276,7 +5276,7 @@ document.querySelector("#fitMapButton").addEventListener("click", () => {
   if (!map) return;
   const point = selectedAircraft ? pointFromAircraft(selectedAircraft) : null;
   if (point) {
-    focusAircraftOnMap(selectedAircraft, { singleMarker: false, showSheet: true, drawRoute: true, centerMap: true });
+    focusAircraftOnMap(selectedAircraft, { singleMarker: false, showSheet: true, drawRoute: true, centerMap: true, fitMap: false });
     return;
   }
   if (lastRouteBounds) map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: 11 });
