@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V30";
-const APP_VERSION_STAMP = "3105261010";
+const APP_VERSION_NUMBER = "V31";
+const APP_VERSION_STAMP = "3105261025";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3664,116 +3664,201 @@ function downloadBlob(fileName, blob) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+
+function dosDateTime(date = new Date()) {
+  const year = Math.max(1980, date.getFullYear());
+  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
+  const dosDate = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
+  return { dosDate, dosTime };
+}
+
+let crcTableCache = null;
+function crc32Table() {
+  if (crcTableCache) return crcTableCache;
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n += 1) {
+    let c = n;
+    for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    table[n] = c >>> 0;
+  }
+  crcTableCache = table;
+  return table;
+}
+
+function crc32(bytes) {
+  const table = crc32Table();
+  let c = 0xffffffff;
+  for (const b of bytes) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+async function blobToUint8Array(blob) {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function uint16(value) {
+  return [value & 0xff, (value >>> 8) & 0xff];
+}
+
+function uint32(value) {
+  return [value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff];
+}
+
+async function createZipBlob(files) {
+  const encoder = new TextEncoder();
+  const chunks = [];
+  const central = [];
+  let offset = 0;
+  const { dosDate, dosTime } = dosDateTime();
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name.replace(/\\/g, "/"));
+    const dataBytes = await blobToUint8Array(file.blob);
+    const crc = crc32(dataBytes);
+    const localHeader = new Uint8Array([
+      ...uint32(0x04034b50), ...uint16(20), ...uint16(0), ...uint16(0),
+      ...uint16(dosTime), ...uint16(dosDate), ...uint32(crc),
+      ...uint32(dataBytes.length), ...uint32(dataBytes.length),
+      ...uint16(nameBytes.length), ...uint16(0)
+    ]);
+    chunks.push(localHeader, nameBytes, dataBytes);
+
+    const centralHeader = new Uint8Array([
+      ...uint32(0x02014b50), ...uint16(20), ...uint16(20), ...uint16(0), ...uint16(0),
+      ...uint16(dosTime), ...uint16(dosDate), ...uint32(crc),
+      ...uint32(dataBytes.length), ...uint32(dataBytes.length),
+      ...uint16(nameBytes.length), ...uint16(0), ...uint16(0), ...uint16(0),
+      ...uint16(0), ...uint32(0), ...uint32(offset)
+    ]);
+    central.push(centralHeader, nameBytes);
+    offset += localHeader.length + nameBytes.length + dataBytes.length;
+  }
+
+  const centralSize = central.reduce((sum, part) => sum + part.length, 0);
+  const centralOffset = offset;
+  const endRecord = new Uint8Array([
+    ...uint32(0x06054b50), ...uint16(0), ...uint16(0),
+    ...uint16(files.length), ...uint16(files.length),
+    ...uint32(centralSize), ...uint32(centralOffset), ...uint16(0)
+  ]);
+
+  return new Blob([...chunks, ...central, endRecord], { type: "application/zip" });
+}
+
+function safeZipName(name) {
+  return String(name || "eksport").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, "_").slice(0, 120) || "eksport";
+}
+
+async function downloadAircraftExportZip(baseName, files) {
+  const safeBase = safeZipName(baseName);
+  const zipFiles = files.map((file) => ({
+    name: `${safeBase}/${file.name}`,
+    blob: file.blob
+  }));
+  const zipBlob = await createZipBlob(zipFiles);
+  downloadBlob(`${safeBase}.zip`, zipBlob);
+}
+
+async function buildAircraftExportFiles(aircraft, baseName) {
+  const initialPhotoInfo = { blob: null, fileName: "zdjecie_pogladowe.svg", url: "", real: false };
+  const files = [
+    {
+      name: "_eksport_start.txt",
+      blob: blobFromText(`Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\n`)
+    },
+    { name: "dane.json", blob: blobFromText(JSON.stringify(aircraftExportJson(aircraft, initialPhotoInfo), null, 2), "application/json;charset=utf-8") },
+    { name: "opis.txt", blob: blobFromText(aircraftExportText(aircraft, initialPhotoInfo)) },
+    { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
+    { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") }
+  ];
+
+  let photoInfo = initialPhotoInfo;
+  try {
+    photoInfo = await aircraftPhotoBlobForExport(aircraft);
+  } catch (photoError) {
+    console.warn("Nie udało się pobrać zdjęcia, zapisuję grafikę poglądową.", photoError);
+    photoInfo = {
+      blob: await blobFromDataUrl(aircraftThumbDataUrl(aircraft)),
+      fileName: "zdjecie_pogladowe.svg",
+      url: "",
+      real: false
+    };
+  }
+
+  files.push({ name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, photoInfo.fileName, photoInfo), "text/html;charset=utf-8") });
+  if (photoInfo.blob) files.push({ name: photoInfo.fileName, blob: photoInfo.blob });
+  files.push({ name: "zdjecie_zrodlo.txt", blob: blobFromText(photoInfo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową.") });
+  files.push({ name: "_eksport_zakonczony.txt", blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\n`) });
+  return files;
+}
+
 async function exportSelectedAircraftToFolder() {
   if (!selectedAircraft) {
     showToast("Najpierw wybierz samolot.");
     return;
   }
 
+  const aircraft = selectedAircraft;
+  const baseName = makeAircraftExportBaseName(aircraft);
   let root = null;
+
+  startBusy("Przygotowuję eksport samolotu...");
+  let files = [];
+  try {
+    files = await buildAircraftExportFiles(aircraft, baseName);
+  } catch (error) {
+    console.error(error);
+    showToast(`Nie udało się przygotować eksportu: ${error?.message || "błąd"}`, 6200);
+    finishBusy();
+    return;
+  }
+  finishBusy();
+
   if (window.showDirectoryPicker) {
     try {
       root = await window.showDirectoryPicker({ mode: "readwrite" });
-      const writable = await ensureDirectoryWritable(root);
-      if (!writable) {
-        showToast("Brak zgody na zapis w wybranym katalogu.", 5200);
-        return;
-      }
     } catch (error) {
       if (error?.name === "AbortError") {
         showToast("Anulowano wybór katalogu.");
         return;
       }
-      console.error(error);
-      showToast(`Nie udało się otworzyć wyboru katalogu: ${error?.message || "błąd"}`, 5200);
-      return;
+      console.warn("Nie udało się wybrać katalogu, pobieram ZIP.", error);
+      root = null;
     }
   }
 
-  startBusy("Eksportuję kartę samolotu...");
+  startBusy("Zapisuję eksport...");
   try {
-    const aircraft = selectedAircraft;
-    const baseName = makeAircraftExportBaseName(aircraft);
-    let folder = null;
-
     if (root) {
-      folder = await root.getDirectoryHandle(baseName, { create: true });
-      const writable = await ensureDirectoryWritable(folder);
-      if (!writable) throw new Error("Brak zgody na zapis w folderze eksportu.");
+      const writable = await ensureDirectoryWritable(root);
+      if (!writable) throw new Error("Brak zgody na zapis w wybranym katalogu.");
 
-      // Plik kontrolny zapisujemy od razu. Dzięki temu od razu widać, że eksport fizycznie ruszył.
-      await writeTextToDirectory(
-        folder,
-        "_eksport_start.txt",
-        `Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\n`
-      );
-    }
+      const folder = await root.getDirectoryHandle(baseName, { create: true });
+      const folderWritable = await ensureDirectoryWritable(folder);
+      if (!folderWritable) throw new Error("Brak zgody na zapis w folderze eksportu.");
 
-    const photoInfo = { blob: null, fileName: "zdjecie_pogladowe.svg", url: "", real: false };
-    const jsonText = JSON.stringify(aircraftExportJson(aircraft, photoInfo), null, 2);
-    const txtText = aircraftExportText(aircraft, photoInfo);
-    const trackCsv = aircraftTrackCsv(aircraft);
-    const seenCsv = aircraftSeenHistoryCsv(aircraft);
-
-    const textFiles = [
-      ["dane.json", blobFromText(jsonText, "application/json;charset=utf-8")],
-      ["opis.txt", blobFromText(txtText)],
-      ["historia_trasy.csv", blobFromText(trackCsv, "text/csv;charset=utf-8")],
-      ["historia_widzen.csv", blobFromText(seenCsv, "text/csv;charset=utf-8")]
-    ];
-
-    if (folder) {
-      for (const [fileName, blob] of textFiles) {
-        await writeBlobToDirectory(folder, fileName, blob);
+      for (const file of files) {
+        await writeBlobToDirectory(folder, file.name, file.blob);
       }
-    } else {
-      for (const [fileName, blob] of textFiles) {
-        downloadBlob(`${baseName}_${fileName}`, blob);
-      }
-    }
-
-    // Zdjęcie zapisujemy na końcu, żeby ewentualny problem CORS/timeout nie blokował danych tekstowych.
-    let realPhotoInfo = photoInfo;
-    try {
-      realPhotoInfo = await aircraftPhotoBlobForExport(aircraft);
-    } catch (photoError) {
-      console.warn("Nie udało się pobrać zdjęcia, zapisuję grafikę poglądową.", photoError);
-      realPhotoInfo = {
-        blob: await blobFromDataUrl(aircraftThumbDataUrl(aircraft)),
-        fileName: "zdjecie_pogladowe.svg",
-        url: "",
-        real: false
-      };
-    }
-
-    const htmlText = aircraftExportHtml(aircraft, realPhotoInfo.fileName, realPhotoInfo);
-
-    if (folder) {
-      await writeBlobToDirectory(folder, "raport.html", blobFromText(htmlText, "text/html;charset=utf-8"));
-      if (realPhotoInfo.blob) {
-        await writeBlobToDirectory(folder, realPhotoInfo.fileName, realPhotoInfo.blob);
-      }
-      await writeTextToDirectory(
-        folder,
-        "zdjecie_zrodlo.txt",
-        realPhotoInfo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową."
-      );
-      await writeTextToDirectory(
-        folder,
-        "_eksport_zakonczony.txt",
-        `Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\n`
-      );
-      showToast(`Zapisano eksport w folderze: ${baseName}`, 5200);
+      showToast(`Zapisano eksport w folderze: ${baseName}`, 6200);
       return;
     }
 
-    downloadBlob(`${baseName}_raport.html`, blobFromText(htmlText, "text/html;charset=utf-8"));
-    if (realPhotoInfo.blob) downloadBlob(`${baseName}_${realPhotoInfo.fileName}`, realPhotoInfo.blob);
-    downloadBlob(`${baseName}_zdjecie_zrodlo.txt`, blobFromText(realPhotoInfo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową."));
-    showToast("Przeglądarka nie obsługuje wyboru katalogu — pobrałem pliki osobno.", 5200);
+    await downloadAircraftExportZip(baseName, files);
+    showToast("Pobrano eksport jako ZIP.", 6200);
   } catch (error) {
     console.error(error);
-    showToast(`Nie udało się zapisać eksportu: ${error?.message || "błąd"}`, 6200);
+    try {
+      const errorFile = {
+        name: "_blad_zapisu_do_katalogu.txt",
+        blob: blobFromText(`Nie udało się zapisać bezpośrednio do katalogu.\nBłąd: ${error?.message || "nieznany"}\nProgram pobrał awaryjnie plik ZIP z eksportem.\n`)
+      };
+      await downloadAircraftExportZip(baseName, [...files, errorFile]);
+      showToast("Zapis do katalogu nie wyszedł — pobrałem eksport jako ZIP.", 7200);
+    } catch (zipError) {
+      console.error(zipError);
+      showToast(`Eksport nie powiódł się: ${error?.message || "błąd"}`, 7200);
+    }
   } finally {
     finishBusy();
   }
