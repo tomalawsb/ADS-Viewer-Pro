@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V33";
-const APP_VERSION_STAMP = "3105261105";
+const APP_VERSION_NUMBER = "V34";
+const APP_VERSION_STAMP = "3105261125";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3792,56 +3792,51 @@ async function buildAircraftExportFiles(aircraft, baseName) {
   return files;
 }
 
-async function exportSelectedAircraftToFolder() {
+function prefixExportFileName(baseName, fileName) {
+  const safeBase = sanitizeFileName(baseName || "samolot");
+  const safeFile = sanitizeFileName(fileName || "plik.txt");
+  return `${safeBase}__${safeFile}`;
+}
+
+async function downloadAircraftExportAsNormalFiles(baseName, files) {
+  // Awaryjnie nie robimy ZIP-a. Pobieramy zwykłe, osobne pliki.
+  // Przeglądarka zapisze je w standardowym katalogu pobierania albo zapyta o miejsce zapisu,
+  // zależnie od ustawień użytkownika.
+  for (const file of files) {
+    downloadBlob(prefixExportFileName(baseName, file.name), file.blob);
+    await new Promise((resolve) => window.setTimeout(resolve, 250));
+  }
+}
+
+async function writeAircraftFilesToChosenDirectory(root, baseName, files) {
+  const writable = await ensureDirectoryWritable(root);
+  if (!writable) throw new Error("Nie udzielono zgody na zapis do wybranego katalogu.");
+
+  const folder = await root.getDirectoryHandle(baseName, { create: true });
+
+  // Nie prosimy drugi raz o uprawnienia do podfolderu, bo część przeglądarek/PWA potrafi się na tym wyłożyć.
+  // Uprawnienie do root wystarcza do zapisu w utworzonym podfolderze.
+  for (const file of files) {
+    await writeBlobToDirectory(folder, file.name, file.blob);
+  }
+}
+
+async function exportSelectedAircraftToFolder(event) {
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+
   if (!selectedAircraft) {
+    alert("Najpierw wybierz samolot do eksportu.");
     showToast("Najpierw wybierz samolot.");
     return;
   }
 
-  if (typeof window.showDirectoryPicker !== "function") {
-    showToast("Ta przeglądarka/PWA nie obsługuje zapisu do katalogu.", 9000);
-    return;
-  }
-
-  const aircraft = selectedAircraft;
+  const aircraft = { ...selectedAircraft };
   const baseName = makeAircraftExportBaseName(aircraft);
-  let root = null;
 
+  startBusy("Przygotowuję eksport...");
+  let files = [];
   try {
-    root = await window.showDirectoryPicker({ mode: "readwrite" });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      showToast("Anulowano eksport.");
-      return;
-    }
-    console.error("Nie udało się wybrać katalogu eksportu:", error);
-    showToast(`Nie udało się wybrać katalogu: ${error?.message || error?.name || "nieznany błąd"}`, 10000);
-    return;
-  }
-
-  startBusy("Eksportuję dane samolotu...");
-  try {
-    const writable = await ensureDirectoryWritable(root);
-    if (!writable) throw new Error("Nie udzielono zgody na zapis do wybranego katalogu.");
-
-    // Twardy test zapisu w katalogu wybranym przez użytkownika.
-    // Ten plik ma pojawić się zawsze, zanim program zacznie tworzyć folder samolotu.
-    await writeTextToDirectory(
-      root,
-      "_ADS_TEST_EKSPORTU.txt",
-      `Test eksportu ADS Viewer Pro\nCzas: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nWybrany samolot: ${aircraftLabel(aircraft)}\n`
-    );
-
-    const folder = await root.getDirectoryHandle(baseName, { create: true });
-    const folderWritable = await ensureDirectoryWritable(folder);
-    if (!folderWritable) throw new Error("Nie udzielono zgody na zapis do folderu samolotu.");
-
-    await writeTextToDirectory(
-      folder,
-      "_eksport_start.txt",
-      `Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\nFolder: ${baseName}\n`
-    );
-
     const fallbackPhotoInfo = {
       blob: await blobFromDataUrl(aircraftThumbDataUrl(aircraft)),
       fileName: "zdjecie_pogladowe.svg",
@@ -3849,43 +3844,66 @@ async function exportSelectedAircraftToFolder() {
       real: false
     };
 
-    await writeTextToDirectory(folder, "dane.json", JSON.stringify(aircraftExportJson(aircraft, fallbackPhotoInfo), null, 2), "application/json;charset=utf-8");
-    await writeTextToDirectory(folder, "opis.txt", aircraftExportText(aircraft, fallbackPhotoInfo));
-    await writeTextToDirectory(folder, "historia_trasy.csv", aircraftTrackCsv(aircraft), "text/csv;charset=utf-8");
-    await writeTextToDirectory(folder, "historia_widzen.csv", aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8");
-    await writeBlobToDirectory(folder, fallbackPhotoInfo.fileName, fallbackPhotoInfo.blob);
-    await writeTextToDirectory(folder, "zdjecie_zrodlo.txt", "Zapisano grafikę poglądową. Program próbuje jeszcze pobrać prawdziwe zdjęcie, jeśli źródło na to pozwoli.");
-    await writeTextToDirectory(folder, "raport.html", aircraftExportHtml(aircraft, fallbackPhotoInfo.fileName, fallbackPhotoInfo), "text/html;charset=utf-8");
-
-    let finalPhotoInfo = fallbackPhotoInfo;
-    try {
-      const realPhotoInfo = await aircraftPhotoBlobForExport(aircraft);
-      if (realPhotoInfo?.blob) {
-        finalPhotoInfo = realPhotoInfo;
-        await writeBlobToDirectory(folder, realPhotoInfo.fileName, realPhotoInfo.blob);
-        await writeTextToDirectory(folder, "zdjecie_zrodlo.txt", realPhotoInfo.url || "Zapisano zdjęcie poglądowe — brak adresu prawdziwego zdjęcia.");
-        await writeTextToDirectory(folder, "dane.json", JSON.stringify(aircraftExportJson(aircraft, realPhotoInfo), null, 2), "application/json;charset=utf-8");
-        await writeTextToDirectory(folder, "opis.txt", aircraftExportText(aircraft, realPhotoInfo));
-        await writeTextToDirectory(folder, "raport.html", aircraftExportHtml(aircraft, realPhotoInfo.fileName, realPhotoInfo), "text/html;charset=utf-8");
+    files = [
+      {
+        name: "_eksport_start.txt",
+        blob: blobFromText(`Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\nFolder: ${baseName}\n`)
+      },
+      { name: "dane.json", blob: blobFromText(JSON.stringify(aircraftExportJson(aircraft, fallbackPhotoInfo), null, 2), "application/json;charset=utf-8") },
+      { name: "opis.txt", blob: blobFromText(aircraftExportText(aircraft, fallbackPhotoInfo)) },
+      { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
+      { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") },
+      { name: fallbackPhotoInfo.fileName, blob: fallbackPhotoInfo.blob },
+      { name: "zdjecie_zrodlo.txt", blob: blobFromText("Zapisano grafikę poglądową. Jeśli źródło zdjęć pozwoli, program dopisze prawdziwe zdjęcie w kolejnej wersji eksportu.") },
+      { name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, fallbackPhotoInfo.fileName, fallbackPhotoInfo), "text/html;charset=utf-8") },
+      {
+        name: "_eksport_zakonczony.txt",
+        blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\nPlik zdjęcia: ${fallbackPhotoInfo.fileName}\n`)
       }
-    } catch (photoError) {
-      console.warn("Nie udało się pobrać prawdziwego zdjęcia:", photoError);
-      await writeTextToDirectory(folder, "zdjecie_zrodlo.txt", `Nie udało się pobrać prawdziwego zdjęcia. Zapisano grafikę poglądową.\nBłąd: ${photoError?.message || photoError?.name || "nieznany"}`);
+    ];
+  } catch (error) {
+    finishBusy();
+    console.error("Nie udało się przygotować eksportu:", error);
+    alert(`Nie udało się przygotować eksportu:\n${error?.message || error?.name || "nieznany błąd"}`);
+    return;
+  }
+
+  try {
+    // Najpierw prawidłowy zapis do wskazanego katalogu.
+    if (typeof window.showDirectoryPicker !== "function") {
+      throw new Error("Brak obsługi wyboru katalogu w tej przeglądarce/PWA.");
     }
 
-    await writeTextToDirectory(
-      folder,
-      "_eksport_zakonczony.txt",
-      `Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\nZdjęcie: ${finalPhotoInfo.fileName}\n`
-    );
-
-    showToast(`Eksport zapisany w folderze: ${baseName}`, 9000);
-  } catch (error) {
-    console.error("Eksport do katalogu nie powiódł się:", error);
-    alert(`Eksport nie powiódł się:\n${error?.message || error?.name || "nieznany błąd"}`);
-    showToast(`Eksport nie powiódł się: ${error?.message || error?.name || "nieznany błąd"}`, 12000);
-  } finally {
     finishBusy();
+    const root = await window.showDirectoryPicker({ mode: "readwrite" });
+
+    startBusy("Zapisuję pliki eksportu...");
+    await writeAircraftFilesToChosenDirectory(root, baseName, files);
+
+    finishBusy();
+    alert(`Eksport zakończony.\nUtworzono folder:\n${baseName}`);
+    showToast(`Eksport zapisany: ${baseName}`, 9000);
+  } catch (error) {
+    finishBusy();
+
+    if (error?.name === "AbortError") {
+      showToast("Anulowano eksport.");
+      return;
+    }
+
+    console.error("Eksport do wybranego katalogu nie zadziałał, uruchamiam pobieranie osobnych plików:", error);
+    alert(`Zapis do wskazanego katalogu nie zadziałał.\nProgram pobierze teraz te same dane jako zwykłe osobne pliki, bez ZIP.\n\nBłąd: ${error?.message || error?.name || "nieznany błąd"}`);
+
+    try {
+      startBusy("Pobieram osobne pliki eksportu...");
+      await downloadAircraftExportAsNormalFiles(baseName, files);
+      finishBusy();
+      showToast("Eksport pobrany jako osobne pliki.", 9000);
+    } catch (downloadError) {
+      finishBusy();
+      console.error("Nie udało się pobrać osobnych plików eksportu:", downloadError);
+      alert(`Eksport nie zadziałał także jako osobne pliki:\n${downloadError?.message || downloadError?.name || "nieznany błąd"}`);
+    }
   }
 }
 
@@ -6300,6 +6318,11 @@ aircraftSheetSave?.addEventListener("click", () => {
 });
 
 aircraftSheetExport?.addEventListener("click", exportSelectedAircraftToFolder);
+document.addEventListener("click", (event) => {
+  if (event.target?.closest?.("#aircraftSheetExport")) {
+    exportSelectedAircraftToFolder(event);
+  }
+});
 
 copyStatusButton?.addEventListener("click", async () => {
   const text = [lastStatusText?.textContent || "", lastStatusTime?.textContent || "", `Wersja: ${APP_VERSION}`].filter(Boolean).join("\n");
