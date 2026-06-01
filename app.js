@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V38";
-const APP_VERSION_STAMP = "0106260650";
+const APP_VERSION_NUMBER = "V39";
+const APP_VERSION_STAMP = "0106260715";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -46,6 +46,10 @@ const PLANESPOTTERS_PHOTO_BASE_URL = "https://api.planespotters.net/pub/photos";
 const LIVE_TRACK_INTERVAL_MS = 30000;
 const AUTO_LOAD_RADIUS_NM = 60;
 const MAX_TRACK_POINTS = 700;
+const TRACE_MAX_TIME_GAP_MS = 20 * 60 * 1000;
+const TRACE_MAX_REASONABLE_KMH = 1450;
+const TRACE_MAX_DISTANCE_WITHOUT_TIME_KM = 160;
+const TRACE_CURRENT_MATCH_MAX_KM = 250;
 const ROUTE_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ROUTE_CACHE_MAX_ENTRIES = 220;
 const PHOTO_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -2246,6 +2250,12 @@ function applyAppVersion() {
   if (settingsVersionBadge) settingsVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
   document.title = `ADS Viewer Pro ${APP_VERSION}`;
   document.documentElement.dataset.appVersion = APP_VERSION_STAMP;
+
+  const previousBuild = storageGet(APP_BUILD_STORAGE_KEY, "");
+  if (previousBuild && previousBuild !== APP_VERSION) {
+    localStorage.removeItem(TRACK_STORAGE_KEY);
+    traceApiAttemptedAt.clear();
+  }
   storageSet(APP_BUILD_STORAGE_KEY, APP_VERSION);
 }
 
@@ -2440,6 +2450,145 @@ function setRouteSummary(message) {
 
 function validPoint(point) {
   return point && Number.isFinite(point.lat) && Number.isFinite(point.lon);
+}
+
+function finiteNumberOrNull(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function pointTimeMs(point) {
+  if (!point?.at) return null;
+  const time = Date.parse(point.at);
+  return Number.isFinite(time) ? time : null;
+}
+
+function tracePointAltitudeFt(point) {
+  const raw = point?.altitude;
+  if (String(raw || "").toLowerCase() === "ground") return 0;
+  return finiteNumberOrNull(raw);
+}
+
+function tracePointSpeedKt(point) {
+  return finiteNumberOrNull(point?.speed);
+}
+
+function isGroundLikeTracePoint(point) {
+  const altitude = tracePointAltitudeFt(point);
+  const speed = tracePointSpeedKt(point);
+  return (altitude !== null && altitude <= 500) && (speed === null || speed <= 90);
+}
+
+function distanceKmBetweenPoints(a, b) {
+  if (!validPoint(a) || !validPoint(b)) return null;
+  const radiusKm = 6371;
+  const lat1 = a.lat * Math.PI / 180;
+  const lat2 = b.lat * Math.PI / 180;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLon = (b.lon - a.lon) * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  return radiusKm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function shouldBreakTraceSegment(previous, point) {
+  if (!validPoint(previous) || !validPoint(point)) return true;
+  const distanceKm = distanceKmBetweenPoints(previous, point);
+  const previousTime = pointTimeMs(previous);
+  const pointTime = pointTimeMs(point);
+
+  if (previousTime !== null && pointTime !== null) {
+    const deltaMs = pointTime - previousTime;
+    if (deltaMs < -60 * 1000) return true;
+    if (deltaMs > TRACE_MAX_TIME_GAP_MS) return true;
+    if (distanceKm !== null && deltaMs > 0) {
+      const speedKmh = distanceKm / (deltaMs / 3600000);
+      if (distanceKm > 35 && speedKmh > TRACE_MAX_REASONABLE_KMH) return true;
+    }
+  } else if (distanceKm !== null && distanceKm > TRACE_MAX_DISTANCE_WITHOUT_TIME_KM) {
+    return true;
+  }
+
+  return false;
+}
+
+function splitTraceIntoPlausibleSegments(points) {
+  const clean = (Array.isArray(points) ? points : []).filter(validPoint);
+  if (clean.length < 2) return clean.length ? [clean] : [];
+
+  const sorted = clean.slice().sort((a, b) => {
+    const aTime = pointTimeMs(a);
+    const bTime = pointTimeMs(b);
+    if (aTime === null || bTime === null) return 0;
+    return aTime - bTime;
+  });
+
+  const segments = [];
+  let current = [];
+  for (const point of sorted) {
+    const previous = current[current.length - 1];
+    if (previous && shouldBreakTraceSegment(previous, point)) {
+      if (current.length) segments.push(current);
+      current = [];
+    }
+    current.push(point);
+  }
+  if (current.length) segments.push(current);
+  return segments.filter((segment) => segment.length);
+}
+
+function flightPointFromFormLikeObject(flight) {
+  const lat = Number.parseFloat(flight?.lat);
+  const lon = Number.parseFloat(flight?.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  return { lat, lon };
+}
+
+function segmentLastTimeMs(segment) {
+  for (let i = segment.length - 1; i >= 0; i -= 1) {
+    const time = pointTimeMs(segment[i]);
+    if (time !== null) return time;
+  }
+  return 0;
+}
+
+function selectTraceSegmentForFlight(points, flight) {
+  const segments = splitTraceIntoPlausibleSegments(points)
+    .filter((segment) => segment.length >= 2)
+    .sort((a, b) => segmentLastTimeMs(b) - segmentLastTimeMs(a));
+
+  if (!segments.length) return [];
+
+  const currentPoint = flightPointFromFormLikeObject(flight);
+  if (currentPoint) {
+    const nearCurrent = segments
+      .map((segment) => ({
+        segment,
+        distanceKm: distanceKmBetweenPoints(segment[segment.length - 1], currentPoint)
+      }))
+      .filter((item) => item.distanceKm !== null && item.distanceKm <= TRACE_CURRENT_MATCH_MAX_KM)
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+    if (nearCurrent.length) return nearCurrent[0].segment;
+  }
+
+  return segments[0];
+}
+
+function filterTracePointsByUtcDate(points, requestedDate) {
+  const date = String(requestedDate || "").slice(0, 10);
+  if (!date) return points;
+  return points.filter((point) => {
+    const time = pointTimeMs(point);
+    if (time === null) return true;
+    return new Date(time).toISOString().slice(0, 10) === date;
+  });
+}
+
+function prepareTracePointsForFlight(points, flight, options = {}) {
+  let clean = (Array.isArray(points) ? points : []).filter(validPoint);
+  if (options.filterDate === true) {
+    clean = filterTracePointsByUtcDate(clean, flight?.date);
+  }
+  return selectTraceSegmentForFlight(clean, flight);
 }
 
 function pointFromAircraft(aircraft) {
@@ -4611,8 +4760,15 @@ function saveTrackPoints(icao, date, points) {
 
 function addTrackPoint(icao, date, point) {
   if (!validPoint(point)) return loadTrackPoints(icao, date);
-  const points = loadTrackPoints(icao, date);
+  let points = loadTrackPoints(icao, date).filter(validPoint);
   const previous = points[points.length - 1];
+
+  if (previous && shouldBreakTraceSegment(previous, point)) {
+    points = [point];
+    saveTrackPoints(icao, date, points);
+    return points;
+  }
+
   const moved = !previous || Math.abs(previous.lat - point.lat) > 0.0005 || Math.abs(previous.lon - point.lon) > 0.0005;
   if (moved) {
     points.push(point);
@@ -5023,9 +5179,11 @@ function drawLocalSelectedAircraftRoute(aircraft, options = {}, messagePrefix = 
 
   if (isValidIcao(flight.icao)) {
     points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
+    if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
   }
   if (!points.length && point && isValidIcao(flight.icao)) {
     points = addTrackPoint(flight.icao, flight.date, point).filter(validPoint);
+    if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
   }
   if (!points.length && point) points = [point];
 
@@ -5078,12 +5236,12 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
     const cleanApiPoints = saveTracePointsIfUseful(flight.icao, flight.date, apiPoints);
     if (cleanApiPoints.length >= 2) {
       drawRoute(cleanApiPoints, `${aircraftLabel(aircraft)} • ślad lotu z API`, {
-        endpoints: confirmedRouteEndpointPoints(aircraft),
+        endpoints: null,
         fitMap: options.fitMap === true,
         showCurrentMarker: false,
         showHeadingWhenSingle: false
       });
-      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję realny ślad z API, ${cleanApiPoints.length} punktów. START/STOP są tylko znacznikami, nie sztuczną linią.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję jeden spójny odcinek realnego śladu z API, ${cleanApiPoints.length} punktów. Nie oznaczam pierwszego punktu jako startu, jeżeli API nie potwierdziło początku lotu.`);
       return;
     }
   } catch (error) {
@@ -5122,13 +5280,20 @@ function visibleTrackSets(aircraft) {
     if (!isValidIcao(icao) || !point) continue;
 
     const key = trackKey(icao, date);
-    const points = Array.isArray(tracks[key]) ? tracks[key] : [];
+    let points = Array.isArray(tracks[key]) ? tracks[key].filter(validPoint) : [];
     const previous = points[points.length - 1];
-    const moved = !previous || Math.abs(previous.lat - point.lat) > 0.0005 || Math.abs(previous.lon - point.lon) > 0.0005;
-    if (moved) {
-      points.push(point);
-      tracks[key] = points.slice(-MAX_TRACK_POINTS);
+
+    if (previous && shouldBreakTraceSegment(previous, point)) {
+      points = [point];
+      tracks[key] = points;
       changed = true;
+    } else {
+      const moved = !previous || Math.abs(previous.lat - point.lat) > 0.0005 || Math.abs(previous.lon - point.lon) > 0.0005;
+      if (moved) {
+        points.push(point);
+        tracks[key] = points.slice(-MAX_TRACK_POINTS);
+        changed = true;
+      }
     }
     result.push({ icao, points: (tracks[key] || points).filter(validPoint).slice(-performance.trackPoints) });
   }
@@ -5276,10 +5441,12 @@ function tracePointsFromData(data) {
       const lat = Number(row[1]);
       const lon = Number(row[2]);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+      const offset = Number(row[0] || 0);
+      const at = base && Number.isFinite(offset) ? new Date((base + offset) * 1000).toISOString() : "";
       return {
         lat,
         lon,
-        at: base ? new Date((base + Number(row[0] || 0)) * 1000).toISOString() : "",
+        at,
         altitude: row[3] ?? null,
         speed: row[4] ?? null,
         track: row[5] ?? null
@@ -5313,9 +5480,21 @@ function traceUrlsForFlight(settings, flight) {
   const cleanIcao = normalizeIcao(flight?.icao || "");
   if (!isValidIcao(cleanIcao)) return [];
   const folder = cleanIcao.slice(-2);
-  const prefixes = flight.date === todayLocalDate() ? ["trace_recent", "trace_full"] : ["trace_full", "trace_recent"];
   const base = normalizeApiBase(settings.apiBase);
-  return prefixes.map((prefix) => `${base}/traces/${folder}/${prefix}_${cleanIcao}.json`);
+
+  if (flight?.date === todayLocalDate()) {
+    return [{
+      url: `${base}/traces/${folder}/trace_recent_${cleanIcao}.json`,
+      filterDate: false,
+      label: "trace_recent"
+    }];
+  }
+
+  return [{
+    url: `${base}/traces/${folder}/trace_full_${cleanIcao}.json`,
+    filterDate: true,
+    label: "trace_full"
+  }];
 }
 
 async function loadOfficialTrace(flight) {
@@ -5326,15 +5505,15 @@ async function loadOfficialTrace(flight) {
   for (const candidate of candidates) {
     const headers = traceHeadersForSettings(candidate);
     const source = apiSourceByName(candidate.sourceName);
-    for (const url of traceUrlsForFlight(candidate, flight)) {
+    for (const request of traceUrlsForFlight(candidate, flight)) {
       try {
-        const data = await fetchJsonWithFallback(url, candidate, headers, {
+        const data = await fetchJsonWithFallback(request.url, candidate, headers, {
           timeoutMs: TRACE_FETCH_TIMEOUT_MS,
           allowProxy: source.allowProxy === true
         });
-        const points = tracePointsFromData(data);
-        if (points.length) return points;
-        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło pusty ślad.`);
+        const points = prepareTracePointsForFlight(tracePointsFromData(data), flight, { filterDate: request.filterDate });
+        if (points.length >= 2) return points;
+        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło ślad bez pewnego odcinka lotu.`);
       } catch (error) {
         lastError = error;
       }
@@ -5363,13 +5542,15 @@ async function drawRouteForFlight(flight) {
     showToast(`Nie pobrałem pełnego śladu z API: ${error.message}`);
   }
 
-  points = loadTrackPoints(flight.icao, flight.date);
+  points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
+  if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
   let fallbackMessage = "";
   if (!points.length) {
     const latestTrack = loadLatestTrackPoints(flight.icao);
     if (latestTrack.points.length) {
-      points = latestTrack.points;
-      fallbackMessage = `Nie mam lokalnego śladu z dnia ${flight.date}; pokażuje ślad z ${latestTrack.date}.`;
+      points = latestTrack.points.filter(validPoint);
+      if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
+      fallbackMessage = `Nie mam lokalnego śladu z dnia ${flight.date}; pokazuję ślad z ${latestTrack.date}.`;
     }
   }
   if (!points.length && flight.lat && flight.lon) {
