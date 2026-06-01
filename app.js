@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V39";
-const APP_VERSION_STAMP = "0106260715";
+const APP_VERSION_NUMBER = "V40";
+const APP_VERSION_STAMP = "0106260735";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -8,7 +8,7 @@ const FETCH_TIMEOUT_MS = 9000;
 const RADIUS_FETCH_TIMEOUT_MS = 5200;
 const HEX_FETCH_TIMEOUT_MS = 4200;
 const TRACE_FETCH_TIMEOUT_MS = 9000;
-const TRACE_API_RETRY_COOLDOWN_MS = 120000;
+const TRACE_API_RETRY_COOLDOWN_MS = 15000;
 const AUTO_REFRESH_INTERVAL_MS = 8000;
 const STORAGE_KEY = "adsb-saved-flights-v1";
 const API_KEY_STORAGE_KEY = "adsb-api-key-v1";
@@ -2650,21 +2650,24 @@ function drawRoute(points, label = "Trasa", options = {}) {
   }
 
   const latLngs = clean.map((point) => [point.lat, point.lon]);
+  const plannedOnly = options.plannedOnly === true;
   if (latLngs.length > 1) {
     L.polyline(latLngs, {
       pane: "routePane",
       interactive: false,
       color: "#ffffff",
-      weight: 9,
-      opacity: 0.88
+      weight: plannedOnly ? 7 : 9,
+      opacity: plannedOnly ? 0.74 : 0.88,
+      dashArray: plannedOnly ? "10 10" : undefined
     }).addTo(routeLayer);
 
     L.polyline(latLngs, {
       pane: "routePane",
       interactive: false,
-      color: "#f97316",
-      weight: 5,
-      opacity: 0.98
+      color: plannedOnly ? "#2563eb" : "#f97316",
+      weight: plannedOnly ? 3 : 5,
+      opacity: plannedOnly ? 0.82 : 0.98,
+      dashArray: plannedOnly ? "10 10" : undefined
     }).addTo(routeLayer);
   } else if (options.showHeadingWhenSingle === true && Number.isFinite(Number(clean[0].track))) {
     drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#f97316", weight: 4, opacity: 0.96 });
@@ -2709,7 +2712,7 @@ function drawRoute(points, label = "Trasa", options = {}) {
 
   const suffix = latLngs.length === 1
     ? (options.showHeadingWhenSingle === true ? "1 punkt + kierunek lotu" : "1 punkt rzeczywisty")
-    : `${latLngs.length} punktów rzeczywistego śladu`;
+    : (plannedOnly ? `${latLngs.length} punkty znanej trasy lotniskowej` : `${latLngs.length} punktów rzeczywistego śladu`);
   const endpointText = endpoints?.start && endpoints?.end
     ? ` Start ${endpoints.start.label}; stop ${endpoints.end.label}.`
     : " Bez potwierdzonego startu i lądowania — nie pokazuję znaczników START/STOP.";
@@ -4514,18 +4517,73 @@ function parseJsonLoose(text) {
   }
 }
 
+function flightRouteRoot(route) {
+  if (!route || typeof route !== "object") return null;
+  return route.flightroute || route.response?.flightroute || route.data?.flightroute || null;
+}
+
+function normalizeAirportForRoute(airport) {
+  if (!airport || typeof airport !== "object") return null;
+  const iata = firstRouteValue(airport.iata, airport.iata_code, airport.iataCode);
+  const icao = firstRouteValue(airport.icao, airport.icao_code, airport.icaoCode, airport.ident);
+  const code = firstRouteValue(airport.code, airport.ident, iata, icao);
+  const name = firstRouteValue(airport.name, airport.airport, airport.municipality, airport.city, airport.location);
+  const lat = numericFirst(airport.lat, airport.latitude, airport.latDeg, airport.lat_deg, airport.position?.lat, airport.location?.lat, airport.geo?.lat);
+  const lon = numericFirst(airport.lon, airport.lng, airport.longitude, airport.lonDeg, airport.lon_deg, airport.position?.lon, airport.position?.lng, airport.location?.lon, airport.location?.lng, airport.geo?.lon);
+  if (!code && !name) return null;
+
+  return {
+    ...airport,
+    iata: iata || airport.iata,
+    icao: icao || airport.icao,
+    code: code || airport.code,
+    ident: icao || code || airport.ident,
+    name: name || airport.name,
+    city: firstRouteValue(airport.city, airport.municipality, airport.location) || airport.city,
+    lat: Number.isFinite(lat) ? lat : airport.lat,
+    lon: Number.isFinite(lon) ? lon : airport.lon
+  };
+}
+
+function routeAirportCandidates(route) {
+  const root = flightRouteRoot(route);
+  const origin = normalizeAirportForRoute(root?.origin || route.originAirport || route.fromAirport || route.departureAirport || route.origin || route.from || route.departure || route.dep);
+  const destination = normalizeAirportForRoute(root?.destination || route.destinationAirport || route.toAirport || route.arrivalAirport || route.destination || route.to || route.arrival || route.arr || route.dest);
+  return origin && destination ? [origin, destination] : [];
+}
+
 function normalizeRouteResult(route, callsign = "") {
   if (!route || typeof route !== "object") return null;
-  const airports = routeAirports(route);
-  if (airports.length >= 2) {
+  const directAirports = routeAirports(route).map((airport) => normalizeAirportForRoute(airport) || airport).filter(Boolean);
+  if (directAirports.length >= 2) {
     return {
       ...route,
       callsign: normalizeCallsign(route.callsign || route.flight || callsign),
-      _airports: airports,
+      _airports: directAirports,
       confirmed: route.confirmed !== false
     };
   }
 
+  const airportCandidates = routeAirportCandidates(route);
+  if (airportCandidates.length >= 2) {
+    const fromAirport = airportCandidates[0];
+    const toAirport = airportCandidates[airportCandidates.length - 1];
+    const from = routeAirportLabel(fromAirport);
+    const to = routeAirportLabel(toAirport);
+    if (from && to) {
+      return {
+        ...route,
+        callsign: normalizeCallsign(route.callsign || route.flight || route?.response?.callsign || callsign),
+        from,
+        to,
+        verbose: `${routeAirportVerbose(fromAirport)} → ${routeAirportVerbose(toAirport)}`,
+        _airports: airportCandidates,
+        confirmed: route.confirmed !== false
+      };
+    }
+  }
+
+  const root = flightRouteRoot(route);
   const from = firstRouteValue(
     route.from,
     route.origin,
@@ -4534,8 +4592,8 @@ function normalizeRouteResult(route, callsign = "") {
     route.fromAirport,
     route.originAirport,
     route.departureAirport,
-    route?.flightroute?.origin?.iata_code,
-    route?.flightroute?.origin?.icao_code,
+    root?.origin?.iata_code,
+    root?.origin?.icao_code,
     route?.response?.flightroute?.origin?.iata_code,
     route?.response?.flightroute?.origin?.icao_code
   );
@@ -4548,22 +4606,22 @@ function normalizeRouteResult(route, callsign = "") {
     route.toAirport,
     route.destinationAirport,
     route.arrivalAirport,
-    route?.flightroute?.destination?.iata_code,
-    route?.flightroute?.destination?.icao_code,
+    root?.destination?.iata_code,
+    root?.destination?.icao_code,
     route?.response?.flightroute?.destination?.iata_code,
     route?.response?.flightroute?.destination?.icao_code
   );
   if (!from || !to) return null;
 
   const originName = firstRouteValue(
-    route?.flightroute?.origin?.name,
-    route?.flightroute?.origin?.municipality,
+    root?.origin?.name,
+    root?.origin?.municipality,
     route?.response?.flightroute?.origin?.name,
     route?.response?.flightroute?.origin?.municipality
   );
   const destName = firstRouteValue(
-    route?.flightroute?.destination?.name,
-    route?.flightroute?.destination?.municipality,
+    root?.destination?.name,
+    root?.destination?.municipality,
     route?.response?.flightroute?.destination?.name,
     route?.response?.flightroute?.destination?.municipality
   );
@@ -5151,6 +5209,46 @@ function focusAircraftOnMap(aircraft, options = {}) {
   return true;
 }
 
+function hasConfirmedEndpointCoordinates(aircraft) {
+  const endpoints = confirmedRouteEndpointPoints(aircraft);
+  return Boolean(endpoints?.start && endpoints?.end);
+}
+
+function drawKnownAirportRouteFallback(aircraft, options = {}, messagePrefix = "") {
+  const endpoints = confirmedRouteEndpointPoints(aircraft);
+  if (!endpoints?.start || !endpoints?.end) return false;
+  const points = [endpoints.start, endpoints.end].filter(validPoint);
+  if (points.length < 2) return false;
+
+  drawRoute(points, `${aircraftLabel(aircraft)} • znane lotniska startu i lądowania`, {
+    endpoints,
+    fitMap: options.fitMap === true,
+    showCurrentMarker: false,
+    showHeadingWhenSingle: false,
+    plannedOnly: true
+  });
+  setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: znam start i cel (${endpoints.start.label} → ${endpoints.end.label}), ale nie mam pełnego śladu ADS-B z API. Pokazuję tylko stałą trasę lotnisko–lotnisko i nie udaję, że to rzeczywista ścieżka po punktach.`);
+  return true;
+}
+
+async function ensureAircraftRouteData(aircraft) {
+  if (!aircraft || hasConfirmedEndpointCoordinates(aircraft)) return aircraft;
+  const callsign = aircraftCallsign(aircraft);
+  if (!callsign) return aircraft;
+  const cache = loadRouteCache();
+  const cached = routeFromCache(cache, callsign);
+  if (cached) {
+    aircraft._route = cached;
+    return aircraft;
+  }
+  try {
+    await enrichAircraftRoutes([aircraft]);
+  } catch {
+    // Brak danych skąd/dokąd nie może zatrzymać pobierania trace.
+  }
+  return aircraft;
+}
+
 function drawStoredTrackForAircraft(aircraft) {
   const icao = normalizeIcao(aircraft.hex || "");
   const point = pointFromAircraft(aircraft);
@@ -5185,6 +5283,10 @@ function drawLocalSelectedAircraftRoute(aircraft, options = {}, messagePrefix = 
     points = addTrackPoint(flight.icao, flight.date, point).filter(validPoint);
     if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
   }
+  if (points.length < 2 && confirmedEndpoints?.start && confirmedEndpoints?.end) {
+    drawKnownAirportRouteFallback(aircraft, options, messagePrefix);
+    return points;
+  }
   if (!points.length && point) points = [point];
 
   if (points.length) {
@@ -5209,7 +5311,8 @@ function drawLocalSelectedAircraftRoute(aircraft, options = {}, messagePrefix = 
 }
 
 async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
-  const flight = aircraftToFlight(aircraft);
+  aircraft = await ensureAircraftRouteData(aircraft);
+  let flight = aircraftToFlight(aircraft);
   fillForm(flight);
 
   const point = pointFromAircraft(aircraft);
@@ -5218,14 +5321,16 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
   }
 
   if (!isValidIcao(flight.icao)) {
-    drawLocalSelectedAircraftRoute(aircraft, options);
+    if (!drawKnownAirportRouteFallback(aircraft, options)) drawLocalSelectedAircraftRoute(aircraft, options);
     return;
   }
 
   const traceKey = trackKey(flight.icao, flight.date);
   const lastTraceAttempt = traceApiAttemptedAt.get(traceKey) || 0;
   if (options.forceApiTrace !== true && Date.now() - lastTraceAttempt < TRACE_API_RETRY_COOLDOWN_MS) {
-    drawLocalSelectedAircraftRoute(aircraft, options);
+    if (!drawKnownAirportRouteFallback(aircraft, options, "Trace API sprawdzane przed chwilą — ")) {
+      drawLocalSelectedAircraftRoute(aircraft, options);
+    }
     return;
   }
   traceApiAttemptedAt.set(traceKey, Date.now());
@@ -5245,12 +5350,16 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
       return;
     }
   } catch (error) {
-    console.warn("Nie udało się pobrać pełnego trace API, używam lokalnego śladu:", error);
-    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API niedostępne — ");
+    console.warn("Nie udało się pobrać pełnego trace API:", error);
+    if (!drawKnownAirportRouteFallback(aircraft, options, "Trace API niedostępne — ")) {
+      drawLocalSelectedAircraftRoute(aircraft, options, "Trace API niedostępne — ");
+    }
     return;
   }
 
-  drawLocalSelectedAircraftRoute(aircraft, options, "Trace API nie zwróciło pełnej trasy — ");
+  if (!drawKnownAirportRouteFallback(aircraft, options, "Trace API nie zwróciło pełnej trasy — ")) {
+    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API nie zwróciło pełnej trasy — ");
+  }
 }
 
 function drawSelectedAircraftRoute(aircraft, options = {}) {
@@ -5476,25 +5585,69 @@ function traceSourceCandidates(baseSettings) {
   });
 }
 
+function uniqueTraceRequests(requests) {
+  const seen = new Set();
+  return requests.filter((request) => {
+    if (!request?.url || seen.has(request.url)) return false;
+    seen.add(request.url);
+    return true;
+  });
+}
+
+function traceBaseUrlsForSettings(settings) {
+  const urls = [];
+  const add = (value) => {
+    const clean = String(value || "").trim().replace(/\/+$/, "");
+    if (clean && !urls.includes(clean)) urls.push(clean);
+  };
+
+  const configured = normalizeApiBase(settings.apiBase);
+  add(configured);
+  add(configured.replace(/\/api\/aircraft\/v2$/i, ""));
+  add(configured.replace(/\/v2$/i, ""));
+
+  try {
+    const parsed = new URL(configured);
+    add(`${parsed.protocol}//${parsed.host}`);
+  } catch {
+    // validatedApiBase pilnuje adresu, ten catch jest tylko awaryjny.
+  }
+
+  if (settings.sourceName === "adsbLol") {
+    add("https://api.adsb.lol");
+    add("https://adsb.lol");
+  } else if (settings.sourceName === "adsbFi") {
+    add("https://opendata.adsb.fi");
+  } else if (settings.sourceName === "adsbOne") {
+    add("https://api.adsb.one");
+  } else if (settings.sourceName === "airplanesLive") {
+    add("https://api.airplanes.live");
+  } else if (settings.sourceName === "adsbExchange") {
+    add("https://gateway.adsbexchange.com/api/aircraft/v2");
+    add("https://www.adsbexchange.com/api/aircraft/v2");
+    add("https://globe.adsbexchange.com");
+  }
+
+  return urls;
+}
+
 function traceUrlsForFlight(settings, flight) {
   const cleanIcao = normalizeIcao(flight?.icao || "");
   if (!isValidIcao(cleanIcao)) return [];
   const folder = cleanIcao.slice(-2);
-  const base = normalizeApiBase(settings.apiBase);
+  const today = flight?.date === todayLocalDate();
+  const file = today ? `trace_recent_${cleanIcao}.json` : `trace_full_${cleanIcao}.json`;
+  const label = today ? "trace_recent" : "trace_full";
+  const filterDate = !today;
 
-  if (flight?.date === todayLocalDate()) {
-    return [{
-      url: `${base}/traces/${folder}/trace_recent_${cleanIcao}.json`,
-      filterDate: false,
-      label: "trace_recent"
-    }];
+  const requests = [];
+  for (const base of traceBaseUrlsForSettings(settings)) {
+    requests.push({ url: `${base}/traces/${folder}/${file}`, filterDate, label });
+    if (!/\/api\/aircraft\/v2$/i.test(base)) {
+      requests.push({ url: `${base}/api/aircraft/v2/traces/${folder}/${file}`, filterDate, label });
+    }
   }
-
-  return [{
-    url: `${base}/traces/${folder}/trace_full_${cleanIcao}.json`,
-    filterDate: true,
-    label: "trace_full"
-  }];
+  return uniqueTraceRequests(requests);
 }
 
 async function loadOfficialTrace(flight) {
