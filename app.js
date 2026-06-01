@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V44";
-const APP_VERSION_STAMP = "0106260835";
+const APP_VERSION_NUMBER = "V46";
+const APP_VERSION_STAMP = "0106260925";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -62,6 +62,10 @@ const TRAIL_AIRCRAFT_LIMIT = 120;
 const VISIBLE_TRACK_POINTS = 42;
 const ALERT_COOLDOWN_MS = 3 * 60 * 1000;
 const ALERT_LOG_MAX_ENTRIES = 30;
+const WATCHLIST_GLOBAL_CHECK_INTERVAL_MS = 45 * 1000;
+const WATCHLIST_GLOBAL_CHECK_LIMIT = 3;
+const WATCHLIST_STATIC_LOOKUP_TIMEOUT_MS = 3500;
+const ADSBDB_AIRCRAFT_API_BASE_URL = "https://api.adsbdb.com/v0/aircraft/";
 const HISTORY_MAX_ENTRIES = 450;
 const HISTORY_BUCKET_MS = 15 * 60 * 1000;
 const HISTORY_RECORD_LIMIT = 180;
@@ -292,6 +296,9 @@ let firestorePushInProgress = false;
 const firestoreClientId = getOrCreateFirestoreClientId();
 let lastHistoryWriteAt = 0;
 const alertCooldownMap = new Map();
+const watchlistProbeLastCheckedAt = new Map();
+let watchlistGlobalProbeInProgress = false;
+let watchlistGlobalProbeCursor = 0;
 
 function isSavePanelOpen() {
   const panel = document.getElementById("savePanel");
@@ -378,7 +385,7 @@ function todayLocalDate() {
 }
 
 function normalizeIcao(value) {
-  return value.trim().toLowerCase().replace(/[^a-f0-9]/g, "");
+  return String(value || "").trim().toLowerCase().replace(/[^a-f0-9]/g, "");
 }
 
 function isValidIcao(value) {
@@ -1469,6 +1476,19 @@ function loadAlertSettingsObject() {
 function saveAlertSettingsObject(settings, options = {}) {
   storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, { ...defaultAlertSettings(), ...(settings || {}) });
   if (!options.skipSync) markFirestoreStateSectionDirty("alertSettings");
+}
+
+function ensureWatchlistAlertsEnabled() {
+  const settings = loadAlertSettingsObject();
+  if (settings.enabled === true && settings.watched === true) return;
+  const next = { ...settings, enabled: true, watched: true };
+  saveAlertSettingsObject(next);
+  if (alertsEnabledInput) alertsEnabledInput.checked = true;
+  if (alertWatchedInput) {
+    alertWatchedInput.checked = true;
+    alertWatchedInput.disabled = true;
+  }
+  updateAlertStatusText("Alerty włączone dla listy obserwowanych.");
 }
 
 function timeStampText() {
@@ -3384,6 +3404,29 @@ function metricCard(label, value) {
 }
 
 
+function watchItemFromIcao(icao, options = {}) {
+  const cleanIcao = normalizeIcao(icao);
+  return {
+    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${cleanIcao}`,
+    icao: cleanIcao,
+    name: options.name || cleanIcao.toUpperCase(),
+    callsign: options.callsign || "",
+    registration: options.registration || "",
+    type: options.type || "",
+    kind: options.kind || "",
+    lat: "",
+    lon: "",
+    altitude: "",
+    speed: "",
+    heading: "",
+    pendingLive: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastSeenAt: "",
+    lastCheckedAt: ""
+  };
+}
+
 function watchItemFromAircraft(aircraft) {
   const flight = aircraftToFlight(aircraft);
   return {
@@ -3437,7 +3480,9 @@ function upsertWatchItem(item, options = {}) {
   next.unshift({ ...(existing || {}), ...watchItem, id: existing?.id || watchItem.id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${cleanIcao}`) });
   if (!existing) clearFiredAlertForIcao(cleanIcao);
   saveWatchlist(next);
+  if (options.enableAlerts !== false) ensureWatchlistAlertsEnabled();
   renderWatchlist();
+  checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
   return true;
 }
 
@@ -3451,16 +3496,27 @@ function upsertWatchFromAircraft(aircraft, options = {}) {
   return ok;
 }
 
-function addWatchFromCurrentInput() {
+async function addWatchFromCurrentInput() {
   try {
     const raw = icaoInput.value.trim();
     if (!raw) throw new Error("Wpisz samolot w polu Szukaj albo wybierz go na mapie.");
+    const directIcao = explicitIcaoFromInput(raw);
     const match = findAircraftBySmartQuery(raw);
     if (match) {
       const aircraft = match.icao && !match.hex ? flightToAircraft(match) : match;
       upsertWatchFromAircraft(aircraft);
       return;
     }
+
+    if (isValidIcao(directIcao)) {
+      upsertWatchItem(watchItemFromIcao(directIcao));
+      showToast(`Dodano ${directIcao.toUpperCase()} do obserwowanych. Brak pozycji LIVE nie blokuje alertu.`, 4600);
+      setAircraftStatus(`${directIcao.toUpperCase()}: dodany do obserwowanych bez pozycji LIVE. Program będzie sprawdzał ten HEX globalnie w tle.`);
+      enrichOfflineWatchItemInBackground(directIcao);
+      checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
+      return;
+    }
+
     const resolved = resolveSmartFlightInput(raw);
     upsertWatchItem({
       id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${resolved.icao}`,
@@ -3502,6 +3558,8 @@ function updateWatchlistFromAircraft(aircraftArray) {
       lat: point ? String(point.lat) : item.lat,
       lon: point ? String(point.lon) : item.lon,
       lastSeenAt: new Date().toISOString(),
+      lastCheckedAt: new Date().toISOString(),
+      pendingLive: false,
       updatedAt: new Date().toISOString()
     };
   });
@@ -3525,7 +3583,7 @@ function renderWatchlist() {
     setAircraftPhoto(node.querySelector(".flight-thumb"), flight);
     node.querySelector(".flight-name").textContent = item.name || item.callsign || flight.icao.toUpperCase();
     const metaParts = [
-      live ? "LIVE" : "poza mapą",
+      live ? "LIVE" : (item.lastSeenAt ? "poza mapą" : "czeka na LIVE"),
       flight.icao ? flight.icao.toUpperCase() : "",
       item.callsign,
       item.registration,
@@ -4400,6 +4458,110 @@ function canTriggerAlert(key, force = false) {
   return true;
 }
 
+function mergeUniqueAircraftByIcao(baseAircraft, extraAircraft) {
+  const mapByIcao = new Map();
+  for (const item of [...(baseAircraft || []), ...(extraAircraft || [])]) {
+    const icao = aircraftIcao(item);
+    if (!isValidIcao(icao)) continue;
+    const previous = mapByIcao.get(icao);
+    mapByIcao.set(icao, previous ? mergeFlightRouteIntoAircraft(item, previous) : item);
+  }
+  return [...mapByIcao.values()];
+}
+
+function selectWatchedItemsForGlobalProbe(currentAircraft = [], options = {}) {
+  const watched = loadWatchlist().filter((item) => isValidIcao(normalizeIcao(item.icao || item.hex || "")));
+  if (!watched.length) return [];
+
+  const liveIcaos = new Set((currentAircraft || []).map(aircraftIcao).filter(isValidIcao));
+  const now = Date.now();
+  const rotated = watched.map((item, index) => watched[(watchlistGlobalProbeCursor + index) % watched.length]);
+  const selected = [];
+
+  for (const item of rotated) {
+    const icao = normalizeIcao(item.icao || item.hex || "");
+    if (!isValidIcao(icao) || liveIcaos.has(icao)) continue;
+    const last = watchlistProbeLastCheckedAt.get(icao) || Number(item.lastProbeAt || 0) || 0;
+    if (!options.immediate && now - last < WATCHLIST_GLOBAL_CHECK_INTERVAL_MS) continue;
+    selected.push(item);
+    if (selected.length >= WATCHLIST_GLOBAL_CHECK_LIMIT) break;
+  }
+
+  if (watched.length) watchlistGlobalProbeCursor = (watchlistGlobalProbeCursor + Math.max(1, selected.length)) % watched.length;
+  return selected;
+}
+
+function markWatchedProbeChecked(icaos) {
+  const cleanSet = new Set((icaos || []).map(normalizeIcao).filter(isValidIcao));
+  if (!cleanSet.size) return;
+  const checkedAt = new Date().toISOString();
+  const items = loadWatchlist();
+  let changed = false;
+  const next = items.map((item) => {
+    const icao = normalizeIcao(item.icao || item.hex || "");
+    if (!cleanSet.has(icao)) return item;
+    changed = true;
+    return { ...item, lastProbeAt: Date.now(), lastCheckedAt: checkedAt };
+  });
+  if (changed) saveWatchlist(next, { skipSync: true });
+}
+
+async function checkWatchedAircraftGlobalInBackground(currentAircraft = [], options = {}) {
+  if (watchlistGlobalProbeInProgress || document.hidden) return;
+  const settings = loadAlertSettingsObject();
+  const watched = loadWatchlist();
+  if (!watched.length) return;
+
+  // Globalne odpytywanie HEX ma sens głównie dla alertów.
+  // Przy wyłączonych alertach robimy tylko aktualizację UI z bieżącej mapy, bez dodatkowego obciążania API.
+  if (!settings.enabled && !options.immediate) return;
+
+  const selected = selectWatchedItemsForGlobalProbe(currentAircraft, options);
+  if (!selected.length) return;
+
+  watchlistGlobalProbeInProgress = true;
+  const requestedIcaos = selected.map((item) => normalizeIcao(item.icao || item.hex || "")).filter(isValidIcao);
+  for (const icao of requestedIcaos) watchlistProbeLastCheckedAt.set(icao, Date.now());
+
+  try {
+    const probes = requestedIcaos.map(async (icao) => {
+      try {
+        return await fetchAircraftByHex(icao, {
+          preferCache: false,
+          fallbackAllSources: true,
+          timeoutMs: HEX_FETCH_TIMEOUT_MS,
+          allowProxy: true
+        });
+      } catch {
+        return null;
+      }
+    });
+
+    const found = (await Promise.all(probes)).filter(Boolean);
+    markWatchedProbeChecked(requestedIcaos);
+    if (!found.length) {
+      renderWatchlist();
+      updateAlertStatusText();
+      return;
+    }
+
+    applyCachedRoutesToAircraft(found);
+    const combined = mergeUniqueAircraftByIcao(lastAircraftCache, found);
+    lastAircraftCache = combined;
+    const visibleAircraft = filterAircraftForDisplay(combined);
+    const renderSettings = lastRenderSettings || { apiBase: API_SOURCES[DEFAULT_DATA_SOURCE].apiBase, sourceName: DEFAULT_DATA_SOURCE, apiKey: "" };
+    renderAircraft(visibleAircraft, renderSettings);
+    renderAircraftMap(visibleAircraft, renderSettings, { preserveView: true });
+    updateWatchlistFromAircraft(found);
+    recordAircraftHistory(found);
+    checkAircraftAlerts(found);
+    enrichAircraftRoutesInBackground(found, lastRenderSettings || {}, "obserwowane HEX");
+    setAircraftStatus(`Obserwowane HEX: znaleziono LIVE ${found.map((item) => aircraftIcao(item).toUpperCase()).join(", ")}.`);
+  } finally {
+    watchlistGlobalProbeInProgress = false;
+  }
+}
+
 function checkAircraftAlerts(aircraftArray, options = {}) {
   const settings = loadAlertSettingsObject();
   if (!settings.enabled && !options.force) {
@@ -4490,8 +4652,8 @@ function aircraftToFlight(aircraft) {
     name: aircraftLabel(aircraft),
     date: todayLocalDate(),
     zoom: zoomInput.value.trim() || "9.2",
-    lat: point ? String(point.lat) : browseLatInput.value.trim(),
-    lon: point ? String(point.lon) : browseLonInput.value.trim(),
+    lat: point ? String(point.lat) : (aircraft?._offlineWatchOnly ? "" : browseLatInput.value.trim()),
+    lon: point ? String(point.lon) : (aircraft?._offlineWatchOnly ? "" : browseLonInput.value.trim()),
     callsign: aircraftCallsign(aircraft),
     type: firstFilled(aircraft.t, aircraft.type, aircraft.aircraftType),
     registration: firstFilled(aircraft.r, aircraft.registration),
@@ -5090,6 +5252,7 @@ async function refreshAreaAroundFoundAircraft(aircraft, options = {}) {
     updateWatchlistFromAircraft(areaAircraft);
     recordAircraftHistory(areaAircraft);
     checkAircraftAlerts(areaAircraft);
+    checkWatchedAircraftGlobalInBackground(areaAircraft);
     enrichAircraftRoutesInBackground(areaAircraft, lastRenderSettings, result.sourceName || sourceLabel(settings.sourceName));
 
     setAircraftStatus(`Odświeżono obszar znalezionego samolotu: ${aircraftLabel(finalAircraft)}. ${aircraftFilterSummary(areaAircraft.length, visibleAircraft.length, areaAircraft)}.`);
@@ -5204,6 +5367,7 @@ async function refreshAircraftInBackground() {
     updateWatchlistFromAircraft(result.aircraft);
     recordAircraftHistory(result.aircraft);
     checkAircraftAlerts(result.aircraft);
+    checkWatchedAircraftGlobalInBackground(result.aircraft);
     setAircraftStatus(`Auto-odświeżenie: ${aircraftFilterSummary(result.aircraft.length, visibleAircraft.length)}. Źródło: ${result.sourceName}.`);
     enrichAircraftRoutesInBackground(result.aircraft, result.candidate, result.sourceName);
   } catch (error) {
@@ -5258,6 +5422,7 @@ async function loadAircraft() {
       updateWatchlistFromAircraft(aircraft);
       recordAircraftHistory(aircraft);
       checkAircraftAlerts(aircraft);
+      checkWatchedAircraftGlobalInBackground(aircraft);
       startAircraftAutoRefresh();
 
       if (aircraft.length) {
@@ -5504,7 +5669,7 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
   }
   traceApiAttemptedAt.set(traceKey, Date.now());
 
-  setRouteSummary(`${aircraftLabel(aircraft)}: pobieram realny ślad lotu z API...`);
+  setRouteSummary(`${aircraftLabel(aircraft)}: sprawdzam publiczne pliki trace używane przez mapę ADS...`);
   try {
     const apiPoints = await loadOfficialTrace(flight);
     const mergedApiPoints = appendCurrentAircraftPointToTrace(apiPoints, aircraft);
@@ -5525,7 +5690,7 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
     return;
   }
 
-  drawLocalSelectedAircraftRoute(aircraft, options, "Trace API nie zwróciło pasującego śladu — ");
+  drawLocalSelectedAircraftRoute(aircraft, options, "Nie znalazłem pełnego trace z mapy ADS — ");
 }
 
 function drawSelectedAircraftRoute(aircraft, options = {}) {
@@ -5709,6 +5874,92 @@ async function fetchAircraftByHex(icao, options = {}) {
   return null;
 }
 
+function offlineAircraftRecordFromIcao(icao, sourceText = "obserwowany bez pozycji LIVE") {
+  const cleanIcao = normalizeIcao(icao);
+  return {
+    hex: cleanIcao,
+    icao: cleanIcao,
+    flight: cleanIcao.toUpperCase(),
+    r: "",
+    t: "",
+    _offlineWatchOnly: true,
+    _sourceName: sourceText
+  };
+}
+
+function aircraftFromStaticDatabaseResponse(icao, data) {
+  const cleanIcao = normalizeIcao(icao);
+  const root = data?.response?.aircraft || data?.response || data?.aircraft || data || {};
+  const registration = firstFilled(root.registration, root.reg, root.n_number, root.tail, "");
+  const type = firstFilled(root.type, root.icao_type, root.icaoType, root.aircraft_type, root.model, root.aircraft, root.description, "");
+  const manufacturer = firstFilled(root.manufacturer, root.make, "");
+  const owner = firstFilled(root.registered_owner, root.owner, root.operator, root.airline, root.op, "");
+  const label = firstFilled(type, registration, owner, cleanIcao.toUpperCase());
+  return {
+    ...offlineAircraftRecordFromIcao(cleanIcao, "baza statyczna"),
+    flight: label,
+    name: label,
+    r: registration,
+    registration,
+    t: type,
+    type,
+    desc: [manufacturer, owner].filter(Boolean).join(" • "),
+    operator: owner,
+    _staticKnown: Boolean(registration || type || owner || manufacturer)
+  };
+}
+
+async function fetchStaticAircraftByHex(icao, options = {}) {
+  const cleanIcao = normalizeIcao(icao);
+  if (!isValidIcao(cleanIcao)) return null;
+  const url = `${ADSBDB_AIRCRAFT_API_BASE_URL}${cleanIcao.toUpperCase()}`;
+  const attempts = [url, ...CORS_PROXY_BUILDERS.map((builder) => builder(url))];
+  let lastError = null;
+  for (const attemptUrl of attempts) {
+    try {
+      const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "application/json" } }, options.timeoutMs || WATCHLIST_STATIC_LOOKUP_TIMEOUT_MS);
+      if (!response.ok) throw new Error(`Baza statyczna zwróciła ${response.status}.`);
+      const data = await response.json();
+      return aircraftFromStaticDatabaseResponse(cleanIcao, data);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (options.throwOnError) throw lastError || new Error("Nie udało się pobrać danych statycznych samolotu.");
+  return null;
+}
+
+async function enrichOfflineWatchItemInBackground(icao) {
+  const cleanIcao = normalizeIcao(icao);
+  if (!isValidIcao(cleanIcao)) return;
+  try {
+    const staticAircraft = await fetchStaticAircraftByHex(cleanIcao);
+    if (!staticAircraft) return;
+    const current = loadWatchlist();
+    let changed = false;
+    const next = current.map((item) => {
+      if (normalizeIcao(item.icao || item.hex || "") !== cleanIcao) return item;
+      changed = true;
+      return {
+        ...item,
+        name: item.name && item.name !== cleanIcao.toUpperCase() ? item.name : aircraftLabel(staticAircraft),
+        callsign: item.callsign || aircraftCallsign(staticAircraft),
+        registration: item.registration || firstFilled(staticAircraft.r, staticAircraft.registration, ""),
+        type: item.type || firstFilled(staticAircraft.t, staticAircraft.type, ""),
+        kind: item.kind || aircraftTypeGroup(staticAircraft),
+        staticKnown: true,
+        updatedAt: new Date().toISOString()
+      };
+    });
+    if (changed) {
+      saveWatchlist(next);
+      renderWatchlist();
+    }
+  } catch {
+    // Dane statyczne są tylko dodatkiem. Alert po HEX nadal działa bez nich.
+  }
+}
+
 function tracePointsFromData(data) {
   if (!data || !Array.isArray(data.trace)) return [];
   const base = Number(data.timestamp || 0);
@@ -5761,6 +6012,26 @@ function uniqueTraceRequests(requests) {
   });
 }
 
+function safeUrlOrigin(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return "";
+  }
+}
+
+function traceDateParts(date) {
+  const clean = String(date || "").slice(0, 10);
+  const match = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  return { year: match[1], month: match[2], day: match[3], clean };
+}
+
+function todayUtcDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function traceBaseUrlsForSettings(settings) {
   const urls = [];
   const add = (value) => {
@@ -5773,22 +6044,28 @@ function traceBaseUrlsForSettings(settings) {
   add(configured.replace(/\/api\/aircraft\/v2$/i, ""));
   add(configured.replace(/\/v2$/i, ""));
 
-  try {
-    const parsed = new URL(configured);
-    add(`${parsed.protocol}//${parsed.host}`);
-  } catch {
-    // validatedApiBase pilnuje adresu, ten catch jest tylko awaryjny.
-  }
+  const configuredOrigin = safeUrlOrigin(configured);
+  add(configuredOrigin);
+
+  // Ten adres jest tym samym punktem odniesienia, który otwiera przycisk „ADS”.
+  // Strona ADS rysuje ślad z plików trace w katalogach data/traces albo globe_history,
+  // więc program próbuje te same publiczne ścieżki JSON przed narysowaniem trasy.
+  add(ADSB_BASE_URL);
+  add(safeUrlOrigin(ADSB_BASE_URL));
 
   if (settings.sourceName === "adsbLol") {
     add("https://api.adsb.lol");
     add("https://adsb.lol");
   } else if (settings.sourceName === "adsbFi") {
     add("https://opendata.adsb.fi");
+    add("https://globe.adsb.fi");
   } else if (settings.sourceName === "adsbOne") {
     add("https://api.adsb.one");
+    add("https://globe.adsb.one");
   } else if (settings.sourceName === "airplanesLive") {
     add("https://api.airplanes.live");
+    add("https://airplanes.live");
+    add("https://globe.airplanes.live");
   } else if (settings.sourceName === "adsbExchange") {
     add("https://gateway.adsbexchange.com/api/aircraft/v2");
     add("https://www.adsbexchange.com/api/aircraft/v2");
@@ -5798,20 +6075,59 @@ function traceBaseUrlsForSettings(settings) {
   return urls;
 }
 
+function addTraceUrlVariants(requests, base, folder, file, label, filterDate, dateInfo = null) {
+  const cleanBase = String(base || "").trim().replace(/\/+$/, "");
+  if (!cleanBase) return;
+
+  const origin = safeUrlOrigin(cleanBase);
+  const apiRoot = cleanBase.replace(/\/v2$/i, "").replace(/\/api\/aircraft\/v2$/i, "");
+  const bases = [cleanBase, apiRoot, origin].filter(Boolean)
+    .filter((value, index, list) => list.indexOf(value) === index);
+
+  for (const item of bases) {
+    requests.push({ url: `${item}/data/traces/${folder}/${file}`, filterDate, label: `${label}/data` });
+    requests.push({ url: `${item}/traces/${folder}/${file}`, filterDate, label });
+    requests.push({ url: `${item}/api/aircraft/v2/traces/${folder}/${file}`, filterDate, label: `${label}/api` });
+  }
+
+  if (dateInfo) {
+    for (const item of bases) {
+      requests.push({
+        url: `${item}/globe_history/${dateInfo.year}/${dateInfo.month}/${dateInfo.day}/traces/${folder}/${file}`,
+        filterDate,
+        label: `${label}/globe_history`
+      });
+      requests.push({
+        url: `${item}/data/globe_history/${dateInfo.year}/${dateInfo.month}/${dateInfo.day}/traces/${folder}/${file}`,
+        filterDate,
+        label: `${label}/data_globe_history`
+      });
+    }
+  }
+}
+
 function traceUrlsForFlight(settings, flight) {
   const cleanIcao = normalizeIcao(flight?.icao || "");
   if (!isValidIcao(cleanIcao)) return [];
+
   const folder = cleanIcao.slice(-2);
-  const today = flight?.date === todayLocalDate();
-  const file = today ? `trace_recent_${cleanIcao}.json` : `trace_full_${cleanIcao}.json`;
-  const label = today ? "trace_recent" : "trace_full";
-  const filterDate = !today;
+  const dateInfo = traceDateParts(flight?.date);
+  const requestedDate = dateInfo?.clean || todayLocalDate();
+  const isCurrentDay = !dateInfo || requestedDate === todayLocalDate() || requestedDate === todayUtcDate();
+  const recentFile = `trace_recent_${cleanIcao}.json`;
+  const fullFile = `trace_full_${cleanIcao}.json`;
 
   const requests = [];
   for (const base of traceBaseUrlsForSettings(settings)) {
-    requests.push({ url: `${base}/traces/${folder}/${file}`, filterDate, label });
-    if (!/\/api\/aircraft\/v2$/i.test(base)) {
-      requests.push({ url: `${base}/api/aircraft/v2/traces/${folder}/${file}`, filterDate, label });
+    // Bieżący lot: najpierw recent trace, czyli ślad używany przez mapę live.
+    if (isCurrentDay) {
+      addTraceUrlVariants(requests, base, folder, recentFile, "trace_recent", false, null);
+      // Awaryjnie sprawdzamy też full, bo różne mirrory mogą mieć różną organizację plików.
+      addTraceUrlVariants(requests, base, folder, fullFile, "trace_full", true, dateInfo);
+    } else {
+      // Lot historyczny: najpierw pełny ślad z globe_history dla konkretnej daty.
+      addTraceUrlVariants(requests, base, folder, fullFile, "trace_full", true, dateInfo);
+      addTraceUrlVariants(requests, base, folder, recentFile, "trace_recent", true, null);
     }
   }
   return uniqueTraceRequests(requests);
@@ -5821,26 +6137,34 @@ async function loadOfficialTrace(flight) {
   const baseSettings = readApiOnlySettings();
   const candidates = traceSourceCandidates(baseSettings);
   let lastError = null;
+  let checkedCount = 0;
 
   for (const candidate of candidates) {
     const headers = traceHeadersForSettings(candidate);
     const source = apiSourceByName(candidate.sourceName);
-    for (const request of traceUrlsForFlight(candidate, flight)) {
+    const requests = traceUrlsForFlight(candidate, flight);
+    for (const request of requests) {
+      checkedCount += 1;
       try {
         const data = await fetchJsonWithFallback(request.url, candidate, headers, {
           timeoutMs: TRACE_FETCH_TIMEOUT_MS,
           allowProxy: source.allowProxy === true
         });
-        const points = prepareTracePointsForFlight(tracePointsFromData(data), flight, { filterDate: request.filterDate });
-        if (points.length >= 2) return points;
-        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło ślad bez pewnego odcinka lotu.`);
+        const rawPoints = tracePointsFromData(data);
+        const points = prepareTracePointsForFlight(rawPoints, flight, { filterDate: request.filterDate });
+        if (points.length >= 2) {
+          console.info(`Trace OK: ${sourceLabel(candidate.sourceName)} ${request.label}, punkty: ${points.length}, URL: ${request.url}`);
+          return points;
+        }
+        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło plik trace, ale bez odcinka pasującego do aktualnej pozycji.`);
       } catch (error) {
         lastError = error;
       }
     }
   }
 
-  throw lastError || new Error("Nie udało się pobrać śladu lotu z API.");
+  const suffix = checkedCount ? ` Sprawdzonych adresów trace: ${checkedCount}.` : "";
+  throw lastError || new Error(`Nie udało się pobrać śladu lotu z API.${suffix}`);
 }
 
 
@@ -6382,6 +6706,19 @@ async function searchAircraftFromInput() {
     focusAircraftOnMap(finalAircraft, { singleMarker: !findAircraftByIcaoInCache(finalIcao), showSheet: true, centerMap: false, fitMap: false, zoom: 10 });
     showToast("Znaleziono samolot, odświeżono jego obszar i pokazano dane.", 4200);
   } catch (error) {
+    if (isValidIcao(directIcao)) {
+      let aircraft = offlineAircraftRecordFromIcao(directIcao);
+      try {
+        aircraft = await fetchStaticAircraftByHex(directIcao) || aircraft;
+      } catch {
+        // Brak danych statycznych nie blokuje obserwowania po HEX.
+      }
+      clearManualSearchInputLock();
+      fillForm(aircraftToFlight(aircraft), { force: true });
+      setAircraftStatus(`${directIcao.toUpperCase()}: brak aktualnej pozycji LIVE w dostępnych źródłach, ale HEX jest poprawny i może zostać dodany do obserwowanych. Alert zadziała, gdy pojawi się w publicznym ADS.`);
+      showToast(`${directIcao.toUpperCase()}: brak LIVE. Możesz dodać do obserwowanych.`, 5200);
+      return;
+    }
     icaoInput.value = originalValue;
     markManualSearchInput(originalValue);
     setAircraftStatus(`Nie znaleziono samolotu: ${raw}. ${explainFetchError(error)}.`);
@@ -6422,7 +6759,10 @@ requestNotificationsButton?.addEventListener("click", async () => {
   updateAlertStatusText(permission === "granted" ? "Powiadomienia systemowe włączone." : "Brak zgody na powiadomienia systemowe.");
   showToast(permission === "granted" ? "Powiadomienia systemowe włączone." : "Brak zgody na powiadomienia systemowe.", 4200);
 });
-testAlertsButton?.addEventListener("click", () => checkAircraftAlerts(lastAircraftCache, { force: true, toastIfEmpty: true }));
+testAlertsButton?.addEventListener("click", () => {
+  checkAircraftAlerts(lastAircraftCache, { force: true, toastIfEmpty: true });
+  checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
+});
 clearAlertLogButton?.addEventListener("click", () => {
   saveAlertLog([]);
   renderAlertLog();
