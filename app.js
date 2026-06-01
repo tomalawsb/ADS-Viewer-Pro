@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V36";
-const APP_VERSION_STAMP = "0106260625";
+const APP_VERSION_NUMBER = "V37";
+const APP_VERSION_STAMP = "0106260635";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -7,6 +7,8 @@ const PWA_BROWSER_CHOICE_STORAGE_KEY = "adsb-pwa-browser-choice-v1";
 const FETCH_TIMEOUT_MS = 9000;
 const RADIUS_FETCH_TIMEOUT_MS = 5200;
 const HEX_FETCH_TIMEOUT_MS = 4200;
+const TRACE_FETCH_TIMEOUT_MS = 9000;
+const TRACE_API_RETRY_COOLDOWN_MS = 120000;
 const AUTO_REFRESH_INTERVAL_MS = 8000;
 const STORAGE_KEY = "adsb-saved-flights-v1";
 const API_KEY_STORAGE_KEY = "adsb-api-key-v1";
@@ -258,6 +260,7 @@ let userLocationLayer = null;
 let lastRouteBounds = null;
 let liveTrackTimer = null;
 let activeTrack = null;
+const traceApiAttemptedAt = new Map();
 let aircraftAutoRefreshTimer = null;
 let aircraftRefreshInProgress = false;
 let lastRenderSettings = null;
@@ -3878,35 +3881,6 @@ async function buildAircraftExportFiles(aircraft, baseName) {
   return files;
 }
 
-function prefixExportFileName(baseName, fileName) {
-  const safeBase = sanitizeFileName(baseName || "samolot");
-  const safeFile = sanitizeFileName(fileName || "plik.txt");
-  return `${safeBase}__${safeFile}`;
-}
-
-async function downloadAircraftExportAsNormalFiles(baseName, files) {
-  // Awaryjnie nie robimy ZIP-a. Pobieramy zwykłe, osobne pliki.
-  // Przeglądarka zapisze je w standardowym katalogu pobierania albo zapyta o miejsce zapisu,
-  // zależnie od ustawień użytkownika.
-  for (const file of files) {
-    downloadBlob(prefixExportFileName(baseName, file.name), file.blob);
-    await new Promise((resolve) => window.setTimeout(resolve, 250));
-  }
-}
-
-async function writeAircraftFilesToChosenDirectory(root, baseName, files) {
-  const writable = await ensureDirectoryWritable(root);
-  if (!writable) throw new Error("Nie udzielono zgody na zapis do wybranego katalogu.");
-
-  const folder = await root.getDirectoryHandle(baseName, { create: true });
-
-  // Nie prosimy drugi raz o uprawnienia do podfolderu, bo część przeglądarek/PWA potrafi się na tym wyłożyć.
-  // Uprawnienie do root wystarcza do zapisu w utworzonym podfolderze.
-  for (const file of files) {
-    await writeBlobToDirectory(folder, file.name, file.blob);
-  }
-}
-
 async function exportSelectedAircraftToFolder(event) {
   event?.preventDefault?.();
   event?.stopPropagation?.();
@@ -3929,55 +3903,28 @@ async function exportSelectedAircraftToFolder(event) {
   } catch (error) {
     finishBusy();
     console.error("Nie udało się przygotować eksportu:", error);
-    alert(`Nie udało się przygotować eksportu:\n${error?.message || error?.name || "nieznany błąd"}`);
+    alert(`Nie udało się przygotować eksportu:
+${error?.message || error?.name || "nieznany błąd"}`);
     return;
   }
 
   try {
-    if (typeof window.showDirectoryPicker !== "function") {
-      throw new Error("Brak obsługi wyboru katalogu w tej przeglądarce/PWA.");
-    }
-
-    const root = await window.showDirectoryPicker({ mode: "readwrite" });
-
-    startBusy("Zapisuję folder eksportu...");
-    await writeAircraftFilesToChosenDirectory(root, baseName, files);
+    startBusy("Pobieram jeden plik ZIP z eksportem...");
+    await downloadAircraftExportZip(zipName, files, baseName);
     finishBusy();
+    alert(`Eksport pobrany jako ZIP.
+Plik zawiera dane JSON/CSV/HTML oraz zdjęcie.
 
-    alert(`Eksport zakończony.\nUtworzono folder:\n${baseName}\n\nW środku są dane JSON/CSV/HTML i plik zdjęcia.`);
-    showToast(`Eksport zapisany: ${baseName}`, 9000);
-  } catch (error) {
+Nazwa: ${safeZipName(zipName)}.zip`);
+    showToast(`Eksport pobrany: ${safeZipName(zipName)}.zip`, 9000);
+  } catch (zipError) {
     finishBusy();
-
-    if (error?.name === "AbortError") {
-      showToast("Anulowano eksport.");
-      return;
-    }
-
-    console.warn("Eksport do katalogu nie zadziałał, pobieram jedną paczkę ZIP:", error);
-
-    try {
-      startBusy("Pobieram jeden plik ZIP z eksportem...");
-      await downloadAircraftExportZip(zipName, files, baseName);
-      finishBusy();
-      alert(`Eksport pobrany jako ZIP.\nPlik zawiera dane JSON/CSV/HTML oraz zdjęcie.\n\nNazwa: ${safeZipName(zipName)}.zip`);
-      showToast("Eksport pobrany jako ZIP ze zdjęciem.", 9000);
-    } catch (zipError) {
-      finishBusy();
-      console.error("ZIP nie zadziałał, próbuję pobrać osobne pliki:", zipError);
-      try {
-        startBusy("Pobieram osobne pliki eksportu...");
-        await downloadAircraftExportAsNormalFiles(baseName, files);
-        finishBusy();
-        showToast("Eksport pobrany jako osobne pliki.", 9000);
-      } catch (downloadError) {
-        finishBusy();
-        console.error("Nie udało się pobrać eksportu:", downloadError);
-        alert(`Eksport nie zadziałał:\n${downloadError?.message || downloadError?.name || "nieznany błąd"}`);
-      }
-    }
+    console.error("Nie udało się pobrać paczki ZIP:", zipError);
+    alert(`Eksport ZIP nie zadziałał:
+${zipError?.message || zipError?.name || "nieznany błąd"}`);
   }
 }
+
 
 function readAlertSettingsFromForm() {
   return {
@@ -4640,6 +4587,19 @@ function loadLatestTrackPoints(icao) {
   return key ? { date: key.slice(prefix.length), points: tracks[key] } : { date: "", points: [] };
 }
 
+function saveTracePointsIfUseful(icao, date, points) {
+  const cleanIcao = normalizeIcao(icao);
+  const cleanPoints = Array.isArray(points) ? points.filter(validPoint) : [];
+  if (!isValidIcao(cleanIcao) || cleanPoints.length < 2) return cleanPoints;
+
+  const current = loadTrackPoints(cleanIcao, date).filter(validPoint);
+  if (cleanPoints.length >= current.length) {
+    saveTrackPoints(cleanIcao, date, cleanPoints);
+  }
+  return cleanPoints;
+}
+
+
 function saveTrackPoints(icao, date, points) {
   const tracks = loadTracks();
   tracks[trackKey(icao, date)] = points.slice(-MAX_TRACK_POINTS);
@@ -5052,22 +5012,18 @@ function drawStoredTrackForAircraft(aircraft) {
   return clean;
 }
 
-function drawSelectedAircraftRoute(aircraft, options = {}) {
+function drawLocalSelectedAircraftRoute(aircraft, options = {}, messagePrefix = "") {
   const flight = aircraftToFlight(aircraft);
-  fillForm(flight);
-
   const point = pointFromAircraft(aircraft);
   const confirmedEndpoints = confirmedRouteEndpointPoints(aircraft);
   let points = [];
 
-  // Nie tworzymy sztucznej linii START → samolot → STOP.
-  // Linia trasy ma pochodzić wyłącznie z prawdziwych punktów śladu zapisanych z odświeżeń/API.
-  if (point && isValidIcao(flight.icao)) {
-    points = addTrackPoint(flight.icao, flight.date, point);
-  } else if (isValidIcao(flight.icao)) {
+  if (isValidIcao(flight.icao)) {
     points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
   }
-
+  if (!points.length && point && isValidIcao(flight.icao)) {
+    points = addTrackPoint(flight.icao, flight.date, point).filter(validPoint);
+  }
   if (!points.length && point) points = [point];
 
   if (points.length) {
@@ -5078,21 +5034,71 @@ function drawSelectedAircraftRoute(aircraft, options = {}) {
       showHeadingWhenSingle: false
     });
 
-    if (confirmedEndpoints && points.length > 1) {
-      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję rzeczywisty ślad przelotu z zapisanych punktów. START i STOP są tylko znacznikami — nie są łączone sztuczną linią z samolotem.`);
-    } else if (confirmedEndpoints) {
-      setRouteSummary(`${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. START i STOP pokazuję jako znaczniki, ale nie łączę ich linią z samolotem.`);
-    } else if (points.length === 1) {
-      setRouteSummary(`${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. Program nie rysuje już sztucznej linii kierunku jako trasy.`);
+    if (points.length === 1) {
+      setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. Czekam na kolejne punkty z odświeżeń albo trace API.`);
     } else {
-      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję rzeczywisty ślad live budowany z kolejnych odświeżeń programu.`);
+      setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: pokazuję lokalny rzeczywisty ślad z ${points.length} punktów.`);
     }
-    return;
+    return points;
   }
 
   clearRoute();
   setRouteSummary(`${aircraftLabel(aircraft)}: brak rzeczywistych punktów przelotu do narysowania trasy.`);
+  return [];
 }
+
+async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
+  const flight = aircraftToFlight(aircraft);
+  fillForm(flight);
+
+  const point = pointFromAircraft(aircraft);
+  if (point && isValidIcao(flight.icao)) {
+    addTrackPoint(flight.icao, flight.date, point);
+  }
+
+  if (!isValidIcao(flight.icao)) {
+    drawLocalSelectedAircraftRoute(aircraft, options);
+    return;
+  }
+
+  const traceKey = trackKey(flight.icao, flight.date);
+  const lastTraceAttempt = traceApiAttemptedAt.get(traceKey) || 0;
+  if (options.forceApiTrace !== true && Date.now() - lastTraceAttempt < TRACE_API_RETRY_COOLDOWN_MS) {
+    drawLocalSelectedAircraftRoute(aircraft, options);
+    return;
+  }
+  traceApiAttemptedAt.set(traceKey, Date.now());
+
+  setRouteSummary(`${aircraftLabel(aircraft)}: pobieram realny ślad lotu z API...`);
+  try {
+    const apiPoints = await loadOfficialTrace(flight);
+    const cleanApiPoints = saveTracePointsIfUseful(flight.icao, flight.date, apiPoints);
+    if (cleanApiPoints.length >= 2) {
+      drawRoute(cleanApiPoints, `${aircraftLabel(aircraft)} • ślad lotu z API`, {
+        endpoints: confirmedRouteEndpointPoints(aircraft),
+        fitMap: options.fitMap === true,
+        showCurrentMarker: false,
+        showHeadingWhenSingle: false
+      });
+      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję realny ślad z API, ${cleanApiPoints.length} punktów. START/STOP są tylko znacznikami, nie sztuczną linią.`);
+      return;
+    }
+  } catch (error) {
+    console.warn("Nie udało się pobrać pełnego trace API, używam lokalnego śladu:", error);
+    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API niedostępne — ");
+    return;
+  }
+
+  drawLocalSelectedAircraftRoute(aircraft, options, "Trace API nie zwróciło pełnej trasy — ");
+}
+
+function drawSelectedAircraftRoute(aircraft, options = {}) {
+  drawSelectedAircraftRouteAsync(aircraft, options).catch((error) => {
+    console.error("Nie udało się narysować trasy samolotu:", error);
+    drawLocalSelectedAircraftRoute(aircraft, options, "Błąd pobierania trasy — ");
+  });
+}
+
 
 function clearAircraftMap() {
   initMap();
@@ -5279,45 +5285,79 @@ function tracePointsFromData(data) {
     .filter(Boolean);
 }
 
-async function loadOfficialTrace(flight) {
-  const settings = readApiOnlySettings();
-  if (settings.sourceName !== "adsbExchange") {
-    throw new Error("Pełny historyczny ślad wymaga ADS-B Exchange API albo własnego źródła trace.");
-  }
-  const folder = flight.icao.slice(-2);
+function traceHeadersForSettings(settings) {
   const headers = { "Accept": "application/json" };
-  if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
+  const key = settings?.apiKey || "";
+  if (key) {
+    headers["X-Api-Key"] = key;
+    headers["api-auth"] = key;
+  }
+  return headers;
+}
+
+function traceSourceCandidates(baseSettings) {
+  const names = [baseSettings.sourceName, ...FREE_FALLBACK_SOURCES].filter((name, index, list) => list.indexOf(name) === index);
+  const candidates = names.map((name) => settingsForSource(baseSettings, name));
+  if (baseSettings.sourceName === "custom") candidates.unshift(baseSettings);
+  if (baseSettings.sourceName === "adsbExchange" && baseSettings.apiKey) candidates.unshift(baseSettings);
+  return candidates.filter((candidate, index, list) => {
+    if (candidate.sourceName === "adsbExchange" && !candidate.apiKey) return false;
+    return list.findIndex((item) => item.sourceName === candidate.sourceName && item.apiBase === candidate.apiBase) === index;
+  });
+}
+
+function traceUrlsForFlight(settings, flight) {
+  const cleanIcao = normalizeIcao(flight?.icao || "");
+  if (!isValidIcao(cleanIcao)) return [];
+  const folder = cleanIcao.slice(-2);
   const prefixes = flight.date === todayLocalDate() ? ["trace_recent", "trace_full"] : ["trace_full", "trace_recent"];
+  const base = normalizeApiBase(settings.apiBase);
+  return prefixes.map((prefix) => `${base}/traces/${folder}/${prefix}_${cleanIcao}.json`);
+}
+
+async function loadOfficialTrace(flight) {
+  const baseSettings = readApiOnlySettings();
+  const candidates = traceSourceCandidates(baseSettings);
   let lastError = null;
 
-  for (const prefix of prefixes) {
-    const file = `${prefix}_${flight.icao}.json`;
-    const response = await fetchWithTimeout(`${settings.apiBase}/traces/${folder}/${file}`, { headers });
-    if (response.ok) return tracePointsFromData(await response.json());
-    lastError = new Error(`API śladu lotu zwróciło błąd ${response.status}.`);
+  for (const candidate of candidates) {
+    const headers = traceHeadersForSettings(candidate);
+    const source = apiSourceByName(candidate.sourceName);
+    for (const url of traceUrlsForFlight(candidate, flight)) {
+      try {
+        const data = await fetchJsonWithFallback(url, candidate, headers, {
+          timeoutMs: TRACE_FETCH_TIMEOUT_MS,
+          allowProxy: source.allowProxy === true
+        });
+        const points = tracePointsFromData(data);
+        if (points.length) return points;
+        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło pusty ślad.`);
+      } catch (error) {
+        lastError = error;
+      }
+    }
   }
 
-  throw lastError || new Error("Nie udało się pobrać śladu lotu.");
+  throw lastError || new Error("Nie udało się pobrać śladu lotu z API.");
 }
+
 
 async function drawRouteForFlight(flight) {
   if (routeLayer) routeLayer.clearLayers();
   lastRouteBounds = null;
   let points = [];
   try {
-    if (dataSourceInput.value === "adsbExchange" && apiKeyInput.value.trim()) {
-      points = await loadOfficialTrace(flight);
-      if (points.length) {
-        saveTrackPoints(flight.icao, flight.date, points);
-        drawRoute(points, flight.name || flight.icao.toUpperCase());
-        if (flight.date !== todayLocalDate()) {
-          setRouteSummary(`Uwaga: oficjalny trace API nie wybiera daty z linku ADS-B. ${routeSummary.textContent}`);
-        }
-        return;
+    points = await loadOfficialTrace(flight);
+    if (points.length) {
+      saveTracePointsIfUseful(flight.icao, flight.date, points);
+      drawRoute(points, flight.name || flight.icao.toUpperCase());
+      if (flight.date !== todayLocalDate()) {
+        setRouteSummary(`Uwaga: trace API może zwrócić najbliższy dostępny ślad zamiast dokładnej daty z linku. ${routeSummary.textContent}`);
       }
+      return;
     }
   } catch (error) {
-    showToast(error.message);
+    showToast(`Nie pobrałem pełnego śladu z API: ${error.message}`);
   }
 
   points = loadTrackPoints(flight.icao, flight.date);
