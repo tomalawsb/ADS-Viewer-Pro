@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V40";
-const APP_VERSION_STAMP = "0106260735";
+const APP_VERSION_NUMBER = "V41";
+const APP_VERSION_STAMP = "0106260745";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -2490,6 +2490,64 @@ function distanceKmBetweenPoints(a, b) {
   return radiusKm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
+function normalizeLongitude(lon) {
+  return ((lon + 540) % 360) - 180;
+}
+
+function greatCirclePointBetween(start, end, fraction) {
+  if (!validPoint(start) || !validPoint(end)) return null;
+  const lat1 = start.lat * Math.PI / 180;
+  const lon1 = start.lon * Math.PI / 180;
+  const lat2 = end.lat * Math.PI / 180;
+  const lon2 = end.lon * Math.PI / 180;
+
+  const delta = 2 * Math.asin(Math.sqrt(
+    Math.sin((lat2 - lat1) / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2
+  ));
+
+  if (!Number.isFinite(delta) || delta === 0) {
+    return { ...start };
+  }
+
+  const sinDelta = Math.sin(delta);
+  const a = Math.sin((1 - fraction) * delta) / sinDelta;
+  const b = Math.sin(fraction * delta) / sinDelta;
+
+  const x = a * Math.cos(lat1) * Math.cos(lon1) + b * Math.cos(lat2) * Math.cos(lon2);
+  const y = a * Math.cos(lat1) * Math.sin(lon1) + b * Math.cos(lat2) * Math.sin(lon2);
+  const z = a * Math.sin(lat1) + b * Math.sin(lat2);
+
+  const lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * 180 / Math.PI;
+  const lon = Math.atan2(y, x) * 180 / Math.PI;
+  return {
+    lat,
+    lon: normalizeLongitude(lon),
+    at: "",
+    altitude: null,
+    speed: null,
+    track: null
+  };
+}
+
+function greatCircleRoutePoints(start, end) {
+  if (!validPoint(start) || !validPoint(end)) return [];
+  const distanceKm = distanceKmBetweenPoints(start, end) || 0;
+  const steps = Math.min(180, Math.max(32, Math.ceil(distanceKm / 90)));
+  const result = [];
+
+  for (let index = 0; index <= steps; index += 1) {
+    const point = greatCirclePointBetween(start, end, index / steps);
+    if (point) result.push(point);
+  }
+
+  if (result.length) {
+    result[0] = { ...result[0], ...start };
+    result[result.length - 1] = { ...result[result.length - 1], ...end };
+  }
+  return result;
+}
+
 function shouldBreakTraceSegment(previous, point) {
   if (!validPoint(previous) || !validPoint(point)) return true;
   const distanceKm = distanceKmBetweenPoints(previous, point);
@@ -2696,12 +2754,14 @@ function drawRoute(points, label = "Trasa", options = {}) {
       title: `Start: ${endpoints.start.label || "potwierdzony punkt startu"}`
     }).addTo(routeLayer);
 
+    const endMarkerText = options.endMarkerText || (plannedOnly ? "CEL" : "STOP");
+    const endMarkerTitle = plannedOnly ? "Cel" : "Stop";
     L.marker([endpoints.end.lat, endpoints.end.lon], {
       pane: "routePane",
       interactive: false,
       keyboard: false,
-      icon: routeEndpointIcon("STOP", "end"),
-      title: `Stop: ${endpoints.end.label || "potwierdzony punkt lądowania"}`
+      icon: routeEndpointIcon(endMarkerText, "end"),
+      title: `${endMarkerTitle}: ${endpoints.end.label || "potwierdzony punkt końcowy"}`
     }).addTo(routeLayer);
   }
 
@@ -5217,17 +5277,19 @@ function hasConfirmedEndpointCoordinates(aircraft) {
 function drawKnownAirportRouteFallback(aircraft, options = {}, messagePrefix = "") {
   const endpoints = confirmedRouteEndpointPoints(aircraft);
   if (!endpoints?.start || !endpoints?.end) return false;
-  const points = [endpoints.start, endpoints.end].filter(validPoint);
+
+  const points = greatCircleRoutePoints(endpoints.start, endpoints.end).filter(validPoint);
   if (points.length < 2) return false;
 
-  drawRoute(points, `${aircraftLabel(aircraft)} • znane lotniska startu i lądowania`, {
+  drawRoute(points, `${aircraftLabel(aircraft)} • znana trasa lotniskowa`, {
     endpoints,
     fitMap: options.fitMap === true,
     showCurrentMarker: false,
     showHeadingWhenSingle: false,
-    plannedOnly: true
+    plannedOnly: true,
+    endMarkerText: "CEL"
   });
-  setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: znam start i cel (${endpoints.start.label} → ${endpoints.end.label}), ale nie mam pełnego śladu ADS-B z API. Pokazuję tylko stałą trasę lotnisko–lotnisko i nie udaję, że to rzeczywista ścieżka po punktach.`);
+  setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: znam start i cel (${endpoints.start.label} → ${endpoints.end.label}). Brak pełnego śladu ADS-B z API, więc pokazuję przeliczoną trasę wielkiego koła między lotniskami. To jest linia planowanej trasy, nie zapisany punkt po punkcie ślad ADS-B.`);
   return true;
 }
 
