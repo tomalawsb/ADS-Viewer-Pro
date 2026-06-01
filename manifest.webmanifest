@@ -1,8 +1,8 @@
 {
-  "name": "ADS Viewer Pro V35",
+  "name": "ADS Viewer Pro V43",
   "short_name": "ADS Viewer",
   "description": "Mapa ADS-B z automatycznym odświeżaniem, lokalizacją, Firestore, alertami systemowymi, obserwowanymi samolotami, historią przelotów i mobilnym panelem.",
-  "start_url": "./?v=3105261305",
+  "start_url": "./?v=0106260815",
   "scope": "./",
   "display": "standalone",
   "background_color": "#f3f6fb",

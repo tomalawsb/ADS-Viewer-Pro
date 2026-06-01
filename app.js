@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V42";
-const APP_VERSION_STAMP = "0106260800";
+const APP_VERSION_NUMBER = "V43";
+const APP_VERSION_STAMP = "0106260815";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -50,6 +50,7 @@ const TRACE_MAX_TIME_GAP_MS = 20 * 60 * 1000;
 const TRACE_MAX_REASONABLE_KMH = 1450;
 const TRACE_MAX_DISTANCE_WITHOUT_TIME_KM = 160;
 const TRACE_CURRENT_MATCH_MAX_KM = 250;
+const TRACE_APPEND_CURRENT_MAX_KM = 300;
 const ROUTE_CACHE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const ROUTE_CACHE_MAX_ENTRIES = 220;
 const PHOTO_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -552,9 +553,12 @@ function aircraftTypeGroup(aircraft) {
 
   if (/HELICOPTER|ROTORCRAFT|ŚMIGŁ|SMIGL|GYROCOPTER|GYROPLANE|\b(R44|R66|R22|R20|B06|B407|B429|B412|B212|B427|H500|H60|UH60|EC20|EC30|EC35|EC45|EC55|AS50|AS55|AS65|S76|S92|A109|AW09|AW10|AW11|AW13|AW16|AW18|MD50|MD52|MD60|MD90)\b/.test(raw)) return "helicopter";
   if (/GLIDER|SAILPLANE|MOTORGLIDER|SZYBOW|\b(ASW|ASK|DG\d|LS\d|JS\d|SZD|VENTUS|JANUS|DISCUS|DUODISCUS|ARCUS|S12|GROB|TWIN\s?ASTIR)\b/.test(raw)) return "glider";
-  if (/ULTRALIGHT|MICROLIGHT|PARAGLIDER|MOTOL|\b(C150|C152|C162|C172|C175|C177|C180|C182|C185|C206|C207|C208|C210|P28A|P28R|PA28|PA32|PA34|PA44|SR20|SR22|DA20|DA40|DA42|DV20|DR40|BE20|BE30|BE35|BE36|BE58|PC12|PC24|TBM7|TBM8|TBM9|C25A|C25B|C25C|E50P|E55P|PRM1|M20P|M20T|C680|C750|BN2P|AN2|DHC2|DHC3|DHC6|DH8A|DH8B|DH8C|DH8D|AT43|AT45|AT72|SF34|L410|P180)\b/.test(raw)) return "prop";
-  if (/CARGO|FREIGHTER|HEAVY|\b(A300|A310|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B747|B748|B74S|B74R|B767|B763|B764|B777|B772|B773|B77L|B77W|B787|B788|B789|B78X|IL76|IL96|A124|A225|MD11|DC10|DC87)\b/.test(raw)) return "heavy";
   if (/MILITARY|WOJSK|FIGHTER|TANKER|SPECIAL|POLICE|RESCUE|AMBULANCE|\b(C17|C5M|C130|C30J|KC\d|K35R|A400|P8|P3|E3|E7|E8|F16|F-16|F18|F-18|F22|F-22|F35|F-35|MIG|MIG\d|SU\d|TYPHOON|EUFI|RAFALE|GRIPEN|TORNADO|HAWK|L159|A10|B1|B2|B52)\b/.test(raw)) return "special";
+  if (/CARGO|FREIGHTER|\b(A124|A225|IL76|MD11|DC10|B74F|B744F|B748F|B763F|B77L|B77F|A332F|A306|A30B|C130|C30J)\b/.test(raw)) return "cargo";
+  if (/BUSINESS|BIZJET|PRIVATE|EXECUTIVE|\b(C25A|C25B|C25C|C510|C525|C550|C560|C56X|C650|C680|C700|C750|E50P|E55P|PRM1|FA10|FA20|FA50|FA6X|FA7X|FA8X|GLF2|GLF3|GLF4|GLF5|GLF6|GLEX|GL5T|GL7T|LJ31|LJ35|LJ45|LJ60|H25B|H25C)\b/.test(raw)) return "business";
+  if (/ULTRALIGHT|MICROLIGHT|PARAGLIDER|MOTOL|\b(C150|C152|C162|C172|C175|C177|C180|C182|C185|C206|C207|C208|C210|P28A|P28R|PA28|PA32|PA34|PA44|SR20|SR22|DA20|DA40|DA42|DV20|DR40|BE20|BE30|BE35|BE36|BE58|PC12|PC24|TBM7|TBM8|TBM9|M20P|M20T|BN2P|AN2|DHC2|DHC3|DHC6|DH8A|DH8B|DH8C|DH8D|AT43|AT45|AT72|SF34|L410|P180)\b/.test(raw)) return "prop";
+  if (/\b(A220|BCS1|BCS3|A319|A320|A321|A20N|A21N|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B717|B737|B738|B739|B38M|B39M|B744|B748|B752|B753|B763|B764|B772|B773|B77W|B788|B789|B78X|E170|E175|E190|E195|E290|E295|CRJ2|CRJ7|CRJ9|CRJX|SU95|RJ85)\b/.test(raw)) return "airliner";
+  if (/HEAVY|\b(A300|A310|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B747|B748|B74S|B74R|B767|B763|B764|B777|B772|B773|B77L|B77W|B787|B788|B789|B78X|IL96)\b/.test(raw)) return "heavy";
   return "jet";
 }
 
@@ -564,6 +568,9 @@ function aircraftGroupLabel(group) {
     helicopter: "śmigłowiec",
     glider: "szybowiec",
     prop: "samolot śmigłowy",
+    business: "odrzutowiec biznesowy",
+    airliner: "samolot pasażerski",
+    cargo: "samolot transportowy",
     heavy: "duży samolot",
     special: "samolot specjalny",
     jet: "samolot odrzutowy"
@@ -572,6 +579,9 @@ function aircraftGroupLabel(group) {
 
 const AIRCRAFT_ICON_FILES = {
   jet: "assets/aircraft/aircraft-jet.svg",
+  airliner: "assets/aircraft/aircraft-airliner.svg",
+  business: "assets/aircraft/aircraft-business.svg",
+  cargo: "assets/aircraft/aircraft-cargo.svg",
   heavy: "assets/aircraft/aircraft-heavy.svg",
   prop: "assets/aircraft/aircraft-prop.svg",
   helicopter: "assets/aircraft/aircraft-helicopter.svg",
@@ -767,7 +777,7 @@ function saveAircraftFilters() {
 function aircraftMatchesKindFilter(aircraft, kind) {
   if (!kind || kind === "all") return true;
   const group = aircraftTypeGroup(aircraft);
-  if (kind === "jet") return group === "jet" || group === "heavy";
+  if (kind === "jet") return ["jet", "airliner", "business", "cargo", "heavy"].includes(group);
   if (kind === "helicopter") return group === "helicopter";
   if (kind === "prop") return group === "prop";
   if (kind === "glider") return group === "glider";
@@ -826,6 +836,29 @@ const AIRCRAFT_SVG_MARKUP = Object.freeze({
 <path fill="currentColor" fill-rule="evenodd" d="
     M 256 449.49 L 254 449.34 L 251.87 447 L 246.35 423 L 245 421.42 L 193 442.4 L 191.4 441 L 192 421.4 L 238.31 382 L 232 283.61 L 215 289.85 L 175 307.72 L 104 341.69 L 103.19 326 L 103.37 319 L 105 316.77 L 178.13 252 L 178.58 234 L 181 229.5 L 186 226.9 L 191 226.77 L 196 228.86 L 199 233.23 L 200 233.19 L 232.09 202 L 232.55 122 L 234.74 102 L 238.72 85 L 243.95 72 L 249 64.58 L 255 61.74 L 260.77 64 L 266.48 72 L 272.35 87 L 276.26 105 L 278.28 130 L 278.47 202 L 311 233.47 L 315 228.53 L 319 226.9 L 324 226.75 L 329 228.98 L 331.83 234 L 332.4 252 L 398 309.77 L 406.74 318 L 407.43 321 L 407.44 340 L 406 341.65 L 329 304.74 L 279 283.25 L 271.78 381 L 318.33 421 L 319.13 441 L 317 442.23 L 265 421.47 L 259.34 445 L 256 449.49 Z
   "/>
+</g>
+  `,
+  airliner: `
+<g fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M31.8 7.5c2.8 0 4.9 4.8 4.9 11.8v7.5l18.2 10.7c1.1.7 1.8 1.8 1.8 3.1v3.2l-20-6.2-1.4 10.9 7.2 5.1v3.1l-10.3-2.8-10.3 2.8v-3.1l7.1-5.1-1.4-10.9-20 6.2v-3.2c0-1.3.7-2.4 1.8-3.1l18.2-10.7v-7.5c0-7 2.1-11.8 4.2-11.8z"/>
+  <circle cx="24.4" cy="37.3" r="2.2" fill="none" stroke-width="2.2"/>
+  <circle cx="39.2" cy="37.3" r="2.2" fill="none" stroke-width="2.2"/>
+</g>
+  `,
+  business: `
+<g fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M32 8.5c2.1 0 3.9 4.3 3.9 10.3v9.4l15.4 9.2c1 .6 1.6 1.7 1.6 2.9v2.1l-17.3-4.2-1.1 9.3 6.4 4.7v2.6l-9-2.4-9 2.4v-2.6l6.3-4.7-1-9.3-17.2 4.2v-2.1c0-1.2.6-2.3 1.6-2.9l15.5-9.2v-9.4c0-6 1.7-10.3 3.9-10.3z"/>
+  <path d="M22 28.2l-9.5-6.4v-3.3l17 4.6" opacity=".85"/>
+  <path d="M42 28.2l9.5-6.4v-3.3l-17 4.6" opacity=".85"/>
+</g>
+  `,
+  cargo: `
+<g fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round">
+  <path d="M32 6.5c3.8 0 6.4 5.7 6.4 13.7v6.3l18.7 11.1c1.1.7 1.8 1.9 1.8 3.2v3.7L38 38.4l-1.7 10.3 8.5 5.9v3.1L32 54.5l-12.8 3.2v-3.1l8.5-5.9L26 38.4 5.1 44.5v-3.7c0-1.3.7-2.5 1.8-3.2l18.7-11.1v-6.3c0-8 2.6-13.7 6.4-13.7z"/>
+  <rect x="18" y="35.1" width="4.1" height="3.8" rx="1.1"/>
+  <rect x="25" y="34.2" width="4.1" height="3.8" rx="1.1"/>
+  <rect x="34.9" y="34.2" width="4.1" height="3.8" rx="1.1"/>
+  <rect x="41.9" y="35.1" width="4.1" height="3.8" rx="1.1"/>
 </g>
   `,
   heavy: `
@@ -895,7 +928,10 @@ function aircraftSvgMarkup(group) {
 
 function aircraftIconDimensions(group) {
   const dimensions = {
+    cargo: { width: 56, height: 56, anchorX: 28, anchorY: 28, svgWidth: 50, svgHeight: 50 },
     heavy: { width: 52, height: 52, anchorX: 26, anchorY: 26, svgWidth: 46, svgHeight: 46 },
+    airliner: { width: 48, height: 48, anchorX: 24, anchorY: 24, svgWidth: 42, svgHeight: 42 },
+    business: { width: 42, height: 42, anchorX: 21, anchorY: 21, svgWidth: 36, svgHeight: 36 },
     jet: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 },
     prop: { width: 38, height: 38, anchorX: 19, anchorY: 19, svgWidth: 32, svgHeight: 32 },
     helicopter: { width: 44, height: 38, anchorX: 22, anchorY: 19, svgWidth: 40, svgHeight: 34 },
@@ -910,7 +946,7 @@ function aircraftMiniIconSvg(aircraft) {
   const group = aircraftTypeGroup(aircraft || {});
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
     <rect width="64" height="64" rx="18" fill="#ecfeff"/>
-    <g style="color:#0f766e; filter: drop-shadow(0 5px 8px rgba(15,23,42,.25));">${aircraftShapeMarkup(group)}</g>
+    <g style="color:#facc15; filter: drop-shadow(0 5px 8px rgba(15,23,42,.25));">${aircraftShapeMarkup(group)}</g>
   </svg>`;
 }
 
@@ -2661,6 +2697,7 @@ function selectTraceSegmentForFlight(points, flight) {
       .filter((item) => item.distanceKm !== null && item.distanceKm <= TRACE_CURRENT_MATCH_MAX_KM)
       .sort((a, b) => a.distanceKm - b.distanceKm);
     if (nearCurrent.length) return nearCurrent[0].segment;
+    return [];
   }
 
   return segments[0];
@@ -2682,6 +2719,25 @@ function prepareTracePointsForFlight(points, flight, options = {}) {
     clean = filterTracePointsByUtcDate(clean, flight?.date);
   }
   return selectTraceSegmentForFlight(clean, flight);
+}
+
+function appendCurrentAircraftPointToTrace(points, aircraft) {
+  const clean = (Array.isArray(points) ? points : []).filter(validPoint);
+  const current = pointFromAircraft(aircraft);
+  if (!validPoint(current)) return clean;
+  if (!clean.length) return [current];
+
+  const last = clean[clean.length - 1];
+  const distanceKm = distanceKmBetweenPoints(last, current);
+  if (distanceKm !== null && distanceKm < 1) return clean;
+  if (distanceKm !== null && distanceKm > TRACE_APPEND_CURRENT_MAX_KM) return clean;
+
+  const lastTime = pointTimeMs(last);
+  const currentTime = pointTimeMs(current);
+  if (lastTime !== null && currentTime !== null && currentTime < lastTime - 60000) return clean;
+
+  if (shouldBreakTraceSegment(last, current) && !(distanceKm !== null && distanceKm <= TRACE_APPEND_CURRENT_MAX_KM)) return clean;
+  return [...clean, current];
 }
 
 function pointFromAircraft(aircraft) {
@@ -3190,6 +3246,7 @@ function setAircraftDetailsVisible(visible) {
 function showSelectedAircraftSheet(aircraft) {
   if (!aircraftSheet || !aircraft) return;
   selectedAircraft = aircraft;
+  updateSelectedAircraftMarkerHighlight();
   const label = aircraftLabel(aircraft);
   const type = firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, aircraftKind(aircraft), aircraftGroupLabel(aircraftTypeGroup(aircraft)));
   const route = routePartsForDisplay(aircraft);
@@ -5062,6 +5119,7 @@ function updateSelectedAircraftAfterRefresh(aircraft) {
   const updated = findAircraftByIcaoInCache(selectedIcao, aircraft);
   if (!updated) return;
   selectedAircraft = updated;
+  updateSelectedAircraftMarkerHighlight();
   if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(updated, { fitMap: false });
   if (aircraftSheet?.classList.contains("is-open")) {
     if (aircraftSheetAltitude) aircraftSheetAltitude.textContent = formatAltitude(updated?.alt_baro);
@@ -5099,6 +5157,7 @@ async function refreshFocusedAircraftInBackground() {
     if (!updated) return;
     applyCachedRoutesToAircraft([updated]);
     selectedAircraft = updated;
+    updateSelectedAircraftMarkerHighlight();
     focusAircraftOnMap(updated, { singleMarker: true, showSheet: aircraftSheet?.classList.contains("is-open"), drawRoute: true, centerMap: false });
     enrichAircraftRoutesInBackground([updated], lastRenderSettings || {}, "auto");
     setAircraftStatus(`Auto-odświeżenie: ${aircraftLabel(updated)}.`);
@@ -5224,14 +5283,17 @@ function aircraftIcon(aircraft) {
   const lifecycle = aircraftLifecycleState(aircraft, performance);
   const escapedLabel = escapeHtml(label);
   const typeTitle = aircraftGroupLabel(group);
+  const icao = aircraftIcao(aircraft);
+  const selectedIcao = aircraftIcao(selectedAircraft);
+  const selectedClass = isValidIcao(icao) && icao === selectedIcao ? " aircraft-selected" : "";
   const freshnessHtml = performance.showFreshnessLabels ? `<span class="plane-freshness freshness-${freshness.state}">${escapeHtml(freshness.label)}</span>` : "";
   return L.divIcon({
-    className: `aircraft-div-icon aircraft-kind-${group} aircraft-freshness-${freshness.state} aircraft-lifecycle-${lifecycle}`,
+    className: `aircraft-div-icon aircraft-kind-${group} aircraft-freshness-${freshness.state} aircraft-lifecycle-${lifecycle}${selectedClass}`,
     iconSize: [dimensions.width, dimensions.height],
     iconAnchor: [dimensions.anchorX, dimensions.anchorY],
     popupAnchor: [0, -Math.round(dimensions.height / 2)],
     html: `
-      <div class="plane-marker-wrap aircraft-kind-${group}" title="${escapeHtml(typeTitle)}">
+      <div class="plane-marker-wrap aircraft-kind-${group}${selectedClass}" data-icao="${escapeHtml(icao)}" title="${escapeHtml(typeTitle)}">
         <div class="plane-marker${special}" style="--heading:${heading}deg; --plane-svg-width:${dimensions.svgWidth}px; --plane-svg-height:${dimensions.svgHeight}px;">
           ${aircraftSvgMarkup(group)}
         </div>
@@ -5253,6 +5315,15 @@ function findAircraftByIcaoInCache(icao, source = lastAircraftCache) {
   return (source || []).find((item) => aircraftIcao(item) === cleanIcao) || null;
 }
 
+function updateSelectedAircraftMarkerHighlight() {
+  const selectedIcao = aircraftIcao(selectedAircraft);
+  document.querySelectorAll(".plane-marker-wrap[data-icao]").forEach((element) => {
+    const isSelected = isValidIcao(selectedIcao) && normalizeIcao(element.dataset.icao) === selectedIcao;
+    element.classList.toggle("aircraft-selected", isSelected);
+    element.closest(".aircraft-div-icon")?.classList.toggle("aircraft-selected", isSelected);
+  });
+}
+
 function makeAircraftMarker(aircraft) {
   const aircraftPoint = pointFromAircraft(aircraft);
   if (!aircraftPoint || !aircraftLayer) return null;
@@ -5268,6 +5339,8 @@ function makeAircraftMarker(aircraft) {
     if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
     closeDrawerPanel();
     savedMapFocusActive = false;
+    selectedAircraft = aircraft;
+    updateSelectedAircraftMarkerHighlight();
     drawSelectedAircraftRoute(aircraft, { fitMap: false });
     showSelectedAircraftSheet(aircraft);
   });
@@ -5377,28 +5450,21 @@ function drawLocalSelectedAircraftRoute(aircraft, options = {}, messagePrefix = 
 
   if (isValidIcao(flight.icao)) {
     points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
+    if (point) points = addTrackPoint(flight.icao, flight.date, point).filter(validPoint);
     if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
-  }
-  if (!points.length && point && isValidIcao(flight.icao)) {
-    points = addTrackPoint(flight.icao, flight.date, point).filter(validPoint);
-    if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
-  }
-  if (points.length < 2 && confirmedEndpoints?.start && confirmedEndpoints?.end) {
-    drawKnownAirportRouteFallback(aircraft, options, messagePrefix);
-    return points;
   }
   if (!points.length && point) points = [point];
 
   if (points.length) {
     drawRoute(points, `${aircraftLabel(aircraft)} • rzeczywisty ślad przelotu`, {
-      endpoints: confirmedEndpoints,
+      endpoints: null,
       fitMap: options.fitMap === true,
       showCurrentMarker: points.length === 1,
       showHeadingWhenSingle: false
     });
 
     if (points.length === 1) {
-      setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. Czekam na kolejne punkty z odświeżeń albo trace API.`);
+      setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. Nie rysuję sztucznej prostej START → CEL; kolejne punkty będą dopisywane z odświeżeń.`);
     } else {
       setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: pokazuję lokalny rzeczywisty ślad z ${points.length} punktów.`);
     }
@@ -5421,16 +5487,14 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
   }
 
   if (!isValidIcao(flight.icao)) {
-    if (!drawKnownAirportRouteFallback(aircraft, options)) drawLocalSelectedAircraftRoute(aircraft, options);
+    drawLocalSelectedAircraftRoute(aircraft, options);
     return;
   }
 
   const traceKey = trackKey(flight.icao, flight.date);
   const lastTraceAttempt = traceApiAttemptedAt.get(traceKey) || 0;
   if (options.forceApiTrace !== true && Date.now() - lastTraceAttempt < TRACE_API_RETRY_COOLDOWN_MS) {
-    if (!drawKnownAirportRouteFallback(aircraft, options, "Trace API sprawdzane przed chwilą — ")) {
-      drawLocalSelectedAircraftRoute(aircraft, options);
-    }
+    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API sprawdzane przed chwilą — ");
     return;
   }
   traceApiAttemptedAt.set(traceKey, Date.now());
@@ -5438,28 +5502,25 @@ async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
   setRouteSummary(`${aircraftLabel(aircraft)}: pobieram realny ślad lotu z API...`);
   try {
     const apiPoints = await loadOfficialTrace(flight);
-    const cleanApiPoints = saveTracePointsIfUseful(flight.icao, flight.date, apiPoints);
+    const mergedApiPoints = appendCurrentAircraftPointToTrace(apiPoints, aircraft);
+    const cleanApiPoints = saveTracePointsIfUseful(flight.icao, flight.date, mergedApiPoints);
     if (cleanApiPoints.length >= 2) {
-      drawRoute(cleanApiPoints, `${aircraftLabel(aircraft)} • ślad lotu z API`, {
+      drawRoute(cleanApiPoints, `${aircraftLabel(aircraft)} • realny ślad lotu z API`, {
         endpoints: null,
         fitMap: options.fitMap === true,
         showCurrentMarker: false,
         showHeadingWhenSingle: false
       });
-      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję jeden spójny odcinek realnego śladu z API, ${cleanApiPoints.length} punktów. Nie oznaczam pierwszego punktu jako startu, jeżeli API nie potwierdziło początku lotu.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję realny ślad punktowy z API do aktualnej pozycji, ${cleanApiPoints.length} punktów. Jeśli samolot wcześniej krążył, zakręty będą widoczne tylko wtedy, gdy API zwróciło te punkty.`);
       return;
     }
   } catch (error) {
     console.warn("Nie udało się pobrać pełnego trace API:", error);
-    if (!drawKnownAirportRouteFallback(aircraft, options, "Trace API niedostępne — ")) {
-      drawLocalSelectedAircraftRoute(aircraft, options, "Trace API niedostępne — ");
-    }
+    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API niedostępne — ");
     return;
   }
 
-  if (!drawKnownAirportRouteFallback(aircraft, options, "Trace API nie zwróciło pełnej trasy — ")) {
-    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API nie zwróciło pełnej trasy — ");
-  }
+  drawLocalSelectedAircraftRoute(aircraft, options, "Trace API nie zwróciło pasującego śladu — ");
 }
 
 function drawSelectedAircraftRoute(aircraft, options = {}) {
@@ -5536,6 +5597,7 @@ function renderAircraftMap(aircraft, settings = {}, options = {}) {
     bounds.push([aircraftPoint.lat, aircraftPoint.lon]);
     makeAircraftMarker(item);
   }
+  updateSelectedAircraftMarkerHighlight();
 
   if (bounds.length && !lastRouteBounds && !options.preserveView) {
     map.fitBounds(L.latLngBounds(bounds).pad(0.18), { maxZoom: Math.max(8, Number(settings.dist) > 60 ? 8 : 10) });

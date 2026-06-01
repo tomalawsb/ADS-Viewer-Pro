@@ -1,4 +1,4 @@
-const APP_VERSION_STAMP = "0106260800";
+const APP_VERSION_STAMP = "0106260815";
 const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
 const ASSETS = [
   "./",
@@ -10,6 +10,9 @@ const ASSETS = [
   "./icon-192.png",
   "./icon-512.png",
   "./assets/aircraft/aircraft-jet.svg",
+  "./assets/aircraft/aircraft-airliner.svg",
+  "./assets/aircraft/aircraft-business.svg",
+  "./assets/aircraft/aircraft-cargo.svg",
   "./assets/aircraft/aircraft-heavy.svg",
   "./assets/aircraft/aircraft-prop.svg",
   "./assets/aircraft/aircraft-helicopter.svg",

@@ -2105,3 +2105,50 @@ body.aircraft-actions-mode .bottom-more-menu {
     font-size: 0.64rem;
   }
 }
+
+/* V43 - 0106260815: czytelniejsze ikony samolotów i podświetlenie wybranego samolotu */
+.plane-marker {
+  color: #facc15;
+  filter: drop-shadow(0 2px 1px rgba(255,255,255,.95)) drop-shadow(0 5px 8px rgba(15,23,42,.45));
+}
+.aircraft-kind-jet .plane-marker,
+.aircraft-kind-airliner .plane-marker { color: #facc15; }
+.aircraft-kind-business .plane-marker { color: #fde047; }
+.aircraft-kind-cargo .plane-marker,
+.aircraft-kind-heavy .plane-marker { color: #f59e0b; }
+.aircraft-kind-prop .plane-marker { color: #fbbf24; }
+.aircraft-kind-helicopter .plane-marker { color: #c084fc; }
+.aircraft-kind-glider .plane-marker { color: #38bdf8; }
+.aircraft-kind-special .plane-marker,
+.plane-marker.special { color: #ef4444; }
+
+.plane-marker-wrap.aircraft-selected {
+  z-index: 9999;
+}
+.plane-marker-wrap.aircraft-selected::before {
+  content: "";
+  position: absolute;
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  background: rgba(250, 204, 21, 0.22);
+  border: 3px solid rgba(245, 158, 11, 0.95);
+  box-shadow: 0 0 0 6px rgba(250, 204, 21, 0.18), 0 14px 30px rgba(15, 23, 42, 0.38);
+  animation: selected-aircraft-pulse 1.45s ease-in-out infinite;
+  pointer-events: none;
+}
+.plane-marker-wrap.aircraft-selected .plane-marker {
+  color: #f59e0b;
+  transform: rotate(var(--heading)) scale(1.18);
+  filter: drop-shadow(0 2px 1px rgba(255,255,255,1)) drop-shadow(0 0 12px rgba(245,158,11,.88)) drop-shadow(0 8px 12px rgba(15,23,42,.42));
+}
+.plane-marker-wrap.aircraft-selected .plane-label {
+  background: #111827;
+  color: #fde68a;
+  border-color: rgba(250, 204, 21, 0.95);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.3);
+}
+@keyframes selected-aircraft-pulse {
+  0%, 100% { transform: scale(0.92); opacity: 0.78; }
+  50% { transform: scale(1.12); opacity: 0.34; }
+}
