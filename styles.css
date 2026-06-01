@@ -2106,7 +2106,7 @@ body.aircraft-actions-mode .bottom-more-menu {
   }
 }
 
-/* V47 - 0106260955: smuklejsze sylwetki, ciemny obrys i lepsza czytelność */
+/* V46 - 0106260925: smuklejsze sylwetki, ciemny obrys i lepsza czytelność */
 .plane-marker {
   color: #facc15;
   filter: drop-shadow(0 1px 0 rgba(255,255,255,.82)) drop-shadow(0 3px 5px rgba(15,23,42,.34));
