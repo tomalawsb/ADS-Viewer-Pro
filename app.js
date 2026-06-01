@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V35";
-const APP_VERSION_STAMP = "3105261305";
+const APP_VERSION_NUMBER = "V36";
+const APP_VERSION_STAMP = "0106260625";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -2514,7 +2514,7 @@ function drawRoute(points, label = "Trasa", options = {}) {
       weight: 5,
       opacity: 0.98
     }).addTo(routeLayer);
-  } else if (Number.isFinite(Number(clean[0].track))) {
+  } else if (options.showHeadingWhenSingle === true && Number.isFinite(Number(clean[0].track))) {
     drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#f97316", weight: 4, opacity: 0.96 });
   }
 
@@ -2555,7 +2555,9 @@ function drawRoute(points, label = "Trasa", options = {}) {
     map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: latLngs.length === 1 ? 10 : 11 });
   }
 
-  const suffix = latLngs.length === 1 ? "1 punkt + kierunek lotu" : `${latLngs.length} punktów`;
+  const suffix = latLngs.length === 1
+    ? (options.showHeadingWhenSingle === true ? "1 punkt + kierunek lotu" : "1 punkt rzeczywisty")
+    : `${latLngs.length} punktów rzeczywistego śladu`;
   const endpointText = endpoints?.start && endpoints?.end
     ? ` Start ${endpoints.start.label}; stop ${endpoints.end.label}.`
     : " Bez potwierdzonego startu i lądowania — nie pokazuję znaczników START/STOP.";
@@ -3511,6 +3513,11 @@ function makeAircraftExportBaseName(aircraft) {
   return sanitizeFileName([icao, registration, callsign].filter(Boolean).join("_"), "samolot");
 }
 
+function makeAircraftExportZipName(aircraft) {
+  const icao = aircraftIcao(aircraft).toUpperCase();
+  return sanitizeFileName(icao, "samolot");
+}
+
 function aircraftExportHistoryRows(aircraft) {
   const icao = aircraftIcao(aircraft);
   const flight = aircraftToFlight(aircraft);
@@ -3820,14 +3827,15 @@ function safeZipName(name) {
   return String(name || "eksport").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, "_").slice(0, 120) || "eksport";
 }
 
-async function downloadAircraftExportZip(baseName, files) {
-  const safeBase = safeZipName(baseName);
+async function downloadAircraftExportZip(zipName, files, innerFolderName = zipName) {
+  const safeZip = safeZipName(zipName);
+  const safeFolder = safeZipName(innerFolderName || zipName);
   const zipFiles = files.map((file) => ({
-    name: `${safeBase}/${file.name}`,
+    name: `${safeFolder}/${file.name}`,
     blob: file.blob
   }));
   const zipBlob = await createZipBlob(zipFiles);
-  downloadBlob(`${safeBase}.zip`, zipBlob);
+  downloadBlob(`${safeZip}.zip`, zipBlob);
 }
 
 async function buildAircraftExportFiles(aircraft, baseName) {
@@ -3911,6 +3919,7 @@ async function exportSelectedAircraftToFolder(event) {
 
   const aircraft = { ...selectedAircraft };
   const baseName = makeAircraftExportBaseName(aircraft);
+  const zipName = makeAircraftExportZipName(aircraft);
 
   let files = [];
   try {
@@ -3949,9 +3958,9 @@ async function exportSelectedAircraftToFolder(event) {
 
     try {
       startBusy("Pobieram jeden plik ZIP z eksportem...");
-      await downloadAircraftExportZip(baseName, files);
+      await downloadAircraftExportZip(zipName, files, baseName);
       finishBusy();
-      alert(`Eksport pobrany jako ZIP.\nPlik zawiera dane JSON/CSV/HTML oraz zdjęcie.\n\nNazwa: ${safeZipName(baseName)}.zip`);
+      alert(`Eksport pobrany jako ZIP.\nPlik zawiera dane JSON/CSV/HTML oraz zdjęcie.\n\nNazwa: ${safeZipName(zipName)}.zip`);
       showToast("Eksport pobrany jako ZIP ze zdjęciem.", 9000);
     } catch (zipError) {
       finishBusy();
@@ -5048,40 +5057,41 @@ function drawSelectedAircraftRoute(aircraft, options = {}) {
   fillForm(flight);
 
   const point = pointFromAircraft(aircraft);
-  let points = [];
   const confirmedEndpoints = confirmedRouteEndpointPoints(aircraft);
+  let points = [];
 
-  if (confirmedEndpoints) {
-    points = point ? [confirmedEndpoints.start, point, confirmedEndpoints.end] : [confirmedEndpoints.start, confirmedEndpoints.end];
-    drawRoute(points, `${aircraftLabel(aircraft)} • ${routeText(aircraft)}`, {
-      endpoints: confirmedEndpoints,
-      fitMap: options.fitMap === true
-    });
-    setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję potwierdzony START i STOP oraz aktualną pozycję wybranego samolotu.`);
-    return;
-  }
-
-  if (point) {
+  // Nie tworzymy sztucznej linii START → samolot → STOP.
+  // Linia trasy ma pochodzić wyłącznie z prawdziwych punktów śladu zapisanych z odświeżeń/API.
+  if (point && isValidIcao(flight.icao)) {
     points = addTrackPoint(flight.icao, flight.date, point);
+  } else if (isValidIcao(flight.icao)) {
+    points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
   }
 
   if (!points.length && point) points = [point];
 
   if (points.length) {
-    drawRoute(points, `${aircraftLabel(aircraft)} • ślad live`, {
+    drawRoute(points, `${aircraftLabel(aircraft)} • rzeczywisty ślad przelotu`, {
+      endpoints: confirmedEndpoints,
       fitMap: options.fitMap === true,
-      showCurrentMarker: points.length === 1
+      showCurrentMarker: points.length === 1,
+      showHeadingWhenSingle: false
     });
-    if (points.length === 1) {
-      setRouteSummary(`${aircraftLabel(aircraft)}: brak potwierdzonego startu i lądowania. Pokazuję aktualny punkt i kierunek tylko dla wybranego samolotu.`);
+
+    if (confirmedEndpoints && points.length > 1) {
+      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję rzeczywisty ślad przelotu z zapisanych punktów. START i STOP są tylko znacznikami — nie są łączone sztuczną linią z samolotem.`);
+    } else if (confirmedEndpoints) {
+      setRouteSummary(`${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. START i STOP pokazuję jako znaczniki, ale nie łączę ich linią z samolotem.`);
+    } else if (points.length === 1) {
+      setRouteSummary(`${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. Program nie rysuje już sztucznej linii kierunku jako trasy.`);
     } else {
-      setRouteSummary(`${aircraftLabel(aircraft)}: brak potwierdzonego startu i lądowania. Pokazuję wyraźny ślad live budowany od uruchomienia programu.`);
+      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję rzeczywisty ślad live budowany z kolejnych odświeżeń programu.`);
     }
     return;
   }
 
   clearRoute();
-  setRouteSummary(`${aircraftLabel(aircraft)}: brak pozycji do narysowania trasy.`);
+  setRouteSummary(`${aircraftLabel(aircraft)}: brak rzeczywistych punktów przelotu do narysowania trasy.`);
 }
 
 function clearAircraftMap() {
