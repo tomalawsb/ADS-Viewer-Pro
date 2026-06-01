@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V37";
-const APP_VERSION_STAMP = "0106260635";
+const APP_VERSION_NUMBER = "V38";
+const APP_VERSION_STAMP = "0106260650";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3567,15 +3567,16 @@ function aircraftSeenHistoryCsv(aircraft) {
 }
 
 function aircraftExportPhotoMeta(photoInfo = {}) {
+  const hasRealPhoto = photoInfo.real === true && !!photoInfo.blob;
   return {
-    fileName: photoInfo.fileName || "zdjecie_pogladowe.svg",
+    fileName: hasRealPhoto ? (photoInfo.fileName || "zdjecie.jpg") : "",
     url: photoInfo.url || "",
-    real: photoInfo.real === true,
-    mimeType: photoInfo.blob?.type || photoInfo.mimeType || "",
-    sizeBytes: photoInfo.blob?.size || photoInfo.sizeBytes || 0,
-    note: photoInfo.real === true
-      ? "Zapisano prawdziwe zdjęcie z API zdjęć."
-      : "Zapisano grafikę poglądową; link do prawdziwego zdjęcia jest podany, jeśli API go zwróciło."
+    real: hasRealPhoto,
+    mimeType: hasRealPhoto ? (photoInfo.blob?.type || photoInfo.mimeType || "") : "",
+    sizeBytes: hasRealPhoto ? (photoInfo.blob?.size || photoInfo.sizeBytes || 0) : 0,
+    note: hasRealPhoto
+      ? "Zapisano prawdziwe zdjęcie samolotu pobrane z API zdjęć."
+      : "Brak prawdziwego zdjęcia do zapisania. Grafika poglądowa nie jest dodawana do paczki ZIP."
   };
 }
 
@@ -3662,14 +3663,17 @@ function aircraftExportHtml(aircraft, imageFileName, photoInfo = {}) {
   const photo = aircraftExportPhotoMeta(photoInfo);
   const { points, history } = aircraftExportHistoryRows(aircraft);
   const title = aircraftLabel(aircraft);
+  const photoBlock = photo.real && imageFileName
+    ? `<div><img src="${escapeHtml(imageFileName)}" alt="Zdjęcie samolotu"><p class="muted">Plik zdjęcia: ${escapeHtml(photo.fileName)} · prawdziwe: tak</p></div>`
+    : `<div class="photo-missing"><strong>Brak prawdziwego zdjęcia w eksporcie.</strong><p class="muted">Program nie zapisuje grafiki poglądowej jako zdjęcia samolotu.</p></div>`;
   return `<!doctype html>
 <html lang="pl"><head><meta charset="utf-8"><title>${escapeHtml(title)} — ADS Viewer Pro</title>
 <style>
-body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f8fafc;color:#0f172a}main{max-width:980px;margin:auto;background:white;border-radius:18px;padding:24px;box-shadow:0 12px 40px #0002}img{max-width:360px;border-radius:14px}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:8px}th{width:230px;color:#475569}.muted{color:#64748b}.grid{display:grid;grid-template-columns:380px 1fr;gap:20px}@media(max-width:760px){.grid{grid-template-columns:1fr}}
+body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f8fafc;color:#0f172a}main{max-width:980px;margin:auto;background:white;border-radius:18px;padding:24px;box-shadow:0 12px 40px #0002}img{max-width:360px;border-radius:14px}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:8px}th{width:230px;color:#475569}.muted{color:#64748b}.grid{display:grid;grid-template-columns:380px 1fr;gap:20px}.photo-missing{border:1px dashed #cbd5e1;border-radius:14px;padding:18px;background:#f8fafc}@media(max-width:760px){.grid{grid-template-columns:1fr}}
 </style></head><body><main>
 <h1>${escapeHtml(title)}</h1>
 <p class="muted">Eksport: ${escapeHtml(new Date().toLocaleString("pl-PL"))} · ${escapeHtml(APP_VERSION)}</p>
-<div class="grid"><div><img src="${escapeHtml(imageFileName)}" alt="Zdjęcie samolotu"><p class="muted">Plik zdjęcia: ${escapeHtml(photo.fileName)} · prawdziwe: ${photo.real ? "tak" : "nie"}</p></div><div><table>${detailsRows}</table></div></div>
+<div class="grid">${photoBlock}<div><table>${detailsRows}</table></div></div>
 <h2>Trasa / przelot</h2><table>${routeRows}</table>
 <p>Lokalne punkty trasy zapisane przez program: <strong>${points.length}</strong></p>
 <p>Lokalne wpisy historii widzeń: <strong>${history.length}</strong></p>
@@ -3688,7 +3692,6 @@ async function blobFromDataUrl(dataUrl) {
 }
 
 async function aircraftPhotoBlobForExport(aircraft) {
-  const fallbackBlob = await blobFromDataUrl(aircraftThumbDataUrl(aircraft));
   let photoUrl = "";
   try {
     photoUrl = await findRealAircraftPhotoUrl(aircraft);
@@ -3704,9 +3707,9 @@ async function aircraftPhotoBlobForExport(aircraft) {
       }
     }
   } catch {
-    // Jeśli zdjęcia realnego nie da się pobrać przez CORS/API, zapisujemy grafikę poglądową i link źródłowy.
+    // Brak prawdziwego zdjęcia albo blokada pobierania. Nie zapisujemy grafiki zastępczej do eksportu.
   }
-  return { blob: fallbackBlob, fileName: "zdjecie_pogladowe.svg", url: photoUrl, real: false };
+  return { blob: null, fileName: "", url: photoUrl, real: false };
 }
 
 async function ensureDirectoryWritable(directoryHandle) {
@@ -3846,10 +3849,10 @@ async function buildAircraftExportFiles(aircraft, baseName) {
   try {
     photoInfo = await aircraftPhotoBlobForExport(aircraft);
   } catch (photoError) {
-    console.warn("Nie udało się pobrać zdjęcia, zapisuję grafikę poglądową.", photoError);
+    console.warn("Nie udało się pobrać prawdziwego zdjęcia. Eksport będzie bez pliku zdjęcia.", photoError);
     photoInfo = {
-      blob: await blobFromDataUrl(aircraftThumbDataUrl(aircraft)),
-      fileName: "zdjecie_pogladowe.svg",
+      blob: null,
+      fileName: "",
       url: "",
       real: false
     };
@@ -3867,7 +3870,7 @@ async function buildAircraftExportFiles(aircraft, baseName) {
     { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
     { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") },
     { name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, photo.fileName, photoInfo), "text/html;charset=utf-8") },
-    { name: "zdjecie_zrodlo.txt", blob: blobFromText(photo.url || "Brak prawdziwego zdjęcia. Zapisano grafikę poglądową.") },
+    { name: "zdjecie_zrodlo.txt", blob: blobFromText(photo.url || "Brak prawdziwego zdjęcia. Nie zapisano grafiki poglądowej.") },
     {
       name: "_eksport_zakonczony.txt",
       blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\nPlik zdjęcia: ${photo.fileName}\nPrawdziwe zdjęcie: ${photo.real ? "tak" : "nie"}\n`)
@@ -3913,7 +3916,7 @@ ${error?.message || error?.name || "nieznany błąd"}`);
     await downloadAircraftExportZip(zipName, files, baseName);
     finishBusy();
     alert(`Eksport pobrany jako ZIP.
-Plik zawiera dane JSON/CSV/HTML oraz zdjęcie.
+Plik zawiera dane JSON/CSV/HTML. Zdjęcie jest dodane tylko wtedy, gdy udało się pobrać prawdziwe zdjęcie samolotu.
 
 Nazwa: ${safeZipName(zipName)}.zip`);
     showToast(`Eksport pobrany: ${safeZipName(zipName)}.zip`, 9000);
