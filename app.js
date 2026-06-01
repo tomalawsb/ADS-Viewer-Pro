@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V43";
-const APP_VERSION_STAMP = "0106260815";
+const APP_VERSION_NUMBER = "V44";
+const APP_VERSION_STAMP = "0106260835";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -917,7 +917,12 @@ const AIRCRAFT_SVG_MARKUP = Object.freeze({
 
 function aircraftShapeMarkup(group) {
   const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_SVG_MARKUP, group) ? group : "jet";
-  return AIRCRAFT_SVG_MARKUP[safeGroup] || AIRCRAFT_SVG_MARKUP.jet;
+  const visualVariant = {
+    airliner: "jet",
+    business: "prop",
+    cargo: "heavy"
+  }[safeGroup] || safeGroup;
+  return AIRCRAFT_SVG_MARKUP[visualVariant] || AIRCRAFT_SVG_MARKUP.jet;
 }
 
 function aircraftSvgMarkup(group) {
@@ -928,15 +933,15 @@ function aircraftSvgMarkup(group) {
 
 function aircraftIconDimensions(group) {
   const dimensions = {
-    cargo: { width: 56, height: 56, anchorX: 28, anchorY: 28, svgWidth: 50, svgHeight: 50 },
-    heavy: { width: 52, height: 52, anchorX: 26, anchorY: 26, svgWidth: 46, svgHeight: 46 },
-    airliner: { width: 48, height: 48, anchorX: 24, anchorY: 24, svgWidth: 42, svgHeight: 42 },
-    business: { width: 42, height: 42, anchorX: 21, anchorY: 21, svgWidth: 36, svgHeight: 36 },
-    jet: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 },
-    prop: { width: 38, height: 38, anchorX: 19, anchorY: 19, svgWidth: 32, svgHeight: 32 },
-    helicopter: { width: 44, height: 38, anchorX: 22, anchorY: 19, svgWidth: 40, svgHeight: 34 },
-    glider: { width: 52, height: 34, anchorX: 26, anchorY: 17, svgWidth: 48, svgHeight: 30 },
-    special: { width: 44, height: 44, anchorX: 22, anchorY: 22, svgWidth: 38, svgHeight: 38 }
+    cargo: { width: 48, height: 48, anchorX: 24, anchorY: 24, svgWidth: 40, svgHeight: 40 },
+    heavy: { width: 46, height: 46, anchorX: 23, anchorY: 23, svgWidth: 38, svgHeight: 38 },
+    airliner: { width: 42, height: 42, anchorX: 21, anchorY: 21, svgWidth: 35, svgHeight: 35 },
+    business: { width: 38, height: 38, anchorX: 19, anchorY: 19, svgWidth: 31, svgHeight: 31 },
+    jet: { width: 40, height: 40, anchorX: 20, anchorY: 20, svgWidth: 33, svgHeight: 33 },
+    prop: { width: 36, height: 36, anchorX: 18, anchorY: 18, svgWidth: 29, svgHeight: 29 },
+    helicopter: { width: 40, height: 34, anchorX: 20, anchorY: 17, svgWidth: 36, svgHeight: 30 },
+    glider: { width: 46, height: 30, anchorX: 23, anchorY: 15, svgWidth: 42, svgHeight: 26 },
+    special: { width: 40, height: 40, anchorX: 20, anchorY: 20, svgWidth: 33, svgHeight: 33 }
   };
   return dimensions[group] || dimensions.jet;
 }
