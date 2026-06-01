@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V46";
-const APP_VERSION_STAMP = "0106260925";
+const APP_VERSION_NUMBER = "V47";
+const APP_VERSION_STAMP = "0106260955";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -7,6 +7,7 @@ const PWA_BROWSER_CHOICE_STORAGE_KEY = "adsb-pwa-browser-choice-v1";
 const FETCH_TIMEOUT_MS = 9000;
 const RADIUS_FETCH_TIMEOUT_MS = 5200;
 const HEX_FETCH_TIMEOUT_MS = 4200;
+const MANUAL_SEARCH_INPUT_LOCK_MS = 18000;
 const TRACE_FETCH_TIMEOUT_MS = 9000;
 const TRACE_API_RETRY_COOLDOWN_MS = 15000;
 const AUTO_REFRESH_INTERVAL_MS = 8000;
@@ -309,16 +310,30 @@ function markManualSearchInput(value = icaoInput?.value || "") {
   if (!icaoInput) return;
   icaoInput.dataset.manualSearchActive = "1";
   icaoInput.dataset.manualSearchValue = String(value || "");
+  icaoInput.dataset.manualSearchAt = String(Date.now());
 }
 
 function clearManualSearchInputLock() {
   if (!icaoInput) return;
   delete icaoInput.dataset.manualSearchActive;
   delete icaoInput.dataset.manualSearchValue;
+  delete icaoInput.dataset.manualSearchAt;
+}
+
+function manualSearchInputLocked() {
+  if (!icaoInput || icaoInput.dataset.manualSearchActive !== "1") return false;
+  const startedAt = Number(icaoInput.dataset.manualSearchAt || 0);
+  if (!Number.isFinite(startedAt) || startedAt <= 0) return isSavePanelOpen();
+  const stillFresh = Date.now() - startedAt <= MANUAL_SEARCH_INPUT_LOCK_MS;
+  if (!stillFresh && !isSavePanelOpen()) {
+    clearManualSearchInputLock();
+    return false;
+  }
+  return true;
 }
 
 function shouldPreserveManualSearchInput(options = {}) {
-  return options.force !== true && icaoInput?.dataset.manualSearchActive === "1" && isSavePanelOpen();
+  return options.force !== true && manualSearchInputLocked();
 }
 
 function storageGet(key, fallback = "") {
@@ -3500,20 +3515,28 @@ async function addWatchFromCurrentInput() {
   try {
     const raw = icaoInput.value.trim();
     if (!raw) throw new Error("Wpisz samolot w polu Szukaj albo wybierz go na mapie.");
-    const directIcao = explicitIcaoFromInput(raw);
+    const resolvedIcao = normalizeIcao(icaoInput.dataset.resolvedIcao || "");
+    const directIcao = explicitIcaoFromInput(raw) || (isValidIcao(resolvedIcao) ? resolvedIcao : "");
+
+    if (isValidIcao(directIcao)) {
+      const liveOrSelected = aircraftIcao(selectedAircraft) === directIcao ? selectedAircraft : findAircraftByIcaoInCache(directIcao);
+      if (liveOrSelected && pointFromAircraft(liveOrSelected)) {
+        upsertWatchFromAircraft(liveOrSelected);
+      } else {
+        const staticName = nameInput?.value?.trim?.() || directIcao.toUpperCase();
+        upsertWatchItem(watchItemFromIcao(directIcao, { name: staticName }));
+        enrichOfflineWatchItemInBackground(directIcao);
+      }
+      showToast(`Dodano ${directIcao.toUpperCase()} do obserwowanych. Brak pozycji LIVE nie blokuje alertu.`, 4600);
+      setAircraftStatus(`${directIcao.toUpperCase()}: dodany do obserwowanych. Jeśli nie ma pozycji LIVE, program będzie sprawdzał ten HEX globalnie w tle.`);
+      checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
+      return;
+    }
+
     const match = findAircraftBySmartQuery(raw);
     if (match) {
       const aircraft = match.icao && !match.hex ? flightToAircraft(match) : match;
       upsertWatchFromAircraft(aircraft);
-      return;
-    }
-
-    if (isValidIcao(directIcao)) {
-      upsertWatchItem(watchItemFromIcao(directIcao));
-      showToast(`Dodano ${directIcao.toUpperCase()} do obserwowanych. Brak pozycji LIVE nie blokuje alertu.`, 4600);
-      setAircraftStatus(`${directIcao.toUpperCase()}: dodany do obserwowanych bez pozycji LIVE. Program będzie sprawdzał ten HEX globalnie w tle.`);
-      enrichOfflineWatchItemInBackground(directIcao);
-      checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
       return;
     }
 
@@ -4049,6 +4072,161 @@ ${photo.url ? `<p>Źródło zdjęcia: <a href="${escapeHtml(photo.url)}">${escap
 </main></body></html>`;
 }
 
+
+function docxEscapeXml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&apos;"
+  }[char]));
+}
+
+function docxCell(value, options = {}) {
+  const width = options.width || 2400;
+  const fill = options.fill ? `<w:shd w:fill="${options.fill}"/>` : "";
+  const bold = options.bold ? "<w:b/>" : "";
+  const text = firstFilled(value, "-");
+  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${fill}</w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr>${bold}<w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${docxEscapeXml(text)}</w:t></w:r></w:p></w:tc>`;
+}
+
+function docxRow(values, options = {}) {
+  const widths = options.widths || [];
+  return `<w:tr>${values.map((value, index) => docxCell(value, {
+    width: widths[index] || 2400,
+    bold: options.bold,
+    fill: options.fill
+  })).join("")}</w:tr>`;
+}
+
+function docxImageCell(width = 5200) {
+  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="3150000" cy="1900000"/><wp:docPr id="1" name="Zdjęcie samolotu"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="zdjecie"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImage1"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="3150000" cy="1900000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:tc>`;
+}
+
+function docxPhotoCell(photoInfo, width = 5200) {
+  if (photoInfo?.real === true && photoInfo?.blob) return docxImageCell(width);
+  return docxCell("brak", { width });
+}
+
+function aircraftAeroDocxData(aircraft, photoInfo = {}) {
+  const details = Object.fromEntries(aircraftDetailsRows(aircraft));
+  const raw = aircraft || {};
+  const route = routeInfoFromAircraft(aircraft);
+  const flight = aircraftToFlight(aircraft);
+  const photo = aircraftExportPhotoMeta(photoInfo);
+  return {
+    registration: firstFilled(raw.r, raw.registration, details["Rejestracja"], "brak danych"),
+    aircraftType: firstFilled(raw.t, raw.type, raw.aircraftType, details["Typ"], "brak danych"),
+    manufacturer: firstFilled(raw.manufacturer, raw.make, raw.producer, "brak danych"),
+    serialNumber: firstFilled(raw.serial_number, raw.serialNumber, raw.msn, raw.MSN, raw.cn, raw.c_n, raw.constructionNumber, raw.line_number, raw.lineNumber, "brak danych"),
+    lineNumber: firstFilled(raw.line_number, raw.lineNumber, raw.ln, "brak danych"),
+    hexCode: normalizeIcao(firstFilled(raw.hex, raw.icao, raw.icao24, flight.icao)).toUpperCase() || "brak danych",
+    operator: firstFilled(raw.operator, raw.owner, raw.airline, details["Operator / linia"], airlineGuessFromCallsign(aircraft), "brak danych"),
+    country: firstFilled(raw.country, raw.registration_country, raw.flag, "brak danych"),
+    firstFlight: firstFilled(raw.first_flight, raw.firstFlight, raw.firstFlightDate, "brak danych"),
+    deliveryDate: firstFilled(raw.delivery_date, raw.deliveryDate, raw.delivered, raw.delivery, "brak danych"),
+    engines: firstFilled(raw.engines, raw.engine, raw.engine_type, raw.engineType, "brak danych"),
+    configuration: firstFilled(raw.configuration, raw.config, "brak danych"),
+    photoSource: photo.url || "brak danych",
+    routeText: route.verbose || route.short || "brak danych",
+    adsbUrl: buildAdsbUrl(flight),
+    photo
+  };
+}
+
+function aircraftAeroDocxFlightRows(aircraft) {
+  const { history } = aircraftExportHistoryRows(aircraft);
+  if (!history.length) {
+    const route = routeInfoFromAircraft(aircraft);
+    const now = new Date().toLocaleDateString("pl-PL");
+    return [[now, "", aircraftCallsign(aircraft) || aircraftLabel(aircraft), route.origin || "", route.destination || "", "", "", "1 lot"]];
+  }
+  return history.slice(0, 80).map((item) => {
+    const route = routeInfoFromAircraft(item);
+    return [
+      item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleDateString("pl-PL") : "",
+      item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleTimeString("pl-PL") : "",
+      item.callsign || aircraftCallsign(item) || "",
+      route.origin || "",
+      route.destination || "",
+      "",
+      "",
+      String(item.count || 1)
+    ];
+  });
+}
+
+async function createAeroStyleDocxBlob(aircraft, photoInfo = {}) {
+  const data = aircraftAeroDocxData(aircraft, photoInfo);
+  const title = `SAMOLOT ${data.aircraftType !== "brak danych" ? data.aircraftType : ""} ${data.registration !== "brak danych" ? data.registration : ""} ${data.operator !== "brak danych" ? data.operator : ""}`.replace(/\s+/g, " ").trim() || "ZESTAWIENIE SAMOLOTU";
+  const summaryHeaders = ["NUMER SERYJNY", "NUMER REJESTRACYJNY / BOCZNY", "RODZAJ SILNIKA", "HEX", "DATA PIERWSZEGO LOTU", "DATA ODBIORU / PRZEKAZANIA", "GALERIA"];
+  const summaryValues = [data.serialNumber, data.registration, data.engines, data.hexCode, data.firstFlight, data.deliveryDate];
+  const summaryWidths = [1650, 2100, 1800, 1300, 1750, 1900, 5200];
+  const details = [
+    ["Rejestracja / numer boczny", data.registration],
+    ["Typ samolotu", data.aircraftType],
+    ["Producent", data.manufacturer],
+    ["Numer seryjny / MSN", data.serialNumber],
+    ["Numer linii produkcyjnej", data.lineNumber],
+    ["HEX / Mode-S", data.hexCode],
+    ["Operator", data.operator],
+    ["Kraj rejestracji", data.country],
+    ["Data pierwszego lotu", data.firstFlight],
+    ["Data dostawy / przekazania", data.deliveryDate],
+    ["Silniki", data.engines],
+    ["Konfiguracja", data.configuration],
+    ["Trasa", data.routeText],
+    ["Link ADS", data.adsbUrl],
+    ["Źródło zdjęcia", data.photoSource]
+  ];
+  const flightHeaders = ["DATA", "GODZINA", "NUMER LOTU", "START", "LĄDOWANIE", "GODZINA", "CZAS LOTU", "LICZBA LOTÓW"];
+  const flightWidths = [1350, 1200, 1800, 2300, 2300, 1200, 1350, 1350];
+  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
+<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="36"/></w:rPr><w:t>${docxEscapeXml(title)}</w:t></w:r></w:p>
+<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>
+${docxRow(summaryHeaders, { bold: true, fill: "DDEBF7", widths: summaryWidths })}
+<w:tr>${summaryValues.map((value, index) => docxCell(value, { width: summaryWidths[index] })).join("")}${docxPhotoCell(photoInfo, summaryWidths[6])}</w:tr>
+</w:tbl>
+<w:p/>
+<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>DANE SAMOLOTU</w:t></w:r></w:p>
+<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>
+${details.map(([label, value]) => docxRow([label, value], { widths: [3000, 11000] })).join("\n")}
+</w:tbl>
+<w:p/>
+<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>LOTY / HISTORIA LOTÓW</w:t></w:r></w:p>
+<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>
+${docxRow(flightHeaders, { bold: true, fill: "DDEBF7", widths: flightWidths })}
+${aircraftAeroDocxFlightRows(aircraft).map((row) => docxRow(row, { widths: flightWidths })).join("\n")}
+</w:tbl>
+<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="680" w:right="680" w:bottom="680" w:left="680" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>
+</w:body></w:document>`;
+  const imageExt = (photoInfo.fileName || "zdjecie.jpg").split(".").pop().toLowerCase() || "jpg";
+  const files = [
+    { name: "[Content_Types].xml", blob: blobFromText(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`, "application/xml") },
+    { name: "_rels/.rels", blob: blobFromText(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`, "application/xml") },
+    { name: "word/document.xml", blob: blobFromText(documentXml, "application/xml") },
+    { name: "word/_rels/document.xml.rels", blob: blobFromText(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${photoInfo?.real === true && photoInfo?.blob ? `<Relationship Id="rIdImage1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/zdjecie.${imageExt}"/>` : ""}</Relationships>`, "application/xml") }
+  ];
+  if (photoInfo?.real === true && photoInfo?.blob) files.push({ name: `word/media/zdjecie.${imageExt}`, blob: photoInfo.blob });
+  return createZipBlob(files);
+}
+
+async function downloadAeroStyleDocxForAircraft(aircraft) {
+  let photoInfo;
+  try {
+    photoInfo = await aircraftPhotoBlobForExport(aircraft);
+  } catch (photoError) {
+    console.warn("Nie udało się pobrać zdjęcia do DOCX.", photoError);
+    photoInfo = { blob: null, fileName: "", url: "", real: false };
+  }
+  const docxBlob = await createAeroStyleDocxBlob(aircraft, photoInfo);
+  const fileName = `${makeAircraftExportBaseName(aircraft)}_zestawienie.docx`;
+  downloadBlob(fileName, new Blob([docxBlob], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
+  return fileName;
+}
+
 function blobFromText(text, type = "text/plain;charset=utf-8") {
   return new Blob([text], { type });
 }
@@ -4262,39 +4440,18 @@ async function exportSelectedAircraftToFolder(event) {
   }
 
   const aircraft = { ...selectedAircraft };
-  const baseName = makeAircraftExportBaseName(aircraft);
-  const zipName = makeAircraftExportZipName(aircraft);
-
-  let files = [];
   try {
-    startBusy("Przygotowuję eksport danych i zdjęcia...");
-    files = await buildAircraftExportFiles(aircraft, baseName);
+    startBusy("Przygotowuję plik DOCX z zestawieniem samolotu...");
+    const fileName = await downloadAeroStyleDocxForAircraft(aircraft);
     finishBusy();
+    showToast(`Pobrano zestawienie DOCX: ${fileName}`, 9000);
   } catch (error) {
     finishBusy();
-    console.error("Nie udało się przygotować eksportu:", error);
-    alert(`Nie udało się przygotować eksportu:
+    console.error("Nie udało się przygotować DOCX:", error);
+    alert(`Nie udało się przygotować DOCX:
 ${error?.message || error?.name || "nieznany błąd"}`);
-    return;
-  }
-
-  try {
-    startBusy("Pobieram jeden plik ZIP z eksportem...");
-    await downloadAircraftExportZip(zipName, files, baseName);
-    finishBusy();
-    alert(`Eksport pobrany jako ZIP.
-Plik zawiera dane JSON/CSV/HTML. Zdjęcie jest dodane tylko wtedy, gdy udało się pobrać prawdziwe zdjęcie samolotu.
-
-Nazwa: ${safeZipName(zipName)}.zip`);
-    showToast(`Eksport pobrany: ${safeZipName(zipName)}.zip`, 9000);
-  } catch (zipError) {
-    finishBusy();
-    console.error("Nie udało się pobrać paczki ZIP:", zipError);
-    alert(`Eksport ZIP nie zadziałał:
-${zipError?.message || zipError?.name || "nieznany błąd"}`);
   }
 }
-
 
 function readAlertSettingsFromForm() {
   return {
@@ -5507,6 +5664,7 @@ function makeAircraftMarker(aircraft) {
 
   marker.on("click", (event) => {
     if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
+    clearManualSearchInputLock();
     closeDrawerPanel();
     savedMapFocusActive = false;
     selectedAircraft = aircraft;
@@ -6514,7 +6672,8 @@ function fillForm(parsed, options = {}) {
 
   const icao = normalizeIcao(parsed.icao || parsed.hex || "");
   const displayName = parsed.name || parsed.callsign || parsed.flight || (icao ? icao.toUpperCase() : "");
-  icaoInput.value = displayName;
+  const searchValue = options.searchValue !== undefined ? String(options.searchValue || "") : displayName;
+  icaoInput.value = options.keepSearchInput === true ? String(icaoInput.value || "") : searchValue;
   icaoInput.dataset.resolvedIcao = icao;
   nameInput.value = displayName;
   dateInput.value = parsed.date || todayLocalDate();
@@ -6668,8 +6827,8 @@ async function searchAircraftFromInput() {
         }
       }
       if (!aircraftMatchesSearchInput(aircraft, raw)) throw new Error(`Znaleziony lokalnie samolot nie pasuje do wpisu: ${raw}.`);
-      clearManualSearchInputLock();
-      fillForm(aircraftToFlight(aircraft), { force: true });
+      fillForm(aircraftToFlight(aircraft), { force: true, searchValue: raw });
+      markManualSearchInput(raw);
       focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: true, fitMap: false, zoom: 10 });
       showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot i przeniesiono mapę do jego pozycji." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
     } catch (error) {
@@ -6691,8 +6850,8 @@ async function searchAircraftFromInput() {
 
     const cleanIcao = aircraftIcao(aircraft);
     const point = pointFromAircraft(aircraft);
-    clearManualSearchInputLock();
-    fillForm(aircraftToFlight(aircraft), { force: true });
+    fillForm(aircraftToFlight(aircraft), { force: true, searchValue: raw });
+    markManualSearchInput(raw);
 
     if (point && map) {
       const requestedZoom = Number(zoomInput?.value || 10);
@@ -6702,7 +6861,8 @@ async function searchAircraftFromInput() {
 
     const finalAircraft = await refreshAreaAroundFoundAircraft(aircraft);
     const finalIcao = aircraftIcao(finalAircraft) || cleanIcao;
-    fillForm(aircraftToFlight(finalAircraft), { force: true });
+    fillForm(aircraftToFlight(finalAircraft), { force: true, searchValue: raw });
+    markManualSearchInput(raw);
     focusAircraftOnMap(finalAircraft, { singleMarker: !findAircraftByIcaoInCache(finalIcao), showSheet: true, centerMap: false, fitMap: false, zoom: 10 });
     showToast("Znaleziono samolot, odświeżono jego obszar i pokazano dane.", 4200);
   } catch (error) {
@@ -6713,8 +6873,11 @@ async function searchAircraftFromInput() {
       } catch {
         // Brak danych statycznych nie blokuje obserwowania po HEX.
       }
-      clearManualSearchInputLock();
-      fillForm(aircraftToFlight(aircraft), { force: true });
+      selectedAircraft = aircraft;
+      updateSelectedAircraftMarkerHighlight();
+      showSelectedAircraftSheet(aircraft);
+      fillForm(aircraftToFlight(aircraft), { force: true, searchValue: raw });
+      markManualSearchInput(raw);
       setAircraftStatus(`${directIcao.toUpperCase()}: brak aktualnej pozycji LIVE w dostępnych źródłach, ale HEX jest poprawny i może zostać dodany do obserwowanych. Alert zadziała, gdy pojawi się w publicznym ADS.`);
       showToast(`${directIcao.toUpperCase()}: brak LIVE. Możesz dodać do obserwowanych.`, 5200);
       return;
@@ -6832,7 +6995,12 @@ document.querySelector("#clearImportButton").addEventListener("click", () => {
   importText.value = "";
 });
 
-document.querySelector("#exportButton").addEventListener("click", async () => {
+document.querySelector("#exportButton").addEventListener("click", async (event) => {
+  if (selectedAircraft) {
+    await exportSelectedAircraftToFolder(event);
+    return;
+  }
+
   const flights = loadFlights();
   if (!flights.length) {
     showToast("Nie ma czego eksportować.");
