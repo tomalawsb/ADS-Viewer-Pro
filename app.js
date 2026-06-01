@@ -4109,6 +4109,240 @@ function docxPhotoCell(photoInfo, width = 5200) {
   return docxCell("brak", { width });
 }
 
+
+function absoluteUrlOrEmpty(url, base = "") {
+  try {
+    return new URL(String(url || "").trim(), base || window.location.href).toString();
+  } catch {
+    return String(url || "").trim();
+  }
+}
+
+async function fetchTextWithCorsFallbacks(url, timeoutMs = 8000) {
+  let lastError = null;
+  for (const attemptUrl of [url, ...CORS_PROXY_BUILDERS.map((builder) => builder(url))]) {
+    try {
+      const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" } }, timeoutMs);
+      if (!response.ok) throw new Error(`Źródło zwróciło ${response.status}.`);
+      return await response.text();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return "";
+}
+
+async function fetchJsonWithCorsFallbacks(url, timeoutMs = 8000) {
+  let lastError = null;
+  for (const attemptUrl of [url, ...CORS_PROXY_BUILDERS.map((builder) => builder(url))]) {
+    try {
+      const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "application/json" } }, timeoutMs);
+      if (!response.ok) throw new Error(`Źródło zwróciło ${response.status}.`);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError) throw lastError;
+  return null;
+}
+
+function htmlDecodedText(value) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<body>${String(value || "")}</body>`, 'text/html');
+  return String(doc.body?.textContent || "").replace(/\s+/g, ' ').trim();
+}
+
+function htmlFieldValue(html, labels = []) {
+  const source = String(html || "");
+  for (const label of labels) {
+    const escaped = String(label).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
+    const patterns = [
+      new RegExp(`<t[dh][^>]*>\\s*${escaped}\\s*</t[dh]>\\s*<t[dh][^>]*>([\\s\\S]*?)</t[dh]>`, 'i'),
+      new RegExp(`${escaped}\\s*</[^>]+>\\s*<[^>]+>([\\s\\S]*?)</[^>]+>`, 'i'),
+      new RegExp(`${escaped}\\s*:?\\s*</[^>]+>\\s*<[^>]+>([\\s\\S]*?)</[^>]+>`, 'i')
+    ];
+    for (const pattern of patterns) {
+      const match = source.match(pattern);
+      if (match && match[1]) {
+        const cleaned = htmlDecodedText(match[1].replace(/<br\s*\/?>/gi, ' / ').replace(/<[^>]+>/g, ' '));
+        if (cleaned) return cleaned;
+      }
+    }
+  }
+  return "";
+}
+
+function titleTextFromHtml(html) {
+  const match = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return match ? htmlDecodedText(match[1]) : "";
+}
+
+function manufacturerFromType(typeText) {
+  const source = String(typeText || "").trim();
+  if (!source) return "";
+  const known = [
+    'Airbus', 'Boeing', 'Embraer', 'Bombardier', 'ATR', 'Antonov', 'Cessna', 'Gulfstream', 'Dassault', 'Pilatus',
+    'Beechcraft', 'Lockheed', 'McDonnell Douglas', 'Douglas', 'Saab', 'Fokker', 'Tupolev', 'Ilyushin', 'De Havilland'
+  ];
+  const found = known.find((item) => source.toLowerCase().startsWith(item.toLowerCase()));
+  if (found) return found;
+  return source.split(/\s+/)[0] || "";
+}
+
+function jetPhotosDetailLinksFromHtml(html, baseUrl) {
+  const links = [];
+  const seen = new Set();
+  const pattern = /href=["']([^"']*\/photo\/\d+[^"']*)["']/ig;
+  let match;
+  while ((match = pattern.exec(String(html || "")))) {
+    const absolute = absoluteUrlOrEmpty(match[1], baseUrl);
+    if (absolute && !seen.has(absolute)) {
+      seen.add(absolute);
+      links.push(absolute);
+    }
+    if (links.length >= 5) break;
+  }
+  return links;
+}
+
+async function fetchJetPhotosMetadata(registration) {
+  const reg = cleanAircraftRegistration(registration);
+  if (!reg) return null;
+  const searchUrl = `https://www.jetphotos.com/registration/${encodeURIComponent(reg)}`;
+  let listingHtml = "";
+  try {
+    listingHtml = await fetchTextWithCorsFallbacks(searchUrl, 9000);
+  } catch {
+    return null;
+  }
+  const detailLinks = jetPhotosDetailLinksFromHtml(listingHtml, searchUrl);
+  for (const detailUrl of detailLinks) {
+    try {
+      const detailHtml = await fetchTextWithCorsFallbacks(detailUrl, 9000);
+      const title = titleTextFromHtml(detailHtml);
+      const titleParts = title.split('|').map((item) => item.trim()).filter(Boolean);
+      const titleType = titleParts[1] || "";
+      const titleOperator = titleParts[2] || "";
+      const serial = firstFilled(
+        htmlFieldValue(detailHtml, ['Serial #', 'Serial Number', 'MSN']),
+        htmlFieldValue(detailHtml, ['Construction Number'])
+      );
+      const airline = firstFilled(htmlFieldValue(detailHtml, ['Airline']), titleOperator);
+      const aircraftType = firstFilled(htmlFieldValue(detailHtml, ['Aircraft']), titleType);
+      const manufacturer = firstFilled(htmlFieldValue(detailHtml, ['Manufacturer']), manufacturerFromType(aircraftType));
+      const result = {
+        registration: reg,
+        r: reg,
+        aircraftType,
+        type: aircraftType,
+        t: aircraftType,
+        operator: airline,
+        owner: airline,
+        airline,
+        manufacturer,
+        serial_number: serial,
+        serialNumber: serial,
+        msn: serial,
+        source_url: detailUrl,
+        _jetPhotosSource: detailUrl
+      };
+      if (result.aircraftType || result.operator || result.serial_number || result.manufacturer) return result;
+    } catch {
+      // próbujemy kolejny wynik
+    }
+  }
+  return null;
+}
+
+async function fetchAdsbDbAircraftMetadata(aircraft) {
+  const cleanIcao = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24));
+  if (!cleanIcao) return null;
+  const url = `${ADSBDB_AIRCRAFT_API_BASE_URL}${cleanIcao.toUpperCase()}`;
+  try {
+    const data = await fetchJsonWithCorsFallbacks(url, 8000);
+    const root = data?.response?.aircraft || data?.response || data?.aircraft || data || {};
+    const registration = firstFilled(root.registration, root.reg, root.tail, root.n_number);
+    const aircraftType = firstFilled(root.type, root.icao_type, root.icaoType, root.aircraft_type, root.model, root.aircraft, root.description);
+    const manufacturer = firstFilled(root.manufacturer, root.make);
+    const owner = firstFilled(root.registered_owner, root.owner, root.operator, root.airline, root.op);
+    const serial = firstFilled(root.serial_number, root.serial, root.serialNumber, root.msn, root.cn, root.construction_number, root.constructionNumber);
+    const result = {
+      hex: cleanIcao,
+      icao: cleanIcao,
+      registration,
+      r: registration,
+      aircraftType,
+      type: aircraftType,
+      t: aircraftType,
+      manufacturer,
+      operator: owner,
+      owner,
+      airline: owner,
+      serial_number: serial,
+      serialNumber: serial,
+      msn: serial,
+      line_number: firstFilled(root.line_number, root.lineNumber, root.line_no),
+      first_flight: firstFilled(root.first_flight, root.firstFlight, root.firstFlightDate),
+      delivery_date: firstFilled(root.delivery_date, root.deliveryDate, root.delivery, root.delivered),
+      engines: firstFilled(root.engines, root.engine, root.engine_type, root.engineType),
+      configuration: firstFilled(root.configuration, root.config),
+      country: firstFilled(root.country, root.registration_country, root.flag)
+    };
+    if (Object.values(result).some((value) => String(value || '').trim())) return result;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function mergeAircraftExportData(primary, extra) {
+  const base = primary && typeof primary === 'object' ? primary : {};
+  const supplement = extra && typeof extra === 'object' ? extra : {};
+  const merged = { ...supplement, ...base };
+  const registration = firstFilled(base.r, base.registration, supplement.r, supplement.registration);
+  const aircraftType = firstFilled(base.t, base.type, base.aircraftType, supplement.t, supplement.type, supplement.aircraftType);
+  const operator = firstFilled(base.operator, base.owner, base.airline, supplement.operator, supplement.owner, supplement.airline);
+  const manufacturer = firstFilled(base.manufacturer, base.make, supplement.manufacturer, supplement.make);
+  const serial = firstFilled(base.serial_number, base.serialNumber, base.msn, base.MSN, base.cn, base.constructionNumber, supplement.serial_number, supplement.serialNumber, supplement.msn, supplement.MSN, supplement.cn, supplement.constructionNumber);
+  const lineNumber = firstFilled(base.line_number, base.lineNumber, base.ln, supplement.line_number, supplement.lineNumber, supplement.ln);
+  const firstFlight = firstFilled(base.first_flight, base.firstFlight, base.firstFlightDate, supplement.first_flight, supplement.firstFlight, supplement.firstFlightDate);
+  const deliveryDate = firstFilled(base.delivery_date, base.deliveryDate, base.delivery, base.delivered, supplement.delivery_date, supplement.deliveryDate, supplement.delivery, supplement.delivered);
+  const engines = firstFilled(base.engines, base.engine, base.engine_type, base.engineType, supplement.engines, supplement.engine, supplement.engine_type, supplement.engineType);
+  const configuration = firstFilled(base.configuration, base.config, supplement.configuration, supplement.config);
+  const country = firstFilled(base.country, base.registration_country, base.flag, supplement.country, supplement.registration_country, supplement.flag);
+  if (registration) merged.r = merged.registration = registration;
+  if (aircraftType) merged.t = merged.type = merged.aircraftType = aircraftType;
+  if (operator) merged.operator = merged.owner = merged.airline = operator;
+  if (manufacturer) merged.manufacturer = merged.make = manufacturer;
+  if (serial) merged.serial_number = merged.serialNumber = merged.msn = serial;
+  if (lineNumber) merged.line_number = merged.lineNumber = lineNumber;
+  if (firstFlight) merged.first_flight = merged.firstFlight = merged.firstFlightDate = firstFlight;
+  if (deliveryDate) merged.delivery_date = merged.deliveryDate = merged.delivery = merged.delivered = deliveryDate;
+  if (engines) merged.engines = merged.engine = merged.engine_type = merged.engineType = engines;
+  if (configuration) merged.configuration = merged.config = configuration;
+  if (country) merged.country = merged.registration_country = merged.flag = country;
+  return merged;
+}
+
+async function buildAeroExportAircraft(aircraft) {
+  let merged = mergeAircraftExportData(aircraft, {});
+  try {
+    const staticData = await fetchAdsbDbAircraftMetadata(merged);
+    if (staticData) merged = mergeAircraftExportData(merged, staticData);
+  } catch {
+    // bez twardego błędu
+  }
+  try {
+    const jetPhotosData = await fetchJetPhotosMetadata(firstFilled(merged.r, merged.registration));
+    if (jetPhotosData) merged = mergeAircraftExportData(merged, jetPhotosData);
+  } catch {
+    // bez twardego błędu
+  }
+  return merged;
+}
+
 function aircraftAeroDocxData(aircraft, photoInfo = {}) {
   const details = Object.fromEntries(aircraftDetailsRows(aircraft));
   const raw = aircraft || {};
@@ -4214,15 +4448,16 @@ ${aircraftAeroDocxFlightRows(aircraft).map((row) => docxRow(row, { widths: fligh
 }
 
 async function downloadAeroStyleDocxForAircraft(aircraft) {
+  const exportAircraft = await buildAeroExportAircraft(aircraft);
   let photoInfo;
   try {
-    photoInfo = await aircraftPhotoBlobForExport(aircraft);
+    photoInfo = await aircraftPhotoBlobForExport(exportAircraft);
   } catch (photoError) {
     console.warn("Nie udało się pobrać zdjęcia do DOCX.", photoError);
     photoInfo = { blob: null, fileName: "", url: "", real: false };
   }
-  const docxBlob = await createAeroStyleDocxBlob(aircraft, photoInfo);
-  const fileName = `${makeAircraftExportBaseName(aircraft)}_zestawienie.docx`;
+  const docxBlob = await createAeroStyleDocxBlob(exportAircraft, photoInfo);
+  const fileName = `${makeAircraftExportBaseName(exportAircraft)}_zestawienie.docx`;
   downloadBlob(fileName, new Blob([docxBlob], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
   return fileName;
 }
@@ -4241,13 +4476,19 @@ async function aircraftPhotoBlobForExport(aircraft) {
   try {
     photoUrl = await findRealAircraftPhotoUrl(aircraft);
     if (photoUrl) {
-      const response = await fetchWithTimeout(photoUrl, {}, 8000);
-      if (response.ok) {
-        const blob = await response.blob();
-        if (blob && blob.size > 0) {
-          const mime = blob.type || "image/jpeg";
-          const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : "jpg";
-          return { blob, fileName: `zdjecie.${ext}`, url: photoUrl, real: true };
+      const attempts = [photoUrl, ...CORS_PROXY_BUILDERS.map((builder) => builder(photoUrl))];
+      for (const attemptUrl of attempts) {
+        try {
+          const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "image/*,*/*;q=0.8" } }, 10000);
+          if (!response.ok) continue;
+          const blob = await response.blob();
+          if (blob && blob.size > 0) {
+            const mime = blob.type || "image/jpeg";
+            const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : mime.includes("jpeg") ? "jpg" : "jpg";
+            return { blob, fileName: `zdjecie.${ext}`, url: photoUrl, real: true };
+          }
+        } catch {
+          // próbujemy kolejne podejście
         }
       }
     }
