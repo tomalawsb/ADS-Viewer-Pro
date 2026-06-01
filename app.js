@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V41";
-const APP_VERSION_STAMP = "0106260745";
+const APP_VERSION_NUMBER = "V42";
+const APP_VERSION_STAMP = "0106260800";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -2548,6 +2548,41 @@ function greatCircleRoutePoints(start, end) {
   return result;
 }
 
+function combineRouteLegs(...legs) {
+  const combined = [];
+  for (const leg of legs) {
+    const cleanLeg = (Array.isArray(leg) ? leg : []).filter(validPoint);
+    for (const point of cleanLeg) {
+      const previous = combined[combined.length - 1];
+      const sameAsPrevious = previous && Math.abs(previous.lat - point.lat) < 0.000001 && Math.abs(previous.lon - point.lon) < 0.000001;
+      if (!sameAsPrevious) combined.push(point);
+    }
+  }
+  return combined;
+}
+
+function plannedAirportRoutePointsThroughAircraft(aircraft, endpoints) {
+  if (!endpoints?.start || !endpoints?.end) return [];
+  const aircraftPoint = pointFromAircraft(aircraft);
+  if (!validPoint(aircraftPoint)) {
+    return greatCircleRoutePoints(endpoints.start, endpoints.end).filter(validPoint);
+  }
+
+  const distanceFromStartKm = distanceKmBetweenPoints(endpoints.start, aircraftPoint);
+  const distanceFromEndKm = distanceKmBetweenPoints(aircraftPoint, endpoints.end);
+  if (distanceFromStartKm !== null && distanceFromStartKm < 8) {
+    return greatCircleRoutePoints(aircraftPoint, endpoints.end).filter(validPoint);
+  }
+  if (distanceFromEndKm !== null && distanceFromEndKm < 8) {
+    return greatCircleRoutePoints(endpoints.start, aircraftPoint).filter(validPoint);
+  }
+
+  return combineRouteLegs(
+    greatCircleRoutePoints(endpoints.start, aircraftPoint),
+    greatCircleRoutePoints(aircraftPoint, endpoints.end)
+  );
+}
+
 function shouldBreakTraceSegment(previous, point) {
   if (!validPoint(previous) || !validPoint(point)) return true;
   const distanceKm = distanceKmBetweenPoints(previous, point);
@@ -2774,7 +2809,7 @@ function drawRoute(points, label = "Trasa", options = {}) {
     ? (options.showHeadingWhenSingle === true ? "1 punkt + kierunek lotu" : "1 punkt rzeczywisty")
     : (plannedOnly ? `${latLngs.length} punkty znanej trasy lotniskowej` : `${latLngs.length} punktów rzeczywistego śladu`);
   const endpointText = endpoints?.start && endpoints?.end
-    ? ` Start ${endpoints.start.label}; stop ${endpoints.end.label}.`
+    ? ` Start ${endpoints.start.label}; ${plannedOnly ? "cel" : "stop"} ${endpoints.end.label}.`
     : " Bez potwierdzonego startu i lądowania — nie pokazuję znaczników START/STOP.";
   setRouteSummary(`${label}: ${suffix}.${endpointText}`);
 }
@@ -5278,10 +5313,11 @@ function drawKnownAirportRouteFallback(aircraft, options = {}, messagePrefix = "
   const endpoints = confirmedRouteEndpointPoints(aircraft);
   if (!endpoints?.start || !endpoints?.end) return false;
 
-  const points = greatCircleRoutePoints(endpoints.start, endpoints.end).filter(validPoint);
+  const aircraftPoint = pointFromAircraft(aircraft);
+  const points = plannedAirportRoutePointsThroughAircraft(aircraft, endpoints).filter(validPoint);
   if (points.length < 2) return false;
 
-  drawRoute(points, `${aircraftLabel(aircraft)} • znana trasa lotniskowa`, {
+  drawRoute(points, `${aircraftLabel(aircraft)} • trasa lotniskowa przez aktualną pozycję`, {
     endpoints,
     fitMap: options.fitMap === true,
     showCurrentMarker: false,
@@ -5289,7 +5325,9 @@ function drawKnownAirportRouteFallback(aircraft, options = {}, messagePrefix = "
     plannedOnly: true,
     endMarkerText: "CEL"
   });
-  setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: znam start i cel (${endpoints.start.label} → ${endpoints.end.label}). Brak pełnego śladu ADS-B z API, więc pokazuję przeliczoną trasę wielkiego koła między lotniskami. To jest linia planowanej trasy, nie zapisany punkt po punkcie ślad ADS-B.`);
+
+  const currentText = validPoint(aircraftPoint) ? " i aktualną pozycję samolotu" : "";
+  setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: znam start i cel (${endpoints.start.label} → ${endpoints.end.label})${currentText}. Brak pełnego śladu ADS-B z API, więc pokazuję trasę orientacyjną START → aktualna pozycja → CEL. To nie jest zapis punkt po punkcie z ADS-B.`);
   return true;
 }
 
