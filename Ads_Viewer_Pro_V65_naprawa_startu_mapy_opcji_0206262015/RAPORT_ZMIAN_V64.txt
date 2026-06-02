@@ -1,0 +1,8 @@
+ADS Viewer Pro V64 - 0206261955
+
+Naprawa po zgłoszeniu pustego ekranu / braku ładowania:
+- dodano awaryjne ładowanie samolotów z domyślnego środka mapy, gdy PWA/przeglądarka blokuje geolokalizację,
+- ekran nie powinien zostawać pusty tylko dlatego, że lokalizacja nie została pobrana,
+- dodano widoczny komunikat błędu JS w statusie aplikacji, aby nie było cichego zawieszenia,
+- miniatury prawdziwych zdjęć w zapisanych/obserwowanych są ładowane kolejką z limitem, żeby nie zapychały startu aplikacji,
+- zachowano miniatury oryginalnych zdjęć dla zapisanych i obserwowanych, ale bez masowego jednoczesnego pobierania.

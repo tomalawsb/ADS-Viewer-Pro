@@ -1,0 +1,14 @@
+ADS Viewer Pro V64 - 0206261955
+
+Zmiana:
+- Zapisane samoloty pokazują miniaturę prawdziwego zdjęcia samolotu, jeśli zdjęcie jest dostępne w Planespotters.
+- Obserwowane samoloty pokazują miniaturę prawdziwego zdjęcia samolotu, jeśli zdjęcie jest dostępne w Planespotters.
+- Miniatura najpierw pokazuje grafikę zastępczą, a po pobraniu zdjęcia automatycznie podmienia ją na oryginalne zdjęcie.
+- Zdjęcia są dalej cache’owane w adsb-photo-cache-v1.
+- Historia lotów nadal używa lekkich ikon poglądowych, żeby nie obciążać listy historii.
+
+Sprawdzenie:
+- app.js OK
+- modules/*.js OK
+- services/docxExportService.js OK
+- sw.js OK

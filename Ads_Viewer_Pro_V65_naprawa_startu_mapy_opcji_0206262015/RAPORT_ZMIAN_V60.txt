@@ -1,0 +1,36 @@
+ADS Viewer Pro V60 - 0206261810
+
+Zakres: wykonanie punktu 1 i 2 z audytu technicznego.
+
+1. Oddzielony cache historii od cache live:
+- dodano osobny magazyn localStorage: adsb-history-traces-v1,
+- historia lotów nie zapisuje już pełnych tras do adsb-live-tracks-v1,
+- ślady live nadal używają adsb-live-tracks-v1 i limitu właściwego dla mapy live,
+- dodano migrację awaryjną: jeżeli użytkownik ma starą trasę historii zapisaną w cache live z wcześniejszych wersji, program nadal potrafi ją odczytać.
+
+2. Usunięto ograniczenie historii do 700 punktów:
+- live track nadal ma limit 700 punktów, żeby mapa live była lekka,
+- historia lotu ma osobny limit MAX_HISTORY_TRACE_POINTS = 20000,
+- zapis historii przechowuje metadane: savedAt, source, requestLabel, pointCount, firstAt, lastAt,
+- cache historii ma limit wpisów HISTORY_TRACE_CACHE_MAX_ENTRIES = 120,
+- bardzo długie trasy nie są już obcinane do 700 punktów.
+
+Zmienione pliki:
+- app.js
+- modules/cacheMediaRoutes.js
+- modules/historyTrace.js
+- index.html
+- sw.js
+- manifest.webmanifest
+- README.md
+
+Sprawdzenie składni:
+- app.js: OK
+- modules/*.js: OK
+- services/docxExportService.js: OK
+- sw.js: OK
+
+Uwagi:
+- Punkt 1 wykonany w pełni.
+- Punkt 2 wykonany w pełni w zakresie lokalnego przechowywania historii.
+- Pełna kompletność trasy nadal zależy od darmowego źródła danych. Jeżeli API zwróci niepełne punkty, program nie jest w stanie odtwórczo dopisać brakujących pozycji.

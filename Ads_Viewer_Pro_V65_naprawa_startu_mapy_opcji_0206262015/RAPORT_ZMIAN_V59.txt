@@ -1,0 +1,38 @@
+ADS Viewer Pro V59 - 0206261735
+
+Zakres: pełne wykonanie punktu 7 z audytu technicznego, czyli rozbicie dużego app.js na moduły tematyczne.
+
+Co zrobiono:
+1. app.js został odchudzony z ok. 303 KB do ok. 77 KB.
+2. Logika została rozdzielona na moduły:
+   - modules/coreStorage.js — storage, JSON, daty, podstawowe helpery, CSV.
+   - modules/aircraftUtils.js — formatowanie i normalizacja danych samolotu, ikony, faza lotu, metadane.
+   - modules/settingsFilters.js — ustawienia wydajności, filtry samolotów, ustawienia przeglądania.
+   - modules/apiSources.js — źródła ADS-B, budowanie URL-i, fallback API, wyszukiwanie live/statyczne.
+   - modules/mapRoutes.js — mapa, trasy, ślady, punkty, odcinki, route fallback.
+   - modules/uiPanels.js — panele, bottom sheet, drawer, statusy, busy overlay, toast, instalacja PWA.
+   - modules/savedWatchHistory.js — zapisane samoloty, obserwowane, historia przelotów, formularz, import.
+   - modules/exportModule.js — eksport, CSV, HTML, JSON, ZIP, zapis do folderu.
+   - modules/alertsModule.js — ustawienia alertów, log alertów, powiadomienia, obserwowane alerty.
+   - modules/cacheMediaRoutes.js — zdjęcia, cache tras, live track, trace, odświeżanie samolotów.
+   - modules/firestoreSync.js — synchronizacja Firestore, konfiguracja, push/pull danych.
+   - modules/historyTrace.js — historia trasy, odtwarzanie, kolorowanie wysokości.
+3. index.html podłącza wszystkie moduły w kolejności zależności.
+4. sw.js cache’uje nowe moduły i ma zaktualizowany stamp wersji.
+5. APP_VERSION ustawiony na V59 - 0206261735.
+6. Zaktualizowano manifest i główny nagłówek README.
+
+Kontrola techniczna:
+- node --check app.js: OK
+- node --check modules/*.js: OK
+- node --check services/docxExportService.js: OK
+- node --check sw.js: OK
+
+Czego celowo nie zmieniano:
+- Nie zmieniano logiki działania funkcji użytkowych.
+- Nie usuwano przycisku ADS.
+- Nie przywracano funkcji Śledź/Obserwuj.
+- Nie zmieniano źródeł danych ani wyglądu interfejsu poza podłączeniem modułów.
+
+Uwaga:
+To jest refaktoryzacja strukturalna. Po wgraniu na GitHub Pages należy wykonać twarde odświeżenie aplikacji albo użyć funkcji wymuszenia aktualizacji, ponieważ service worker może trzymać starszy cache.
