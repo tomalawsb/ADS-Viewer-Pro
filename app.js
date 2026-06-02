@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V52";
-const APP_VERSION_STAMP = "0206260737";
+const APP_VERSION_NUMBER = "V53";
+const APP_VERSION_STAMP = "0206260752";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3175,10 +3175,18 @@ function aircraftFlightPhase(aircraft) {
   return { label: "lot poziomy", detail: Number.isFinite(verticalRate) ? `${numberText(verticalRate)} ft/min` : "brak danych pionowych", css: "level", angle: 0 };
 }
 
+function aircraftRouteIndicatorAngle(phase) {
+  const css = String(phase?.css || "");
+  if (css === "climb") return 65;
+  if (css === "descent") return 115;
+  return 90;
+}
+
 function aircraftPhaseMarkup(aircraft) {
   const phase = aircraftFlightPhase(aircraft);
   const group = aircraftTypeGroup(aircraft || {});
-  return `<span class="phase-plane phase-${phase.css}" style="--phase-angle:${phase.angle}deg">${aircraftSvgMarkup(group)}</span>`;
+  const routeAngle = aircraftRouteIndicatorAngle(phase);
+  return `<span class="phase-plane phase-${phase.css}" style="--phase-angle:${phase.angle}deg;--route-phase-angle:${routeAngle}deg">${aircraftSvgMarkup(group)}</span>`;
 }
 
 function airlineGuessFromCallsign(aircraft) {
