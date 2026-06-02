@@ -3401,3 +3401,24 @@ textarea {
     height: 34px;
   }
 }
+
+
+/* V69 - 0206262010: telefon — badge trybu mapy nie może zasłaniać uchwytu panelu samolotu */
+@media (max-width: 760px) {
+  .map-mode-badge {
+    left: auto;
+    right: calc(12px + env(safe-area-inset-right, 0px));
+    top: calc(88px + env(safe-area-inset-top, 0px));
+    transform: none;
+    max-width: min(220px, calc(100vw - 24px));
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    z-index: 7290;
+  }
+
+  .map-mode-badge .ghost-button {
+    min-height: 26px;
+    padding: 4px 8px;
+    font-size: 0.68rem;
+  }
+}
