@@ -26,7 +26,11 @@ function initMap() {
   userLocationLayer = L.layerGroup().addTo(map);
   map.on("click", () => {
     hideSelectedAircraftSheet();
-    closeDrawerPanel();
+    const historyPanelLockedOpen = Boolean(
+      drawer?.classList.contains("is-open") &&
+      drawer?.classList.contains("is-history-panel")
+    );
+    if (!historyPanelLockedOpen) closeDrawerPanel();
     map.closePopup?.();
   });
   refreshTileLayer();
@@ -57,13 +61,13 @@ function pointTimeMs(point) {
 }
 
 function tracePointAltitudeFt(point) {
-  const raw = point?.altitude;
+  const raw = point?.altitude ?? point?.alt_baro ?? point?.alt_geom ?? null;
   if (String(raw || "").toLowerCase() === "ground") return 0;
   return finiteNumberOrNull(raw);
 }
 
 function tracePointSpeedKt(point) {
-  return finiteNumberOrNull(point?.speed);
+  return finiteNumberOrNull(point?.speed ?? point?.gs);
 }
 
 function isGroundLikeTracePoint(point) {

@@ -54,6 +54,55 @@ function historyTracePopupHtml(point, index, count, icao, date) {
   `;
 }
 
+function historyTraceBaseAircraft(icao) {
+  const cleanIcao = normalizeIcao(icao || historyTracePlaybackIcao || "");
+  const live = cleanIcao ? findAircraftByIcaoInCache(cleanIcao) : null;
+  const selected = cleanIcao && aircraftIcao(selectedAircraft) === cleanIcao ? selectedAircraft : null;
+  return live || selected || {};
+}
+
+function historyTraceAircraftGroup(icao) {
+  const base = historyTraceBaseAircraft(icao);
+  return aircraftTypeGroup(base || {});
+}
+
+function historyTraceAircraftIcon(point, active = true) {
+  const band = historyTraceAltitudeBand(point);
+  const heading = Number.isFinite(Number(point?.track)) ? Number(point.track) : 0;
+  const group = historyTraceAircraftGroup(historyTracePlaybackIcao);
+  return L.divIcon({
+    className: `history-aircraft-div-icon ${active ? "is-playing" : ""}`,
+    iconSize: [50, 50],
+    iconAnchor: [25, 25],
+    popupAnchor: [0, -24],
+    html: `<div class="history-aircraft-marker aircraft-kind-${escapeHtml(group)}" style="--heading:${heading}deg;--history-color:${band.color};">${aircraftSvgMarkup(group)}</div>`
+  });
+}
+
+function drawHistoryTraceEndpointMarkers(points, icao, date) {
+  if (!routeLayer || !window.L) return;
+  const clean = (Array.isArray(points) ? points : []).filter(validPoint);
+  if (!clean.length) return;
+  const start = clean[0];
+  const end = clean[clean.length - 1];
+  L.marker([start.lat, start.lon], {
+    pane: "routePane",
+    interactive: false,
+    keyboard: false,
+    icon: routeEndpointIcon("START", "start"),
+    title: `Start historii ${icao.toUpperCase()} ${date}`
+  }).addTo(routeLayer);
+  if (clean.length > 1) {
+    L.marker([end.lat, end.lon], {
+      pane: "routePane",
+      interactive: false,
+      keyboard: false,
+      icon: routeEndpointIcon("KONIEC", "end"),
+      title: `Koniec historii ${icao.toUpperCase()} ${date}`
+    }).addTo(routeLayer);
+  }
+}
+
 function drawHistoryTracePointMarkers(points, icao, date) {
   if (!routeLayer || !window.L) return;
   const clean = (Array.isArray(points) ? points : []).filter(validPoint);
@@ -97,7 +146,7 @@ function historyTraceSegmentColor(a, b) {
   const altA = tracePointAltitudeFt(a);
   const altB = tracePointAltitudeFt(b);
   const alt = altA !== null && altB !== null ? (altA + altB) / 2 : (altA ?? altB);
-  return historyTraceAltitudeBand({ alt_baro: alt }).color;
+  return historyTraceAltitudeBand({ altitude: alt }).color;
 }
 
 function drawHistoryTraceAltitudeRoute(points) {
@@ -111,8 +160,18 @@ function drawHistoryTraceAltitudeRoute(points) {
       pane: "routePane",
       interactive: false,
       color: "#ffffff",
+      weight: 13,
+      opacity: 0.95,
+      className: "history-trace-halo"
+    }).addTo(routeLayer);
+
+    L.polyline(latLngs, {
+      pane: "routePane",
+      interactive: false,
+      color: "#0f172a",
       weight: 9,
-      opacity: 0.88
+      opacity: 0.38,
+      className: "history-trace-shadow"
     }).addTo(routeLayer);
 
     for (let index = 1; index < clean.length; index += 1) {
@@ -122,26 +181,20 @@ function drawHistoryTraceAltitudeRoute(points) {
         pane: "routePane",
         interactive: false,
         color: historyTraceSegmentColor(previous, point),
-        weight: 5,
-        opacity: 0.98
+        weight: 6,
+        opacity: 1,
+        className: "history-trace-colored"
       }).addTo(routeLayer);
     }
   } else if (Number.isFinite(Number(clean[0].track))) {
-    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: historyTraceAltitudeBand(clean[0]).color, weight: 4, opacity: 0.96 });
+    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: historyTraceAltitudeBand(clean[0]).color, weight: 6, opacity: 1 });
   }
 
   return L.latLngBounds(latLngs);
 }
 
 function historyTracePlaybackIcon(point, active = true) {
-  const band = historyTraceAltitudeBand(point);
-  const label = active ? "▶" : "●";
-  return L.divIcon({
-    className: "history-playback-marker",
-    html: `<span style="background:${band.color}">${label}</span>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17]
-  });
+  return historyTraceAircraftIcon(point, active);
 }
 
 function stopHistoryTracePlayback() {
@@ -168,10 +221,11 @@ function updateHistoryTracePlaybackMarker(index = historyTracePlaybackIndex, opt
   if (historyTracePlayerSlider) historyTracePlayerSlider.value = String(safeIndex);
   if (historyTracePlaybackMarker) historyTracePlaybackMarker.remove();
   historyTracePlaybackMarker = L.marker([point.lat, point.lon], {
-    pane: "routePane",
+    pane: "aircraftPane",
     keyboard: false,
+    zIndexOffset: 1500,
     icon: historyTracePlaybackIcon(point, historyTracePlaybackTimer !== null),
-    title: `Odtwarzanie: ${formatHistoryTraceTime(point)}`
+    title: `Historia: ${formatHistoryTraceTime(point)}`
   }).addTo(routeLayer);
   historyTracePlaybackMarker.bindPopup(historyTracePopupHtml(point, safeIndex, historyTracePlaybackPoints.length, historyTracePlaybackIcao, historyTracePlaybackDate));
 
@@ -229,6 +283,7 @@ function drawHistoryTraceOnMap(points, icao, date, options = {}) {
   }
 
   const bounds = drawHistoryTraceAltitudeRoute(clean);
+  drawHistoryTraceEndpointMarkers(clean, icao, date);
   drawHistoryTracePointMarkers(clean, icao, date);
   lastRouteBounds = bounds;
   if (bounds && map && options.fitMap !== false) {
