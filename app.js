@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V49";
-const APP_VERSION_STAMP = "0206260701";
+const APP_VERSION_NUMBER = "V50";
+const APP_VERSION_STAMP = "0206260709";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3336,7 +3336,7 @@ function showSelectedAircraftSheet(aircraft) {
   if (aircraftSheetMorePanel) renderAircraftDetailsPanel(aircraft);
   setAircraftDetailsVisible(false);
   aircraftSheet.hidden = false;
-  aircraftSheet.classList.remove("is-expanded", "is-dragging");
+  aircraftSheet.classList.remove("is-expanded", "is-dragging", "is-half-hidden");
   aircraftSheet.style.removeProperty("--sheet-drag-y");
   aircraftSheet.classList.add("is-open");
   setAircraftActionsMode(true);
@@ -3345,7 +3345,7 @@ function showSelectedAircraftSheet(aircraft) {
 function hideSelectedAircraftSheet() {
   if (!aircraftSheet) return;
   setAircraftActionsMode(false);
-  aircraftSheet.classList.remove("is-open", "is-expanded", "is-dragging");
+  aircraftSheet.classList.remove("is-open", "is-expanded", "is-dragging", "is-half-hidden");
   aircraftSheet.style.removeProperty("--sheet-drag-y");
   window.setTimeout(() => { if (!aircraftSheet.classList.contains("is-open")) aircraftSheet.hidden = true; }, 160);
 }
@@ -7154,15 +7154,21 @@ document.addEventListener("pointerdown", (event) => {
   map?.closePopup?.();
 });
 
-function installBottomDrag(handle, panel, closeCallback) {
+function installBottomDrag(handle, panel, closeCallback, options = {}) {
   if (!handle || !panel) return;
   let startY = 0;
   let lastDelta = 0;
   let dragging = false;
+  let startedHalfHidden = false;
+
+  const supportsHalfHidden = () => {
+    return options.halfHidden === true && window.matchMedia?.("(max-width: 760px)")?.matches;
+  };
 
   const resetDrag = () => {
     dragging = false;
     lastDelta = 0;
+    startedHalfHidden = false;
     panel.classList.remove("is-dragging");
     panel.style.removeProperty("--sheet-drag-y");
   };
@@ -7173,6 +7179,7 @@ function installBottomDrag(handle, panel, closeCallback) {
     event.stopPropagation();
     startY = event.clientY;
     lastDelta = 0;
+    startedHalfHidden = supportsHalfHidden() && panel.classList.contains("is-half-hidden");
     dragging = true;
     panel.classList.add("is-dragging");
     handle.setPointerCapture?.(event.pointerId);
@@ -7183,6 +7190,12 @@ function installBottomDrag(handle, panel, closeCallback) {
     event.preventDefault();
     event.stopPropagation();
     lastDelta = event.clientY - startY;
+
+    if (supportsHalfHidden() && startedHalfHidden) {
+      panel.style.setProperty("--sheet-drag-y", `calc(var(--sheet-half-y, 50%) + ${lastDelta}px)`);
+      return;
+    }
+
     if (lastDelta > 0) {
       panel.style.setProperty("--sheet-drag-y", `${Math.min(lastDelta, 360)}px`);
     } else {
@@ -7195,7 +7208,31 @@ function installBottomDrag(handle, panel, closeCallback) {
     event?.preventDefault?.();
     event?.stopPropagation?.();
     const delta = lastDelta;
+    const useHalfHidden = supportsHalfHidden();
+    const wasHalfHidden = startedHalfHidden;
     resetDrag();
+
+    if (useHalfHidden) {
+      if (delta > 230 || (wasHalfHidden && delta > 70)) {
+        panel.classList.remove("is-expanded", "is-half-hidden");
+        closeCallback?.();
+      } else if (delta > 45) {
+        panel.classList.remove("is-expanded");
+        panel.classList.add("is-half-hidden");
+        invalidateMapSoon();
+      } else if (delta < -45) {
+        panel.classList.remove("is-half-hidden");
+        panel.classList.add("is-expanded");
+        invalidateMapSoon();
+      } else if (Math.abs(delta) <= 8) {
+        invalidateMapSoon();
+      } else {
+        panel.classList.remove("is-half-hidden");
+        invalidateMapSoon();
+      }
+      return;
+    }
+
     if (delta > 70) {
       panel.classList.remove("is-expanded");
       closeCallback?.();
@@ -7215,7 +7252,7 @@ function installBottomDrag(handle, panel, closeCallback) {
   handle.addEventListener("pointercancel", finish);
 }
 
-installBottomDrag(aircraftSheetDragHandle, aircraftSheet, hideSelectedAircraftSheet);
+installBottomDrag(aircraftSheetDragHandle, aircraftSheet, hideSelectedAircraftSheet, { halfHidden: true });
 installBottomDrag(drawerDragHandle, drawer, closeDrawerPanel);
 
 document.addEventListener("keydown", (event) => {
