@@ -1,11 +1,10 @@
-const APP_VERSION_STAMP = "0206260752";
+const APP_VERSION_STAMP = "0106260955";
 const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
 const ASSETS = [
   "./",
   `./index.html?v=${APP_VERSION_STAMP}`,
   `./styles.css?v=${APP_VERSION_STAMP}`,
   `./app.js?v=${APP_VERSION_STAMP}`,
-  `./services/docxExportService.js?v=${APP_VERSION_STAMP}`,
   `./manifest.webmanifest?v=${APP_VERSION_STAMP}`,
   "./icon.svg",
   "./icon-192.png",
