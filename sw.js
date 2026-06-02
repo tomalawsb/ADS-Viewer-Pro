@@ -1,4 +1,4 @@
-const APP_VERSION_STAMP = "0106261950";
+const APP_VERSION_STAMP = "0206260701";
 const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
 const ASSETS = [
   "./",

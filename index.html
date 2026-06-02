@@ -4,16 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#eaf3ef">
-    <meta name="app-version" content="V48 - 0106261950">
+    <meta name="app-version" content="V49 - 0206260701">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>ADS Viewer Pro V48 - 0106261950</title>
-    <link rel="manifest" href="manifest.webmanifest?v=0106261950">
+    <title>ADS Viewer Pro V49 - 0206260701</title>
+    <link rel="manifest" href="manifest.webmanifest?v=0206260701">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="styles.css?v=0106261950">
+    <link rel="stylesheet" href="styles.css?v=0206260701">
   </head>
   <body>
     <main class="app-shell">
@@ -22,7 +22,7 @@
           <p class="eyebrow">ADS-B Live Radar</p>
           <h1>ADS Viewer Pro</h1>
           <div class="version-row">
-            <p class="version-badge" id="appVersionBadge">V48 - 0106261950</p>
+            <p class="version-badge" id="appVersionBadge">V49 - 0206260701</p>
             <p class="status-chip" id="statusChip">Gotowy</p>
           </div>
         </div>
@@ -358,7 +358,7 @@
               </label>
               <button class="ghost-button update-button" id="forceUpdateButton" type="button" title="Wyczyść cache programu i pobierz najnowszą wersję">Odśwież program</button>
               <button class="secondary-button compact-button" id="installButton" type="button" hidden title="Zainstaluj aplikację">Zainstaluj</button>
-              <span class="settings-version">Wersja: <strong id="settingsVersionBadge">V48 - 0106261950</strong></span>
+              <span class="settings-version">Wersja: <strong id="settingsVersionBadge">V49 - 0206260701</strong></span>
             </div>
             <p class="settings-note">„Odśwież program” czyści cache aplikacji i pobiera najnowsze pliki z GitHub Pages. Zapisane samoloty zostają.</p>
 
@@ -430,51 +430,86 @@
 
       <section id="aircraftSheet" class="aircraft-sheet" aria-label="Wybrany samolot" hidden>
         <div class="aircraft-sheet-drag-handle" id="aircraftSheetDragHandle" aria-hidden="true"></div>
-        <div class="aircraft-sheet-head">
-          <div class="aircraft-title-group">
-            <strong id="aircraftSheetCallsign">SAMOLOT</strong>
-            <span id="aircraftSheetType">brak danych</span>
-          </div>
-          <span id="aircraftSheetFreshness" class="freshness-badge freshness-unknown">brak czasu</span>
-        </div>
 
-        <div class="aircraft-sheet-hero">
+        <div class="aircraft-sheet-top">
           <div class="aircraft-sheet-photo-wrap">
             <img id="aircraftSheetPhoto" class="aircraft-sheet-photo" alt="Zdjęcie samolotu" loading="lazy">
           </div>
-          <div class="aircraft-sheet-summary">
-            <span id="aircraftSheetOperator" class="aircraft-operator">brak danych</span>
-            <div class="sheet-route-grid">
-              <div><strong id="aircraftSheetRouteFrom">N/A</strong><span>start</span></div>
-              <div id="aircraftSheetPhaseIcon" class="sheet-phase-icon"></div>
-              <div><strong id="aircraftSheetRouteTo">N/A</strong><span>cel</span></div>
-            </div>
-            <span id="aircraftSheetRouteCaption" class="sheet-route-caption">Skąd/dokąd: brak danych</span>
+
+          <div class="aircraft-sheet-title-wrap">
+            <strong id="aircraftSheetCallsign">SAMOLOT</strong>
+            <span id="aircraftSheetType" class="aircraft-sheet-subtitle">brak danych</span>
+          </div>
+
+          <span id="aircraftSheetFreshness" class="freshness-badge freshness-unknown">brak czasu</span>
+        </div>
+
+        <div class="aircraft-sheet-route-row">
+          <div class="route-end">
+            <strong id="aircraftSheetRouteFrom">N/A</strong>
+            <span id="aircraftSheetRouteFromMeta">start</span>
+          </div>
+
+          <div class="route-line">
+            <div id="aircraftSheetPhaseIcon" class="sheet-phase-icon"></div>
+          </div>
+
+          <div class="route-end">
+            <strong id="aircraftSheetRouteTo">N/A</strong>
+            <span id="aircraftSheetRouteToMeta">cel</span>
           </div>
         </div>
 
-        <div class="aircraft-sheet-cards">
-          <div><span>Wysokość</span><strong id="aircraftSheetAltitude">brak danych</strong></div>
-          <div><span>Prędkość</span><strong id="aircraftSheetSpeed">brak danych</strong></div>
-          <div><span>Rejestracja</span><strong id="aircraftSheetRegistration">brak danych</strong></div>
-          <div><span>Status</span><strong id="aircraftSheetPhaseText">brak danych</strong></div>
+        <div class="aircraft-sheet-stats-grid">
+          <div>
+            <span>wysokość</span>
+            <strong id="aircraftSheetAltitude">brak danych</strong>
+          </div>
+          <div>
+            <span>prędkość</span>
+            <strong id="aircraftSheetSpeed">brak danych</strong>
+          </div>
+          <div>
+            <span>kurs</span>
+            <strong id="aircraftSheetHeading">brak danych</strong>
+          </div>
+          <div class="metric-climb">
+            <span>wznoszenie</span>
+            <strong id="aircraftSheetVerticalRate">brak danych</strong>
+          </div>
         </div>
 
-        <div class="aircraft-sheet-live-grid" aria-label="Szczegóły live samolotu">
-          <div><span>HEX</span><strong id="aircraftSheetHex">brak danych</strong></div>
-          <div><span>Kurs</span><strong id="aircraftSheetHeading">brak danych</strong></div>
-          <div><span>Wznoszenie</span><strong id="aircraftSheetVerticalRate">brak danych</strong></div>
-          <div><span>Ostatni sygnał</span><strong id="aircraftSheetLastSignal">brak danych</strong></div>
-          <div><span>Pozycja</span><strong id="aircraftSheetPosition">brak danych</strong></div>
-          <div><span>Źródło</span><strong id="aircraftSheetSource">brak danych</strong></div>
+        <div class="aircraft-sheet-meta-grid" aria-label="Szczegóły live samolotu">
+          <div>
+            <span>Hex</span>
+            <strong id="aircraftSheetHex">brak danych</strong>
+          </div>
+          <div>
+            <span>Pozycja</span>
+            <strong id="aircraftSheetPosition">brak danych</strong>
+          </div>
+          <div>
+            <span>Operator</span>
+            <strong id="aircraftSheetOperator">brak danych</strong>
+          </div>
+          <div>
+            <span>Źródło</span>
+            <strong id="aircraftSheetSource">brak danych</strong>
+          </div>
         </div>
 
         <div class="aircraft-sheet-actions">
           <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
-          <button type="button" id="aircraftSheetAds">Otwórz ADS</button>
-          <button type="button" id="aircraftSheetWatch">Obserwuj</button>
-          <button type="button" id="aircraftSheetSave">Zapisz</button>
-          <button type="button" id="aircraftSheetExport">Eksportuj</button>
+          <button type="button" id="aircraftSheetAds"><span class="action-ico">◎</span><span>ADS-B</span></button>
+          <button type="button" id="aircraftSheetWatch"><span class="action-ico">◉</span><span>Obserwuj</span></button>
+          <button type="button" id="aircraftSheetSave"><span class="action-ico">★</span><span>Zapisz</span></button>
+          <button type="button" id="aircraftSheetExport" class="aircraft-sheet-export"><span class="action-ico">⇩</span><span>Eksportuj</span></button>
+        </div>
+
+        <div class="aircraft-sheet-footer">
+          <span id="aircraftSheetLastSignal">Ostatni sygnał: brak danych</span>
+          <span class="aircraft-sheet-footer-sep">·</span>
+          <span id="aircraftSheetRouteCaption">brak danych</span>
         </div>
 
         <div id="aircraftSheetMorePanel" class="aircraft-sheet-more" hidden></div>
@@ -648,7 +683,7 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="services/docxExportService.js?v=0106261950" defer></script>
-    <script src="app.js?v=0106261950" defer></script>
+    <script src="services/docxExportService.js?v=0206260701" defer></script>
+    <script src="app.js?v=0206260701" defer></script>
   </body>
 </html>

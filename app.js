@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V48";
-const APP_VERSION_STAMP = "0106261950";
+const APP_VERSION_NUMBER = "V49";
+const APP_VERSION_STAMP = "0206260701";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -221,6 +221,8 @@ const aircraftSheetType = document.querySelector("#aircraftSheetType");
 const aircraftSheetOperator = document.querySelector("#aircraftSheetOperator");
 const aircraftSheetRouteFrom = document.querySelector("#aircraftSheetRouteFrom");
 const aircraftSheetRouteTo = document.querySelector("#aircraftSheetRouteTo");
+const aircraftSheetRouteFromMeta = document.querySelector("#aircraftSheetRouteFromMeta");
+const aircraftSheetRouteToMeta = document.querySelector("#aircraftSheetRouteToMeta");
 const aircraftSheetRouteCaption = document.querySelector("#aircraftSheetRouteCaption");
 const aircraftSheetAltitude = document.querySelector("#aircraftSheetAltitude");
 const aircraftSheetSpeed = document.querySelector("#aircraftSheetSpeed");
@@ -482,8 +484,13 @@ function aircraftFreshnessInfo(aircraft) {
 function setFreshnessBadge(element, aircraft, compact = false) {
   if (!element) return;
   const info = aircraftFreshnessInfo(aircraft);
+  const isLive = info.state === "live" || info.state === "fresh";
   element.className = `freshness-badge freshness-${info.state}`;
-  element.textContent = compact ? info.label : `${info.label} • ${info.ageText}`;
+  if (isLive && !compact) {
+    element.innerHTML = `<span class="live-dot"></span><span>Na żywo</span>`;
+  } else {
+    element.textContent = compact ? info.label : info.ageText;
+  }
   element.title = `${info.detail}. Ostatni sygnał: ${info.ageText}`;
 }
 
@@ -502,19 +509,27 @@ function updateAircraftSheetLiveDetails(aircraft) {
   const freshness = aircraftFreshnessInfo(aircraft);
   const hexValue = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych";
   const positionValue = aircraftPositionText(aircraft);
+  const sourceValue = aircraftSourceText(aircraft);
   if (aircraftSheetFreshness) setFreshnessBadge(aircraftSheetFreshness, aircraft);
   if (aircraftSheetHex) {
     aircraftSheetHex.textContent = hexValue;
     enableCopyableAircraftValue(aircraftSheetHex, hexValue, "HEX / #");
   }
   if (aircraftSheetHeading) aircraftSheetHeading.textContent = formatHeading(aircraftHeading(aircraft));
-  if (aircraftSheetVerticalRate) aircraftSheetVerticalRate.textContent = Number.isFinite(verticalRate) ? `${numberText(verticalRate)} ft/min` : "brak danych";
-  if (aircraftSheetLastSignal) aircraftSheetLastSignal.textContent = freshness.ageText;
+  if (aircraftSheetVerticalRate) {
+    const rateText = Number.isFinite(verticalRate)
+      ? `${verticalRate > 0 ? "+" : ""}${numberText(verticalRate)} ft/m`
+      : "brak danych";
+    aircraftSheetVerticalRate.textContent = rateText;
+    aircraftSheetVerticalRate.classList.toggle("is-positive", Number.isFinite(verticalRate) && verticalRate > 0);
+    aircraftSheetVerticalRate.classList.toggle("is-negative", Number.isFinite(verticalRate) && verticalRate < 0);
+  }
+  if (aircraftSheetLastSignal) aircraftSheetLastSignal.textContent = `Ostatni sygnał: ${freshness.ageText}`;
   if (aircraftSheetPosition) {
     aircraftSheetPosition.textContent = positionValue;
     enableCopyableAircraftValue(aircraftSheetPosition, positionValue, "pozycję");
   }
-  if (aircraftSheetSource) aircraftSheetSource.textContent = aircraftSourceText(aircraft);
+  if (aircraftSheetSource) aircraftSheetSource.textContent = sourceValue;
 }
 
 function firstFilled(...values) {
@@ -3201,6 +3216,8 @@ function routePartsForDisplay(aircraft) {
   };
 }
 
+
+
 function firstTimeValue(...values) {
   for (const value of values) {
     if (value === undefined || value === null || value === "") continue;
@@ -3288,21 +3305,31 @@ function showSelectedAircraftSheet(aircraft) {
   selectedAircraft = aircraft;
   updateSelectedAircraftMarkerHighlight();
   const label = aircraftLabel(aircraft);
-  const type = firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, aircraftKind(aircraft), aircraftGroupLabel(aircraftTypeGroup(aircraft)));
+  const registration = firstFilled(aircraft?.r, aircraft?.registration, normalizeIcao(aircraft?.hex || "").toUpperCase(), "brak danych");
+  const type = firstFilled(
+    aircraft?.t,
+    aircraft?.type,
+    aircraft?.aircraftType,
+    aircraftKind(aircraft),
+    aircraftGroupLabel(aircraftTypeGroup(aircraft)),
+    "brak danych"
+  );
   const route = routePartsForDisplay(aircraft);
-  const phase = aircraftFlightPhase(aircraft);
+  const operator = airlineGuessFromCallsign(aircraft) || "brak danych";
 
   if (aircraftSheetCallsign) aircraftSheetCallsign.textContent = label;
-  if (aircraftSheetType) aircraftSheetType.textContent = type || "brak danych";
-  if (aircraftSheetOperator) aircraftSheetOperator.textContent = airlineGuessFromCallsign(aircraft);
+  if (aircraftSheetType) aircraftSheetType.textContent = `${type} · ${registration}`;
+  if (aircraftSheetOperator) aircraftSheetOperator.textContent = operator;
   if (aircraftSheetRouteFrom) aircraftSheetRouteFrom.textContent = route.from;
   if (aircraftSheetRouteTo) aircraftSheetRouteTo.textContent = route.to;
+  if (aircraftSheetRouteFromMeta) aircraftSheetRouteFromMeta.textContent = "start";
+  if (aircraftSheetRouteToMeta) aircraftSheetRouteToMeta.textContent = "cel";
   if (aircraftSheetRouteCaption) aircraftSheetRouteCaption.textContent = route.caption;
   if (aircraftSheetAltitude) aircraftSheetAltitude.textContent = formatAltitude(aircraft?.alt_baro);
   if (aircraftSheetSpeed) aircraftSheetSpeed.textContent = formatSpeed(aircraft?.gs);
-  if (aircraftSheetRegistration) aircraftSheetRegistration.textContent = firstFilled(aircraft?.r, aircraft?.registration, normalizeIcao(aircraft?.hex || "").toUpperCase(), "brak danych");
+  if (aircraftSheetRegistration) aircraftSheetRegistration.textContent = registration;
   if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(aircraft);
-  if (aircraftSheetPhaseText) aircraftSheetPhaseText.textContent = `${phase.label} • ${phase.detail}`;
+  if (aircraftSheetPhaseText) aircraftSheetPhaseText.textContent = aircraftFlightPhase(aircraft).detail;
   updateAircraftSheetLiveDetails(aircraft);
   if (aircraftSheetPhoto) setAircraftPhoto(aircraftSheetPhoto, aircraft, { realPhoto: true });
 
