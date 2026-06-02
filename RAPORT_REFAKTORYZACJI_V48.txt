@@ -1,0 +1,32 @@
+ADS Viewer Pro V48 - 0106261950
+
+Zakres refaktoryzacji:
+1. Wydzielono eksport DOCX w stylu Aero z app.js do osobnego pliku:
+   services/docxExportService.js
+
+2. W index.html dodano osobne ładowanie serwisu eksportu przed app.js:
+   services/docxExportService.js?v=0106261950
+
+3. W app.js zostawiono wywołania istniejących funkcji eksportu, ale usunięto z niego blok DOCX:
+   - docxEscapeXml
+   - docxCell
+   - docxRow
+   - docxImageCell
+   - docxPhotoCell
+   - pobieranie danych do eksportu z ADSBDB / JetPhotos
+   - scalanie danych eksportowych
+   - tworzenie DOCX
+   - pobieranie zdjęcia do DOCX
+
+4. W sw.js dodano nowy plik do cache PWA:
+   services/docxExportService.js
+
+5. Zmieniono wersję aplikacji na:
+   V48 - 0106261950
+
+Sprawdzenie techniczne:
+- node --check app.js: OK
+- node --check services/docxExportService.js: OK
+
+Uwaga:
+To jest bezpieczna refaktoryzacja etapowa. Nie rozbito jeszcze całego app.js, bo jednorazowe cięcie 7000+ linii na wiele modułów zwiększyłoby ryzyko uszkodzenia mapy, alertów, Firestore i eksportu. Najpierw wydzielono najbardziej problematyczny obszar: eksport DOCX/dane/zdjęcia.
