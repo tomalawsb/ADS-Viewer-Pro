@@ -273,28 +273,48 @@ function setHistoryTraceStatus(message) {
 }
 
 function collapseHistoryPanelAfterTraceLoaded() {
-  const historyPanel = document.getElementById("historyPanel");
-  const historyPanelOpen = Boolean(drawer?.classList.contains("is-open") && historyPanel?.classList.contains("is-active"));
-  if (!historyPanelOpen || typeof closeDrawerPanel !== "function") return;
-  window.setTimeout(() => {
-    closeDrawerPanel();
-    invalidateMapSoon?.();
-  }, 120);
+  // V67: panel historii jest panelem roboczym. Nie zamykamy go po wczytaniu trasy,
+  // bo użytkownik ma dalej wygodnie zmieniać datę, odtwarzać lot i eksportować dane.
+  invalidateMapSoon?.();
 }
 
 function historyTraceDateValue() {
   return historyTraceDateInput?.value || todayLocalDate();
 }
 
-function changeHistoryTraceDay(deltaDays) {
+let historyTraceAutoLoadTimer = null;
+
+function scheduleHistoryTraceAutoLoad(reason = "zmiana daty") {
+  window.clearTimeout(historyTraceAutoLoadTimer);
+  const icao = resolveHistoryTraceIcao();
+  if (!isValidIcao(icao)) {
+    setHistoryTraceStatus("Wybierz samolot albo wpisz HEX / ICAO24. Po zmianie daty trasa wczyta się automatycznie.");
+    return;
+  }
+
+  historyTraceAutoLoadTimer = window.setTimeout(() => {
+    setHistoryTraceStatus(`Automatycznie wczytuję trasę po akcji: ${reason}...`);
+    loadHistoryTraceFromFreeSource({ autoLoad: true });
+  }, 220);
+}
+
+function changeHistoryTraceDay(deltaDays, options = {}) {
   if (!historyTraceDateInput) return;
   const base = new Date(`${historyTraceDateValue()}T12:00:00`);
   if (!Number.isFinite(base.getTime())) {
     historyTraceDateInput.value = todayLocalDate();
+    if (options.autoLoad !== false) scheduleHistoryTraceAutoLoad("naprawa daty");
     return;
   }
   base.setDate(base.getDate() + deltaDays);
   historyTraceDateInput.value = base.toISOString().slice(0, 10);
+  if (options.autoLoad !== false) scheduleHistoryTraceAutoLoad(deltaDays < 0 ? "poprzedni dzień" : "następny dzień");
+}
+
+function setHistoryTraceTodayAndLoad() {
+  if (!historyTraceDateInput) return;
+  historyTraceDateInput.value = todayLocalDate();
+  scheduleHistoryTraceAutoLoad("dzisiaj");
 }
 
 function resolveHistoryTraceIcao() {
@@ -551,8 +571,9 @@ historySearchInput?.addEventListener("input", renderFlightHistory);
 historyTraceLoadButton?.addEventListener("click", loadHistoryTraceFromFreeSource);
 historyTraceExportButton?.addEventListener("click", exportCurrentHistoryTrace);
 historyPrevDayButton?.addEventListener("click", () => changeHistoryTraceDay(-1));
-historyTodayButton?.addEventListener("click", () => { if (historyTraceDateInput) historyTraceDateInput.value = todayLocalDate(); });
+historyTodayButton?.addEventListener("click", setHistoryTraceTodayAndLoad);
 historyNextDayButton?.addEventListener("click", () => changeHistoryTraceDay(1));
+historyTraceDateInput?.addEventListener("change", () => scheduleHistoryTraceAutoLoad("zmiana daty w kalendarzu"));
 historyTracePlayerSlider?.addEventListener("input", () => {
   stopHistoryTracePlayback();
   updateHistoryTracePlaybackMarker(Number(historyTracePlayerSlider.value), { pan: true });
@@ -568,6 +589,7 @@ setHistoryTracePlayerEnabled(false);
 
   window.ADSVHistoryTrace = {
     loadHistoryTraceFromFreeSource,
+    scheduleHistoryTraceAutoLoad,
     stopHistoryTracePlayback,
     resetHistoryTracePlayback,
     exportCurrentHistoryTrace

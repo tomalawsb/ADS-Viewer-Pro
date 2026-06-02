@@ -415,8 +415,9 @@ function openHistoryTraceSettingsForAircraft(aircraft = selectedAircraft, option
   window.setTimeout(() => {
     historyTraceIcaoInput?.focus?.({ preventScroll: true });
     historyTraceLoadButton?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, 80);
-  showToast(`Ustawiono historię dla ${icao.toUpperCase()}. Wybierz datę i kliknij „Pobierz trasę”.`, 4200);
+    window.ADSVHistoryTrace?.scheduleHistoryTraceAutoLoad?.("wybór samolotu");
+  }, 120);
+  showToast(`Otworzono historię dla ${icao.toUpperCase()}. Panel zostaje otwarty, a zmiana daty od razu przeładuje trasę.`, 4200);
   return true;
 }
 

@@ -1,8 +1,8 @@
-# ADS Viewer Pro V66 - 0206261919
+# ADS Viewer Pro V67 - 0206261932
 
 # ADS Viewer Pro
 
-Wersja: **V66 - 0206261919**
+Wersja: **V67 - 0206261932**
 
 ## Opis
 
@@ -120,3 +120,10 @@ Poprawki:
 - Poprawiono eksport karty samolotu: dane są najpierw przygotowywane w pamięci, potem zapisywane do folderu.
 - Dodano awaryjny eksport ZIP, jeśli przeglądarka zablokuje zapis bezpośrednio do katalogu.
 - ZIP zawiera ten sam folder samolotu i te same pliki: dane.json, opis.txt, raport.html, CSV, zdjęcie/grafikę poglądową i pliki kontrolne.
+
+## V67 - 0206261932
+
+- Trwały panel historii z przyciskiem X.
+- Historia nie zamyka się po pobraniu trasy ani po kliknięciu w mapę.
+- Zmiana daty automatycznie przeładowuje trasę wybranego samolotu.
+- Panel historii jest boczny na desktopie i responsywny jako dolny panel na telefonie.

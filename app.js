@@ -1,5 +1,5 @@
-var APP_VERSION_NUMBER = "V66";
-var APP_VERSION_STAMP = "0206261919";
+var APP_VERSION_NUMBER = "V67";
+var APP_VERSION_STAMP = "0206261932";
 var APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 
 window.addEventListener("error", (event) => {
@@ -205,6 +205,7 @@ var statusChip = document.querySelector("#statusChip");
 var copyStatusButton = document.querySelector("#copyStatusButton");
 var drawer = document.querySelector("#drawer");
 var drawerTitle = document.querySelector("#drawerTitle");
+var drawerCloseButton = document.querySelector("#drawerCloseButton");
 var savedSearchInput = document.querySelector("#savedSearchInput");
 var watchList = document.querySelector("#watchList");
 var watchEmptyState = document.querySelector("#watchEmptyState");
@@ -1793,9 +1794,21 @@ for (const button of bottomMoreButtons) {
 
 document.addEventListener("pointerdown", (event) => {
   if (isInsideFloatingUi(event.target)) return;
-  closeDrawerPanel();
+
+  const historyPanelLockedOpen = Boolean(
+    drawer?.classList.contains("is-open") &&
+    drawer?.classList.contains("is-history-panel")
+  );
+
+  if (!historyPanelLockedOpen) closeDrawerPanel();
   hideSelectedAircraftSheet();
   map?.closePopup?.();
+});
+
+drawerCloseButton?.addEventListener("click", (event) => {
+  event.preventDefault();
+  event.stopPropagation();
+  closeDrawerPanel();
 });
 
 // installBottomDrag przeniesiono do modules/uiPanels.js

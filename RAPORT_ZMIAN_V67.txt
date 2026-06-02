@@ -1,0 +1,29 @@
+ADS Viewer Pro V67 - 0206261932
+
+Zakres poprawki:
+1. Historia trasy po kliknięciu „Historia” otwiera trwały panel roboczy historii.
+2. Panel historii nie zamyka się już automatycznie po pobraniu albo wczytaniu trasy z cache.
+3. Kliknięcie w mapę poza panelem historii nie zamyka już panelu historii.
+4. Dodano przycisk X w nagłówku panelu do jawnego zamknięcia panelu.
+5. Zmiana daty w polu kalendarza automatycznie przeładowuje historię dla wybranego samolotu.
+6. Przyciski „Poprzedni dzień”, „Dzisiaj” i „Następny dzień” zmieniają datę i od razu uruchamiają ładowanie trasy.
+7. Kliknięcie „Historia” w popupie lub dolnym panelu samolotu ustawia HEX wybranego samolotu i otwiera panel historii.
+8. Na desktopie panel historii działa jako boczny panel po prawej stronie mapy.
+9. Na telefonie panel historii działa jako responsywny dolny panel roboczy z X i uchwytem.
+10. Karta sterowania historią pozostaje widoczna w panelu, żeby wygodnie zmieniać dzień, odtwarzać i eksportować trasę.
+
+Pliki zmienione:
+- index.html
+- app.js
+- styles.css
+- modules/uiPanels.js
+- modules/historyTrace.js
+- manifest.webmanifest
+- sw.js
+- README.md
+
+Test techniczny:
+- node --check app.js: OK
+- node --check modules/*.js: OK
+- node --check services/*.js: OK
+- node --check sw.js: OK
