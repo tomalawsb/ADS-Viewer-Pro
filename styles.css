@@ -3422,3 +3422,24 @@ textarea {
     font-size: 0.68rem;
   }
 }
+
+
+/* V70 - 0206262022: telefon — badge trybu mapy przeniesiony na lewą stronę, żeby nie zasłaniał centruj */
+@media (max-width: 760px) {
+  .map-mode-badge {
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    right: auto;
+    top: calc(88px + env(safe-area-inset-top, 0px));
+    transform: none;
+    max-width: min(220px, calc(100vw - 24px));
+    padding: 6px 10px;
+    font-size: 0.72rem;
+    z-index: 7290;
+  }
+
+  .map-mode-badge .ghost-button {
+    min-height: 26px;
+    padding: 4px 8px;
+    font-size: 0.68rem;
+  }
+}
