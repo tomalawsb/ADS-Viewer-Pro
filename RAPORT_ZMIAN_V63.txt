@@ -1,4 +1,4 @@
-ADS Viewer Pro V63 - 0206261935
+ADS Viewer Pro V64 - 0206261955
 
 Zmiana:
 - Zapisane samoloty pokazują miniaturę prawdziwego zdjęcia samolotu, jeśli zdjęcie jest dostępne w Planespotters.

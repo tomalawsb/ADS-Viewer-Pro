@@ -1,6 +1,19 @@
-const APP_VERSION_NUMBER = "V63";
-const APP_VERSION_STAMP = "0206261935";
+const APP_VERSION_NUMBER = "V64";
+const APP_VERSION_STAMP = "0206261955";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
+
+window.addEventListener("error", (event) => {
+  const msg = event?.message ? `Błąd JS: ${event.message}` : "Błąd JS aplikacji.";
+  const status = document.querySelector("#aircraftStatus");
+  if (status) status.textContent = msg;
+  console.error("ADS Viewer Pro error", event.error || event.message || event);
+});
+window.addEventListener("unhandledrejection", (event) => {
+  const reason = event?.reason?.message || String(event?.reason || "Nieobsłużony błąd aplikacji.");
+  const status = document.querySelector("#aircraftStatus");
+  if (status) status.textContent = `Błąd aplikacji: ${reason}`;
+  console.error("ADS Viewer Pro promise rejection", event.reason || event);
+});
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
 const PWA_BROWSER_CHOICE_STORAGE_KEY = "adsb-pwa-browser-choice-v1";
