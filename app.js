@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V47";
-const APP_VERSION_STAMP = "0106260955";
+const APP_VERSION_NUMBER = "V63";
+const APP_VERSION_STAMP = "0206261935";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -9,6 +9,8 @@ const RADIUS_FETCH_TIMEOUT_MS = 5200;
 const HEX_FETCH_TIMEOUT_MS = 4200;
 const MANUAL_SEARCH_INPUT_LOCK_MS = 18000;
 const TRACE_FETCH_TIMEOUT_MS = 9000;
+const TRACE_HISTORY_FETCH_TIMEOUT_MS = 5200;
+const TRACE_POINT_MARKER_LIMIT = 90;
 const TRACE_API_RETRY_COOLDOWN_MS = 15000;
 const AUTO_REFRESH_INTERVAL_MS = 8000;
 const STORAGE_KEY = "adsb-saved-flights-v1";
@@ -34,6 +36,7 @@ const FIREBASE_SDK_VERSION = "10.12.5";
 const NOTIFICATION_ICON = "icon-192.png";
 const FIRESTORE_COLLECTION_ROOT = "adsViewerSync";
 const TRACK_STORAGE_KEY = "adsb-live-tracks-v1";
+const HISTORY_TRACE_STORAGE_KEY = "adsb-history-traces-v1";
 const ROUTE_CACHE_STORAGE_KEY = "adsb-route-cache-v1";
 const PHOTO_CACHE_STORAGE_KEY = "adsb-photo-cache-v1";
 const ADSB_BASE_URL = "https://adsb.lol/";
@@ -47,6 +50,8 @@ const PLANESPOTTERS_PHOTO_BASE_URL = "https://api.planespotters.net/pub/photos";
 const LIVE_TRACK_INTERVAL_MS = 30000;
 const AUTO_LOAD_RADIUS_NM = 60;
 const MAX_TRACK_POINTS = 700;
+const MAX_HISTORY_TRACE_POINTS = 20000;
+const HISTORY_TRACE_CACHE_MAX_ENTRIES = 120;
 const TRACE_MAX_TIME_GAP_MS = 20 * 60 * 1000;
 const TRACE_MAX_REASONABLE_KMH = 1450;
 const TRACE_MAX_DISTANCE_WITHOUT_TIME_KM = 160;
@@ -168,6 +173,10 @@ const performanceAutoHideStaleInput = document.querySelector("#performanceAutoHi
 const performanceRemoveAfterInput = document.querySelector("#performanceRemoveAfterInput");
 const resetPerformanceButton = document.querySelector("#resetPerformanceButton");
 const mapLocateButton = document.querySelector("#mapLocateButton");
+const mapModeBadge = document.querySelector("#mapModeBadge");
+const mapModeBadgeText = document.querySelector("#mapModeBadgeText");
+const returnLiveMapButton = document.querySelector("#returnLiveMapButton");
+const historyAltitudeLegend = document.querySelector("#historyAltitudeLegend");
 const aircraftStatus = document.querySelector("#aircraftStatus");
 const aircraftList = document.querySelector("#aircraftList");
 const routeSummary = document.querySelector("#routeSummary");
@@ -206,6 +215,20 @@ const historyEmptyState = document.querySelector("#historyEmptyState");
 const historyTemplate = document.querySelector("#historyItemTemplate");
 const exportHistoryButton = document.querySelector("#exportHistoryButton");
 const clearHistoryButton = document.querySelector("#clearHistoryButton");
+const historyTraceIcaoInput = document.querySelector("#historyTraceIcaoInput");
+const historyTraceDateInput = document.querySelector("#historyTraceDateInput");
+const historyTraceLoadButton = document.querySelector("#historyTraceLoadButton");
+const historyTraceExportButton = document.querySelector("#historyTraceExportButton");
+const historyPrevDayButton = document.querySelector("#historyPrevDayButton");
+const historyTodayButton = document.querySelector("#historyTodayButton");
+const historyNextDayButton = document.querySelector("#historyNextDayButton");
+const historyTraceStatus = document.querySelector("#historyTraceStatus");
+const historyTracePlayerPanel = document.querySelector("#historyTracePlayerPanel");
+const historyTracePlayerSlider = document.querySelector("#historyTracePlayerSlider");
+const historyTracePlayButton = document.querySelector("#historyTracePlayButton");
+const historyTracePauseButton = document.querySelector("#historyTracePauseButton");
+const historyTraceResetButton = document.querySelector("#historyTraceResetButton");
+const historyTracePlayerStatus = document.querySelector("#historyTracePlayerStatus");
 const alertStatus = document.querySelector("#alertStatus");
 const alertLogList = document.querySelector("#alertLogList");
 const bottomNavButtons = Array.from(document.querySelectorAll(".bottom-nav button"));
@@ -221,6 +244,8 @@ const aircraftSheetType = document.querySelector("#aircraftSheetType");
 const aircraftSheetOperator = document.querySelector("#aircraftSheetOperator");
 const aircraftSheetRouteFrom = document.querySelector("#aircraftSheetRouteFrom");
 const aircraftSheetRouteTo = document.querySelector("#aircraftSheetRouteTo");
+const aircraftSheetRouteFromMeta = document.querySelector("#aircraftSheetRouteFromMeta");
+const aircraftSheetRouteToMeta = document.querySelector("#aircraftSheetRouteToMeta");
 const aircraftSheetRouteCaption = document.querySelector("#aircraftSheetRouteCaption");
 const aircraftSheetAltitude = document.querySelector("#aircraftSheetAltitude");
 const aircraftSheetSpeed = document.querySelector("#aircraftSheetSpeed");
@@ -271,6 +296,15 @@ let lastRouteBounds = null;
 let liveTrackTimer = null;
 let activeTrack = null;
 const traceApiAttemptedAt = new Map();
+let historyTracePlaybackPoints = [];
+let historyTracePlaybackIcao = "";
+let historyTracePlaybackDate = "";
+let historyTracePlaybackIndex = 0;
+let historyTracePlaybackTimer = null;
+let historyTracePlaybackMarker = null;
+let historyTraceRequestSeq = 0;
+const historyTracePendingRequests = new Map();
+let currentMapMode = "live";
 let aircraftAutoRefreshTimer = null;
 let aircraftRefreshInProgress = false;
 let lastRenderSettings = null;
@@ -301,303 +335,76 @@ const watchlistProbeLastCheckedAt = new Map();
 let watchlistGlobalProbeInProgress = false;
 let watchlistGlobalProbeCursor = 0;
 
-function isSavePanelOpen() {
-  const panel = document.getElementById("savePanel");
-  return Boolean(drawer?.classList.contains("is-open") && panel?.classList.contains("is-active"));
-}
+// isSavePanelOpen przeniesiono do modules/uiPanels.js
 
-function markManualSearchInput(value = icaoInput?.value || "") {
-  if (!icaoInput) return;
-  icaoInput.dataset.manualSearchActive = "1";
-  icaoInput.dataset.manualSearchValue = String(value || "");
-  icaoInput.dataset.manualSearchAt = String(Date.now());
-}
+// markManualSearchInput przeniesiono do modules/uiPanels.js
 
-function clearManualSearchInputLock() {
-  if (!icaoInput) return;
-  delete icaoInput.dataset.manualSearchActive;
-  delete icaoInput.dataset.manualSearchValue;
-  delete icaoInput.dataset.manualSearchAt;
-}
+// clearManualSearchInputLock przeniesiono do modules/uiPanels.js
 
-function manualSearchInputLocked() {
-  if (!icaoInput || icaoInput.dataset.manualSearchActive !== "1") return false;
-  const startedAt = Number(icaoInput.dataset.manualSearchAt || 0);
-  if (!Number.isFinite(startedAt) || startedAt <= 0) return isSavePanelOpen();
-  const stillFresh = Date.now() - startedAt <= MANUAL_SEARCH_INPUT_LOCK_MS;
-  if (!stillFresh && !isSavePanelOpen()) {
-    clearManualSearchInputLock();
-    return false;
-  }
-  return true;
-}
+// manualSearchInputLocked przeniesiono do modules/uiPanels.js
 
-function shouldPreserveManualSearchInput(options = {}) {
-  return options.force !== true && manualSearchInputLocked();
-}
+// shouldPreserveManualSearchInput przeniesiono do modules/uiPanels.js
 
-function storageGet(key, fallback = "") {
-  try {
-    const value = localStorage.getItem(key);
-    return value === null ? fallback : value;
-  } catch {
-    persistentStorageAvailable = false;
-    return memoryStorage.has(key) ? memoryStorage.get(key) : fallback;
-  }
-}
+// storageGet przeniesiono do modules/coreStorage.js
 
-function storageSet(key, value) {
-  memoryStorage.set(key, value);
-  try {
-    localStorage.setItem(key, value);
-    persistentStorageAvailable = true;
-  } catch {
-    persistentStorageAvailable = false;
-  }
-}
+// storageSet przeniesiono do modules/coreStorage.js
 
-function storageJsonGet(key, fallback) {
-  try {
-    return JSON.parse(storageGet(key, JSON.stringify(fallback)));
-  } catch {
-    return fallback;
-  }
-}
+// storageJsonGet przeniesiono do modules/coreStorage.js
 
-function storageJsonSet(key, value) {
-  storageSet(key, JSON.stringify(value));
-}
+// storageJsonSet przeniesiono do modules/coreStorage.js
 
-function pruneCacheBySavedAt(cache, maxEntries, maxAgeMs) {
-  const now = Date.now();
-  return Object.fromEntries(
-    Object.entries(cache || {})
-      .filter(([, item]) => item && typeof item === "object" && Number.isFinite(Number(item.savedAt)) && now - Number(item.savedAt) <= maxAgeMs)
-      .sort(([, a], [, b]) => Number(b.savedAt) - Number(a.savedAt))
-      .slice(0, maxEntries)
-  );
-}
+// pruneCacheBySavedAt przeniesiono do modules/coreStorage.js
 
-function pruneTrackCache(tracks) {
-  return Object.fromEntries(
-    Object.entries(tracks || {})
-      .filter(([key, points]) => /^[a-f0-9]{6}:\d{4}-\d{2}-\d{2}$/.test(key) && Array.isArray(points) && points.length)
-      .sort(([keyA, pointsA], [keyB, pointsB]) => {
-        const lastA = pointsA[pointsA.length - 1]?.at || keyA.slice(7);
-        const lastB = pointsB[pointsB.length - 1]?.at || keyB.slice(7);
-        return String(lastB).localeCompare(String(lastA));
-      })
-      .slice(0, TRACK_CACHE_MAX_ENTRIES)
-      .map(([key, points]) => [key, points.slice(-MAX_TRACK_POINTS)])
-  );
-}
+// pruneTrackCache przeniesiono do modules/coreStorage.js
 
-function todayLocalDate() {
-  const now = new Date();
-  const offset = now.getTimezoneOffset();
-  const local = new Date(now.getTime() - offset * 60 * 1000);
-  return local.toISOString().slice(0, 10);
-}
+// todayLocalDate przeniesiono do modules/coreStorage.js
 
-function normalizeIcao(value) {
-  return String(value || "").trim().toLowerCase().replace(/[^a-f0-9]/g, "");
-}
+// normalizeIcao przeniesiono do modules/coreStorage.js
 
-function isValidIcao(value) {
-  return /^[a-f0-9]{6}$/.test(value);
-}
+// isValidIcao przeniesiono do modules/coreStorage.js
 
-function explicitIcaoFromInput(value) {
-  const clean = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^hex[:\s-]*/i, "")
-    .replace(/\s+/g, "");
-  return isValidIcao(clean) ? clean : "";
-}
+// explicitIcaoFromInput przeniesiono do modules/coreStorage.js
 
-function createTextElement(tag, className, text) {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  element.textContent = text;
-  return element;
-}
+// createTextElement przeniesiono do modules/coreStorage.js
 
-function normalizeCallsign(value) {
-  const clean = String(value || "").trim().toUpperCase().replace(/\s+/g, "");
-  const match = clean.match(/^([A-Z]*)(0*[0-9]+)([A-Z]*)$/);
-  if (!match) return clean;
-  return `${match[1]}${String(Number.parseInt(match[2], 10))}${match[3]}`;
-}
+// normalizeCallsign przeniesiono do modules/aircraftUtils.js
 
-function aircraftCallsign(aircraft) {
-  return normalizeCallsign(aircraft.flight || "");
-}
+// aircraftCallsign przeniesiono do modules/aircraftUtils.js
 
-function numberText(value, fractionDigits = 0) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "brak danych";
-  return number.toLocaleString("pl-PL", { maximumFractionDigits: fractionDigits, minimumFractionDigits: fractionDigits });
-}
+// numberText przeniesiono do modules/coreStorage.js
 
-function formatAltitude(value) {
-  if (value === "ground") return "na ziemi";
-  if (value === undefined || value === null || value === "") return "brak danych";
-  return `${numberText(value)} ft`;
-}
+// formatAltitude przeniesiono do modules/aircraftUtils.js
 
-function formatSpeed(value) {
-  if (value === undefined || value === null || value === "") return "brak danych";
-  return `${numberText(value)} kt`;
-}
+// formatSpeed przeniesiono do modules/aircraftUtils.js
 
-function formatHeading(value) {
-  if (value === undefined || value === null || value === "") return "brak danych";
-  return `${numberText(value)}°`;
-}
+// formatHeading przeniesiono do modules/aircraftUtils.js
 
-function formatAge(value) {
-  if (value === undefined || value === null || value === "") return "brak danych";
-  const seconds = Math.max(0, Math.round(Number(value)));
-  if (!Number.isFinite(seconds)) return "brak danych";
-  if (seconds < 60) return `${seconds} s temu`;
-  return `${Math.floor(seconds / 60)} min ${seconds % 60} s temu`;
-}
+// formatAge przeniesiono do modules/aircraftUtils.js
 
-function aircraftFreshnessSeconds(aircraft) {
-  return numericFirst(aircraft?.seen_pos, aircraft?.seen, aircraft?.lastSeenSeconds, aircraft?.age);
-}
+// aircraftFreshnessSeconds przeniesiono do modules/aircraftUtils.js
 
-function aircraftFreshnessInfo(aircraft) {
-  const seconds = aircraftFreshnessSeconds(aircraft);
-  if (!Number.isFinite(seconds)) {
-    return { state: "unknown", label: "brak czasu", detail: "źródło nie podało wieku pozycji", ageText: "brak danych" };
-  }
-  if (seconds <= 10) return { state: "live", label: "LIVE", detail: "pozycja świeża", ageText: formatAge(seconds) };
-  if (seconds <= 30) return { state: "fresh", label: "Świeże", detail: "pozycja aktualna", ageText: formatAge(seconds) };
-  if (seconds <= 90) return { state: "delayed", label: "Opóźnione", detail: "pozycja ma opóźnienie", ageText: formatAge(seconds) };
-  return { state: "stale", label: "Stare", detail: "pozycja może być nieaktualna", ageText: formatAge(seconds) };
-}
+// aircraftFreshnessInfo przeniesiono do modules/aircraftUtils.js
 
-function setFreshnessBadge(element, aircraft, compact = false) {
-  if (!element) return;
-  const info = aircraftFreshnessInfo(aircraft);
-  element.className = `freshness-badge freshness-${info.state}`;
-  element.textContent = compact ? info.label : `${info.label} • ${info.ageText}`;
-  element.title = `${info.detail}. Ostatni sygnał: ${info.ageText}`;
-}
+// setFreshnessBadge przeniesiono do modules/aircraftUtils.js
 
-function aircraftPositionText(aircraft) {
-  const point = pointFromAircraft(aircraft);
-  return point ? `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}` : "brak danych";
-}
+// aircraftPositionText przeniesiono do modules/aircraftUtils.js
 
-function aircraftSourceText(aircraft) {
-  return firstFilled(aircraft?._sourceName, sourceLabel(dataSourceInput?.value), "brak danych");
-}
+// aircraftSourceText przeniesiono do modules/aircraftUtils.js
 
-function updateAircraftSheetLiveDetails(aircraft) {
-  if (!aircraft) return;
-  const verticalRate = aircraftVerticalRate(aircraft);
-  const freshness = aircraftFreshnessInfo(aircraft);
-  const hexValue = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych";
-  const positionValue = aircraftPositionText(aircraft);
-  if (aircraftSheetFreshness) setFreshnessBadge(aircraftSheetFreshness, aircraft);
-  if (aircraftSheetHex) {
-    aircraftSheetHex.textContent = hexValue;
-    enableCopyableAircraftValue(aircraftSheetHex, hexValue, "HEX / #");
-  }
-  if (aircraftSheetHeading) aircraftSheetHeading.textContent = formatHeading(aircraftHeading(aircraft));
-  if (aircraftSheetVerticalRate) aircraftSheetVerticalRate.textContent = Number.isFinite(verticalRate) ? `${numberText(verticalRate)} ft/min` : "brak danych";
-  if (aircraftSheetLastSignal) aircraftSheetLastSignal.textContent = freshness.ageText;
-  if (aircraftSheetPosition) {
-    aircraftSheetPosition.textContent = positionValue;
-    enableCopyableAircraftValue(aircraftSheetPosition, positionValue, "pozycję");
-  }
-  if (aircraftSheetSource) aircraftSheetSource.textContent = aircraftSourceText(aircraft);
-}
+// updateAircraftSheetLiveDetails przeniesiono do modules/uiPanels.js
 
-function firstFilled(...values) {
-  for (const value of values) {
-    if (value !== undefined && value !== null && String(value).trim()) return String(value).trim();
-  }
-  return "";
-}
+// firstFilled przeniesiono do modules/coreStorage.js
 
-function aircraftHeading(aircraft) {
-  const value = firstFilled(aircraft.track, aircraft.true_heading, aircraft.mag_heading, aircraft.nav_heading, aircraft.calc_track);
-  const heading = Number(value);
-  return Number.isFinite(heading) ? heading : null;
-}
+// aircraftHeading przeniesiono do modules/aircraftUtils.js
 
-function aircraftKind(aircraft) {
-  const parts = [];
-  if (aircraft.t) parts.push(String(aircraft.t).trim());
-  if (aircraft.type) parts.push(String(aircraft.type).trim());
-  if (aircraft.aircraftType) parts.push(String(aircraft.aircraftType).trim());
-  if (aircraft.r) parts.push(String(aircraft.r).trim());
-  if (aircraft.registration) parts.push(String(aircraft.registration).trim());
-  return parts.filter(Boolean).join(" / ");
-}
+// aircraftKind przeniesiono do modules/aircraftUtils.js
 
-function escapeHtml(value) {
-  return String(value || "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  }[char]));
-}
+// escapeHtml przeniesiono do modules/coreStorage.js
 
-function aircraftTypeGroup(aircraft) {
-  const typeCode = firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType).toUpperCase();
-  const category = firstFilled(aircraft?.category, aircraft?.emitter_category, aircraft?.emergencyCategory).toUpperCase();
-  const raw = [
-    typeCode,
-    category,
-    aircraft?.kind,
-    aircraft?.desc,
-    aircraft?.description,
-    aircraft?.name,
-    aircraft?.operator,
-    aircraft?.registration,
-    aircraft?.r
-  ].filter(Boolean).join(" ").toUpperCase();
-
-  // ADS-B/Mode-S kategorie: A7/C7 = rotorcraft, B1 = szybowiec,
-  // B4 = ultralekki, A1 = lekki, A5 = heavy, A6 = high performance/military.
-  if (/\b(A7|C7)\b/.test(category)) return "helicopter";
-  if (/\bB1\b/.test(category)) return "glider";
-  if (/\b(B4|A1)\b/.test(category)) return "prop";
-  if (/\bA5\b/.test(category)) return "heavy";
-  if (/\bA6\b/.test(category)) return "special";
-
-  if (/HELICOPTER|ROTORCRAFT|ŚMIGŁ|SMIGL|GYROCOPTER|GYROPLANE|\b(R44|R66|R22|R20|B06|B407|B429|B412|B212|B427|H500|H60|UH60|EC20|EC30|EC35|EC45|EC55|AS50|AS55|AS65|S76|S92|A109|AW09|AW10|AW11|AW13|AW16|AW18|MD50|MD52|MD60|MD90)\b/.test(raw)) return "helicopter";
-  if (/GLIDER|SAILPLANE|MOTORGLIDER|SZYBOW|\b(ASW|ASK|DG\d|LS\d|JS\d|SZD|VENTUS|JANUS|DISCUS|DUODISCUS|ARCUS|S12|GROB|TWIN\s?ASTIR)\b/.test(raw)) return "glider";
-  if (/MILITARY|WOJSK|FIGHTER|TANKER|SPECIAL|POLICE|RESCUE|AMBULANCE|\b(C17|C5M|C130|C30J|KC\d|K35R|A400|P8|P3|E3|E7|E8|F16|F-16|F18|F-18|F22|F-22|F35|F-35|MIG|MIG\d|SU\d|TYPHOON|EUFI|RAFALE|GRIPEN|TORNADO|HAWK|L159|A10|B1|B2|B52)\b/.test(raw)) return "special";
-  if (/CARGO|FREIGHTER|\b(A124|A225|IL76|MD11|DC10|B74F|B744F|B748F|B763F|B77L|B77F|A332F|A306|A30B|C130|C30J)\b/.test(raw)) return "cargo";
-  if (/BUSINESS|BIZJET|PRIVATE|EXECUTIVE|\b(C25A|C25B|C25C|C510|C525|C550|C560|C56X|C650|C680|C700|C750|E50P|E55P|PRM1|FA10|FA20|FA50|FA6X|FA7X|FA8X|GLF2|GLF3|GLF4|GLF5|GLF6|GLEX|GL5T|GL7T|LJ31|LJ35|LJ45|LJ60|H25B|H25C)\b/.test(raw)) return "business";
-  if (/ULTRALIGHT|MICROLIGHT|PARAGLIDER|MOTOL|\b(C150|C152|C162|C172|C175|C177|C180|C182|C185|C206|C207|C208|C210|P28A|P28R|PA28|PA32|PA34|PA44|SR20|SR22|DA20|DA40|DA42|DV20|DR40|BE20|BE30|BE35|BE36|BE58|PC12|PC24|TBM7|TBM8|TBM9|M20P|M20T|BN2P|AN2|DHC2|DHC3|DHC6|DH8A|DH8B|DH8C|DH8D|AT43|AT45|AT72|SF34|L410|P180)\b/.test(raw)) return "prop";
-  if (/\b(A220|BCS1|BCS3|A319|A320|A321|A20N|A21N|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B717|B737|B738|B739|B38M|B39M|B744|B748|B752|B753|B763|B764|B772|B773|B77W|B788|B789|B78X|E170|E175|E190|E195|E290|E295|CRJ2|CRJ7|CRJ9|CRJX|SU95|RJ85)\b/.test(raw)) return "airliner";
-  if (/HEAVY|\b(A300|A310|A330|A332|A333|A339|A340|A342|A343|A345|A346|A350|A359|A35K|A380|A388|B747|B748|B74S|B74R|B767|B763|B764|B777|B772|B773|B77L|B77W|B787|B788|B789|B78X|IL96)\b/.test(raw)) return "heavy";
-  return "jet";
-}
+// aircraftTypeGroup przeniesiono do modules/aircraftUtils.js
 
 
-function aircraftGroupLabel(group) {
-  return {
-    helicopter: "śmigłowiec",
-    glider: "szybowiec",
-    prop: "samolot śmigłowy",
-    business: "odrzutowiec biznesowy",
-    airliner: "samolot pasażerski",
-    cargo: "samolot transportowy",
-    heavy: "duży samolot",
-    special: "samolot specjalny",
-    jet: "samolot odrzutowy"
-  }[group] || "samolot";
-}
+// aircraftGroupLabel przeniesiono do modules/aircraftUtils.js
 
 const AIRCRAFT_ICON_FILES = {
   jet: "assets/aircraft/aircraft-jet.svg",
@@ -611,53 +418,15 @@ const AIRCRAFT_ICON_FILES = {
   special: "assets/aircraft/aircraft-special.svg"
 };
 
-function aircraftIconAssetUrl(group) {
-  return AIRCRAFT_ICON_FILES[group] || AIRCRAFT_ICON_FILES.jet;
-}
+// aircraftIconAssetUrl przeniesiono do modules/aircraftUtils.js
 
-function aircraftPngIconMarkup(group) {
-  const safeGroup = Object.prototype.hasOwnProperty.call(AIRCRAFT_ICON_FILES, group) ? group : "jet";
-  const url = aircraftIconAssetUrl(safeGroup);
-  return `
-    <span class="aircraft-icon-stack aircraft-png-icon-${safeGroup}" aria-hidden="true">
-      <svg class="aircraft-icon-fallback" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" focusable="false">${aircraftShapeMarkup(safeGroup)}</svg>
-      <span class="aircraft-png-icon" style="-webkit-mask-image:url('${url}');mask-image:url('${url}');"></span>
-    </span>`;
-}
+// aircraftPngIconMarkup przeniesiono do modules/aircraftUtils.js
 
-function aircraftPngMaskSupported() {
-  const style = document.createElement("span").style;
-  if (("webkitMaskImage" in style) || ("maskImage" in style)) return true;
-  if (!window.CSS || typeof window.CSS.supports !== "function") return false;
-  return window.CSS.supports("-webkit-mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`) ||
-    window.CSS.supports("mask-image", `url("data:image/png;base64,iVBORw0KGgo=")`);
-}
+// aircraftPngMaskSupported przeniesiono do modules/aircraftUtils.js
 
-function preloadAircraftPngIcons() {
-  if (!aircraftPngMaskSupported()) {
-    document.documentElement.classList.remove("aircraft-png-icons-ready");
-    return;
-  }
-  const urls = Object.values(AIRCRAFT_ICON_FILES);
-  Promise.all(urls.map((url) => new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = resolve;
-    img.onerror = reject;
-    img.src = url;
-  }))).then(() => {
-    document.documentElement.classList.add("aircraft-png-icons-ready");
-  }).catch(() => {
-    document.documentElement.classList.remove("aircraft-png-icons-ready");
-  });
-}
+// preloadAircraftPngIcons przeniesiono do modules/aircraftUtils.js
 
-function aircraftAltitudeFeet(aircraft) {
-  const raw = firstFilled(aircraft?.alt_baro, aircraft?.alt_geom, aircraft?.altitude);
-  if (!raw) return null;
-  if (String(raw).toLowerCase() === "ground") return 0;
-  const value = Number(raw);
-  return Number.isFinite(value) ? value : null;
-}
+// aircraftAltitudeFeet przeniesiono do modules/aircraftUtils.js
 
 
 function clampNumber(value, min, max, fallback) {
@@ -666,191 +435,45 @@ function clampNumber(value, min, max, fallback) {
   return Math.min(max, Math.max(min, number));
 }
 
-function defaultPerformanceSettings() {
-  return { mode: "balanced", ...PERFORMANCE_PRESETS.balanced };
-}
+// defaultPerformanceSettings przeniesiono do modules/settingsFilters.js
 
-function normalizePerformanceSettings(saved = {}) {
-  const mode = Object.prototype.hasOwnProperty.call(PERFORMANCE_PRESETS, saved.mode) ? saved.mode : "balanced";
-  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
-  return {
-    mode,
-    refreshIntervalMs: clampNumber(saved.refreshIntervalMs, 3000, 30000, preset.refreshIntervalMs),
-    mapLimit: Math.round(clampNumber(saved.mapLimit, 40, 500, preset.mapLimit)),
-    listLimit: Math.round(clampNumber(saved.listLimit, 30, 250, preset.listLimit)),
-    trailLimit: Math.round(clampNumber(saved.trailLimit, 0, 250, preset.trailLimit)),
-    trackPoints: Math.round(clampNumber(saved.trackPoints, 8, 120, preset.trackPoints)),
-    showTrails: saved.showTrails !== undefined ? saved.showTrails === true : preset.showTrails,
-    showFreshnessLabels: saved.showFreshnessLabels !== undefined ? saved.showFreshnessLabels === true : preset.showFreshnessLabels,
-    showRealPhotos: saved.showRealPhotos !== undefined ? saved.showRealPhotos === true : preset.showRealPhotos,
-    autoHideStale: saved.autoHideStale !== undefined ? saved.autoHideStale === true : preset.autoHideStale,
-    removeAfterSeconds: Math.round(clampNumber(saved.removeAfterSeconds, 60, 600, preset.removeAfterSeconds))
-  };
-}
+// normalizePerformanceSettings przeniesiono do modules/settingsFilters.js
 
-function loadPerformanceSettings() {
-  const settings = normalizePerformanceSettings(storageJsonGet(PERFORMANCE_STORAGE_KEY, defaultPerformanceSettings()));
-  if (performanceModeInput) performanceModeInput.value = settings.mode;
-  if (performanceRefreshInput) performanceRefreshInput.value = String(Math.round(settings.refreshIntervalMs / 1000));
-  if (performanceMapLimitInput) performanceMapLimitInput.value = String(settings.mapLimit);
-  if (performanceListLimitInput) performanceListLimitInput.value = String(settings.listLimit);
-  if (performanceTrailsInput) performanceTrailsInput.checked = settings.showTrails;
-  if (performanceFreshnessLabelsInput) performanceFreshnessLabelsInput.checked = settings.showFreshnessLabels;
-  if (performanceRealPhotosInput) performanceRealPhotosInput.checked = settings.showRealPhotos;
-  if (performanceAutoHideStaleInput) performanceAutoHideStaleInput.checked = settings.autoHideStale;
-  if (performanceRemoveAfterInput) performanceRemoveAfterInput.value = String(settings.removeAfterSeconds);
-  return settings;
-}
+// loadPerformanceSettings przeniesiono do modules/settingsFilters.js
 
-function readPerformanceSettings() {
-  const mode = Object.prototype.hasOwnProperty.call(PERFORMANCE_PRESETS, performanceModeInput?.value) ? performanceModeInput.value : "balanced";
-  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
-  return normalizePerformanceSettings({
-    mode,
-    refreshIntervalMs: clampNumber(Number(performanceRefreshInput?.value || Math.round(preset.refreshIntervalMs / 1000)) * 1000, 3000, 30000, preset.refreshIntervalMs),
-    mapLimit: performanceMapLimitInput?.value || preset.mapLimit,
-    listLimit: performanceListLimitInput?.value || preset.listLimit,
-    trailLimit: preset.trailLimit,
-    trackPoints: preset.trackPoints,
-    showTrails: performanceTrailsInput ? performanceTrailsInput.checked : preset.showTrails,
-    showFreshnessLabels: performanceFreshnessLabelsInput ? performanceFreshnessLabelsInput.checked : preset.showFreshnessLabels,
-    showRealPhotos: performanceRealPhotosInput ? performanceRealPhotosInput.checked : preset.showRealPhotos,
-    autoHideStale: performanceAutoHideStaleInput ? performanceAutoHideStaleInput.checked : preset.autoHideStale,
-    removeAfterSeconds: performanceRemoveAfterInput?.value || preset.removeAfterSeconds
-  });
-}
+// readPerformanceSettings przeniesiono do modules/settingsFilters.js
 
-function savePerformanceSettings() {
-  const settings = readPerformanceSettings();
-  storageJsonSet(PERFORMANCE_STORAGE_KEY, settings);
-  markFirestoreStateSectionDirty("performance");
-  return settings;
-}
+// savePerformanceSettings przeniesiono do modules/settingsFilters.js
 
-function applyPerformancePreset(mode) {
-  const preset = PERFORMANCE_PRESETS[mode] || PERFORMANCE_PRESETS.balanced;
-  if (performanceRefreshInput) performanceRefreshInput.value = String(Math.round(preset.refreshIntervalMs / 1000));
-  if (performanceMapLimitInput) performanceMapLimitInput.value = String(preset.mapLimit);
-  if (performanceListLimitInput) performanceListLimitInput.value = String(preset.listLimit);
-  if (performanceTrailsInput) performanceTrailsInput.checked = preset.showTrails;
-  if (performanceFreshnessLabelsInput) performanceFreshnessLabelsInput.checked = preset.showFreshnessLabels;
-  if (performanceRealPhotosInput) performanceRealPhotosInput.checked = preset.showRealPhotos;
-  if (performanceAutoHideStaleInput) performanceAutoHideStaleInput.checked = preset.autoHideStale;
-  if (performanceRemoveAfterInput) performanceRemoveAfterInput.value = String(preset.removeAfterSeconds);
-}
+// applyPerformancePreset przeniesiono do modules/settingsFilters.js
 
-function getAutoRefreshIntervalMs() {
-  return readPerformanceSettings().refreshIntervalMs;
-}
+// getAutoRefreshIntervalMs przeniesiono do modules/settingsFilters.js
 
-function aircraftVisibleByLifecycle(aircraft, performance = readPerformanceSettings()) {
-  if (!performance.autoHideStale) return true;
-  const seconds = aircraftFreshnessSeconds(aircraft);
-  if (!Number.isFinite(seconds)) return true;
-  return seconds <= performance.removeAfterSeconds;
-}
+// aircraftVisibleByLifecycle przeniesiono do modules/aircraftUtils.js
 
-function lifecycleFilteredAircraft(aircraft, performance = readPerformanceSettings()) {
-  return (aircraft || []).filter((item) => aircraftVisibleByLifecycle(item, performance));
-}
+// lifecycleFilteredAircraft przeniesiono do modules/settingsFilters.js
 
-function hiddenOldAircraftCount(aircraft, performance = readPerformanceSettings()) {
-  return Math.max(0, (aircraft || []).length - lifecycleFilteredAircraft(aircraft, performance).length);
-}
+// hiddenOldAircraftCount przeniesiono do modules/settingsFilters.js
 
-function aircraftLifecycleState(aircraft, performance = readPerformanceSettings()) {
-  const seconds = aircraftFreshnessSeconds(aircraft);
-  if (!Number.isFinite(seconds)) return "unknown";
-  if (performance.autoHideStale && seconds > performance.removeAfterSeconds) return "expired";
-  if (seconds > STALE_FADE_SECONDS) return "stale";
-  return "active";
-}
+// aircraftLifecycleState przeniesiono do modules/aircraftUtils.js
 
-function loadAircraftFilters() {
-  const saved = storageJsonGet(FILTER_STORAGE_KEY, {});
-  if (aircraftFilterKindInput) aircraftFilterKindInput.value = saved.kind || "all";
-  if (aircraftFilterMinAltInput) aircraftFilterMinAltInput.value = saved.minAlt || "";
-  if (aircraftFilterMaxAltInput) aircraftFilterMaxAltInput.value = saved.maxAlt || "";
-  if (aircraftFilterCallsignInput) aircraftFilterCallsignInput.checked = saved.callsignOnly === true;
-}
+// loadAircraftFilters przeniesiono do modules/settingsFilters.js
 
-function readAircraftFilters() {
-  const minAlt = Number.parseInt(String(aircraftFilterMinAltInput?.value || "").trim(), 10);
-  const maxAlt = Number.parseInt(String(aircraftFilterMaxAltInput?.value || "").trim(), 10);
-  return {
-    kind: aircraftFilterKindInput?.value || "all",
-    minAlt: Number.isFinite(minAlt) ? minAlt : null,
-    maxAlt: Number.isFinite(maxAlt) ? maxAlt : null,
-    callsignOnly: aircraftFilterCallsignInput?.checked === true
-  };
-}
+// readAircraftFilters przeniesiono do modules/settingsFilters.js
 
-function saveAircraftFilters() {
-  const filters = readAircraftFilters();
-  storageJsonSet(FILTER_STORAGE_KEY, {
-    kind: filters.kind,
-    minAlt: filters.minAlt === null ? "" : String(filters.minAlt),
-    maxAlt: filters.maxAlt === null ? "" : String(filters.maxAlt),
-    callsignOnly: filters.callsignOnly
-  });
-  markFirestoreStateSectionDirty("filters");
-}
+// saveAircraftFilters przeniesiono do modules/settingsFilters.js
 
-function aircraftMatchesKindFilter(aircraft, kind) {
-  if (!kind || kind === "all") return true;
-  const group = aircraftTypeGroup(aircraft);
-  if (kind === "jet") return ["jet", "airliner", "business", "cargo", "heavy"].includes(group);
-  if (kind === "helicopter") return group === "helicopter";
-  if (kind === "prop") return group === "prop";
-  if (kind === "glider") return group === "glider";
-  if (kind === "special") return group === "special";
-  return true;
-}
+// aircraftMatchesKindFilter przeniesiono do modules/settingsFilters.js
 
-function aircraftMatchesFilters(aircraft, filters = readAircraftFilters()) {
-  if (!aircraftMatchesKindFilter(aircraft, filters.kind)) return false;
-  if (filters.callsignOnly && !aircraftCallsign(aircraft)) return false;
-  const altitude = aircraftAltitudeFeet(aircraft);
-  if (filters.minAlt !== null && (altitude === null || altitude < filters.minAlt)) return false;
-  if (filters.maxAlt !== null && (altitude === null || altitude > filters.maxAlt)) return false;
-  return true;
-}
+// aircraftMatchesFilters przeniesiono do modules/settingsFilters.js
 
-function filterAircraftForDisplay(aircraft) {
-  const filters = readAircraftFilters();
-  const performance = readPerformanceSettings();
-  return lifecycleFilteredAircraft(aircraft, performance).filter((item) => aircraftMatchesFilters(item, filters));
-}
+// filterAircraftForDisplay przeniesiono do modules/settingsFilters.js
 
-function aircraftFilterSummary(total, visible, sourceAircraft = lastAircraftCache) {
-  const hiddenOld = hiddenOldAircraftCount(sourceAircraft || []);
-  const filteredOut = Math.max(0, total - hiddenOld - visible);
-  if (!hiddenOld && !filteredOut) return `${visible} samolotów`;
-  const parts = [`${visible} z ${total} samolotów`];
-  if (filteredOut) parts.push(`${filteredOut} ukryte filtrami`);
-  if (hiddenOld) parts.push(`${hiddenOld} usunięte jako stare`);
-  return parts.join(" • ");
-}
+// aircraftFilterSummary przeniesiono do modules/settingsFilters.js
 
-function rerenderAircraftFromCache() {
-  saveAircraftFilters();
-  if (!lastAircraftCache.length) {
-    setAircraftStatus("Filtry ustawione. Pobierz samoloty, żeby je zastosować.");
-    return;
-  }
-  const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
-  renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
-  renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
-  setAircraftStatus(`Filtry: pokazuję ${aircraftFilterSummary(lastAircraftCache.length, visibleAircraft.length)}.`);
-}
+// rerenderAircraftFromCache przeniesiono do modules/settingsFilters.js
 
-function readBrowseSettingsSafe() {
-  try {
-    return readBrowseSettings();
-  } catch {
-    return { dist: Number(browseDistInput?.value || AUTO_LOAD_RADIUS_NM) || AUTO_LOAD_RADIUS_NM };
-  }
-}
+// readBrowseSettingsSafe przeniesiono do modules/settingsFilters.js
 
 const AIRCRAFT_SVG_MARKUP = Object.freeze({
   jet: `
@@ -969,2237 +592,403 @@ function aircraftIconDimensions(group) {
 }
 
 
-function aircraftMiniIconSvg(aircraft) {
-  const group = aircraftTypeGroup(aircraft || {});
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img">
-    <rect width="64" height="64" rx="18" fill="#ecfeff"/>
-    <g style="color:#facc15; filter: drop-shadow(0 5px 8px rgba(15,23,42,.25));">${aircraftShapeMarkup(group)}</g>
-  </svg>`;
-}
-
-function aircraftMiniIconDataUrl(aircraft) {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(aircraftMiniIconSvg(aircraft || {}))}`;
-}
-
-function aircraftThumbSvg(aircraft) {
-  const group = aircraftTypeGroup(aircraft || {});
-  const kind = aircraftGroupLabel(group);
-  const label = escapeHtml(firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, aircraft?.registration, aircraft?.r, kind));
-  const name = escapeHtml(firstFilled(aircraft?.flight, aircraft?.callsign, aircraft?.name, aircraft?.hex, "ADS-B"));
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 190" role="img">
-    <defs>
-      <linearGradient id="sky" x1="0" x2="1" y1="0" y2="1"><stop offset="0" stop-color="#dbeafe"/><stop offset="1" stop-color="#f8fafc"/></linearGradient>
-      <linearGradient id="runway" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="#cbd5e1"/><stop offset="1" stop-color="#94a3b8"/></linearGradient>
-    </defs>
-    <rect width="320" height="190" rx="20" fill="url(#sky)"/>
-    <path d="M0 150 C80 126 172 132 320 112 L320 190 L0 190Z" fill="url(#runway)" opacity="0.9"/>
-    <path d="M20 150h64M124 141h78M238 130h52" stroke="#ffffff" stroke-width="5" stroke-linecap="round" opacity="0.85"/>
-    <g transform="translate(92 28) scale(2.05)" style="color:#0f766e; filter: drop-shadow(0 10px 12px rgba(15,23,42,.28));">${aircraftShapeMarkup(group)}</g>
-    <rect x="14" y="14" width="128" height="38" rx="12" fill="rgba(255,255,255,.86)"/>
-    <text x="28" y="38" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="800" fill="#0f172a">${label}</text>
-    <text x="18" y="178" font-family="Segoe UI, Arial, sans-serif" font-size="18" font-weight="800" fill="#0f172a">${name}</text>
-  </svg>`;
-}
-
-function aircraftThumbDataUrl(aircraft) {
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(aircraftThumbSvg(aircraft || {}))}`;
-}
-
-function photoCache() {
-  const cache = storageJsonGet(PHOTO_CACHE_STORAGE_KEY, {});
-  return cache && typeof cache === "object" ? cache : {};
-}
-
-function savePhotoCache(cache) {
-  storageJsonSet(PHOTO_CACHE_STORAGE_KEY, pruneCacheBySavedAt(cache, PHOTO_CACHE_MAX_ENTRIES, PHOTO_CACHE_MAX_AGE_MS));
-}
-
-function cleanAircraftRegistration(value) {
-  return String(value || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, "");
-}
-
-function aircraftPhotoLookupKeys(aircraft) {
-  const reg = cleanAircraftRegistration(firstFilled(aircraft?.r, aircraft?.registration));
-  const hex = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao));
-  const keys = [];
-  if (reg) keys.push({ type: "reg", value: reg });
-  if (hex) keys.push({ type: "hex", value: hex });
-  return keys;
-}
-
-function photoUrlFromPlanespottersResponse(data) {
-  const photos = Array.isArray(data?.photos) ? data.photos : [];
-  const first = photos[0];
-  if (!first) return "";
-  return first?.thumbnail_large?.src || first?.thumbnail?.src || first?.thumbnail_large || first?.thumbnail || first?.link || first?.src || "";
-}
-
-async function findRealAircraftPhotoUrl(aircraft) {
-  const keys = aircraftPhotoLookupKeys(aircraft);
-  if (!keys.length) return "";
-
-  const cache = photoCache();
-  for (const key of keys) {
-    const cacheKey = `${key.type}:${key.value}`;
-    const cached = cache[cacheKey];
-    if (cached && Date.now() - cached.savedAt < 7 * 24 * 60 * 60 * 1000) {
-      return cached.url || "";
-    }
-  }
-
-  for (const key of keys) {
-    const cacheKey = `${key.type}:${key.value}`;
-    try {
-      const url = `${PLANESPOTTERS_PHOTO_BASE_URL}/${key.type}/${encodeURIComponent(key.value)}`;
-      const response = await fetchWithTimeout(url, { headers: { "Accept": "application/json" } }, 4500);
-      if (!response.ok) continue;
-      const photoUrl = photoUrlFromPlanespottersResponse(await response.json());
-      cache[cacheKey] = { url: photoUrl || "", savedAt: Date.now() };
-      savePhotoCache(cache);
-      if (photoUrl) return photoUrl;
-    } catch {
-      cache[cacheKey] = { url: "", savedAt: Date.now() };
-      savePhotoCache(cache);
-    }
-  }
-  return "";
-}
-
-function setAircraftPhoto(img, aircraft, options = {}) {
-  if (!img) return;
-  const source = aircraft || {};
-  const compact = options.compact || img.classList.contains("flight-thumb");
-  const photoToken = `${normalizeIcao(firstFilled(source.hex, source.icao))}|${cleanAircraftRegistration(firstFilled(source.r, source.registration))}|${aircraftCallsign(source)}`;
-  img.dataset.photoToken = photoToken;
-  delete img.dataset.realPhoto;
-  img.src = compact ? aircraftMiniIconDataUrl(source) : aircraftThumbDataUrl(source);
-  img.alt = `Grafika poglądowa: ${aircraftGroupLabel(aircraftTypeGroup(source))}`;
-  img.loading = "lazy";
-
-  if (!compact && options.realPhoto !== false && readPerformanceSettings().showRealPhotos) {
-    findRealAircraftPhotoUrl(source).then((photoUrl) => {
-      if (!photoUrl || img.dataset.photoToken !== photoToken) return;
-      img.src = photoUrl;
-      img.alt = `Zdjęcie samolotu ${aircraftLabel(source)}`;
-      img.dataset.realPhoto = "1";
-    }).catch(() => {});
-  }
-}
-
-function createAircraftPhoto(aircraft, className = "aircraft-photo", options = {}) {
-  const img = document.createElement("img");
-  img.className = className;
-  setAircraftPhoto(img, aircraft || {}, options);
-  return img;
-}
-
-function routeEndpointIcon(text, type = "start") {
-  return L.divIcon({
-    className: "route-endpoint-div-icon",
-    iconSize: [66, 30],
-    iconAnchor: [33, 15],
-    html: `<div class="route-endpoint ${type}">${escapeHtml(text)}</div>`
-  });
-}
-
-function routeAirports(route) {
-  if (!route) return [];
-  const candidates = [route._airports, route.airports, route.route, route.stops, route.points];
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) return candidate;
-  }
-  return [];
-}
-
-function routeAirportLabel(airport) {
-  if (!airport) return "";
-  if (typeof airport === "string") return airport.trim();
-  return firstFilled(airport.iata, airport.icao, airport.code, airport.ident, airport.location, airport.city, airport.name);
-}
-
-function routeAirportVerbose(airport) {
-  if (!airport || typeof airport === "string") return routeAirportLabel(airport);
-  const code = firstFilled(airport.iata, airport.icao, airport.code, airport.ident);
-  const place = firstFilled(airport.location, airport.city, airport.name, airport.country);
-  if (code && place) return `${code} (${place})`;
-  return code || place;
-}
-
-function routeValueText(value) {
-  if (!value) return "";
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "object") return routeAirportVerbose(value);
-  return String(value).trim();
-}
-
-function firstRouteValue(...values) {
-  for (const value of values) {
-    const text = routeValueText(value);
-    if (text) return text;
-  }
-  return "";
-}
-
-function routeInfo(route) {
-  if (!route) return { short: "", verbose: "" };
-  const airports = routeAirports(route);
-  if (airports.length) {
-    const short = airports.map(routeAirportLabel).filter(Boolean).join(" → ");
-    const verbose = airports.map(routeAirportVerbose).filter(Boolean).join(" → ");
-    return {
-      short: route.plausible === false && short ? `? ${short}` : short,
-      verbose: route.plausible === false && verbose ? `Dane niepewne: ${verbose}` : verbose
-    };
-  }
-
-  const from = firstRouteValue(route.from, route.origin, route.departure, route.dep, route.source, route.start, route.fromAirport, route.originAirport, route.departureAirport);
-  const to = firstRouteValue(route.to, route.destination, route.dest, route.arrival, route.arr, route.target, route.end, route.toAirport, route.destinationAirport, route.arrivalAirport);
-  if (from && to) return { short: `${from} → ${to}`, verbose: route.verbose || `${from} → ${to}` };
-  const fallback = firstRouteValue(route.short, route.verbose, route.text, route.name);
-  return fallback ? { short: fallback, verbose: fallback } : { short: "", verbose: "" };
-}
-
-function routeInfoFromAircraft(aircraft) {
-  const fromRoute = routeInfo(aircraft?._route);
-  if (fromRoute.short) return fromRoute;
-
-  const from = firstRouteValue(
-    aircraft?.from,
-    aircraft?.origin,
-    aircraft?.departure,
-    aircraft?.dep,
-    aircraft?.from_airport,
-    aircraft?.origin_airport,
-    aircraft?.departure_airport
-  );
-  const to = firstRouteValue(
-    aircraft?.to,
-    aircraft?.destination,
-    aircraft?.dest,
-    aircraft?.arrival,
-    aircraft?.arr,
-    aircraft?.to_airport,
-    aircraft?.destination_airport,
-    aircraft?.arrival_airport
-  );
-  if (from && to) return { short: `${from} → ${to}`, verbose: `${from} → ${to}` };
-  return { short: "", verbose: "" };
-}
-
-function routeText(aircraft) {
-  const info = routeInfoFromAircraft(aircraft);
-  return info.short ? `Skąd/dokąd: ${info.short}` : "Skąd/dokąd: brak danych";
-}
-
-function numericFirst(...values) {
-  for (const value of values) {
-    const number = Number(value);
-    if (Number.isFinite(number)) return number;
-  }
-  return null;
-}
-
-function airportPoint(airport) {
-  if (!airport || typeof airport !== "object") return null;
-  const lat = numericFirst(airport.lat, airport.latitude, airport.latDeg, airport.lat_deg, airport.position?.lat, airport.location?.lat, airport.geo?.lat);
-  const lon = numericFirst(airport.lon, airport.lng, airport.longitude, airport.lonDeg, airport.lon_deg, airport.position?.lon, airport.position?.lng, airport.location?.lon, airport.location?.lng, airport.geo?.lon, airport.geo?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon, at: "", altitude: null, speed: null, track: null, airportLabel: routeAirportLabel(airport) };
-}
-
-function routeAirportPoints(aircraft) {
-  return routeAirports(aircraft?._route).map(airportPoint).filter(validPoint);
-}
-
-function confirmedRouteEndpointPoints(aircraft) {
-  const route = aircraft?._route;
-  if (!route || route.plausible === false || route.confirmed === false) return null;
-  const airports = routeAirports(route);
-  if (airports.length < 2) return null;
-
-  const startAirport = airports[0];
-  const endAirport = airports[airports.length - 1];
-  const startPoint = airportPoint(startAirport);
-  const endPoint = airportPoint(endAirport);
-  if (!validPoint(startPoint) || !validPoint(endPoint)) return null;
-
-  const startLabel = routeAirportLabel(startAirport);
-  const endLabel = routeAirportLabel(endAirport);
-  if (!startLabel || !endLabel) return null;
-
-  return {
-    start: { ...startPoint, label: startLabel },
-    end: { ...endPoint, label: endLabel }
-  };
-}
-
-function aircraftListFromResponse(data) {
-  if (Array.isArray(data?.ac)) return data.ac;
-  if (Array.isArray(data?.aircraft)) return data.aircraft;
-  if (data && isValidIcao(normalizeIcao(data.hex || ""))) return [data];
-  return [];
-}
-
-function cleanCoordinate(value, min, max, label) {
-  const cleaned = value.trim().replace(",", ".");
-  if (!cleaned) return "";
-  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
-    throw new Error(`${label} ma niepoprawna wartosc.`);
-  }
-  const number = Number.parseFloat(cleaned);
-  if (!Number.isFinite(number) || number < min || number > max) {
-    throw new Error(`${label} ma niepoprawna wartosc.`);
-  }
-  return String(number);
-}
-
-function sanitizeFirestoreDocId(value) {
-  return String(value || "")
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 96) || `item-${Date.now()}`;
-}
-
-function sanitizeSyncKey(value) {
-  return String(value || "")
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 80);
-}
-
-function generateSyncKey() {
-  return `ads-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
-}
-
-function getOrCreateFirestoreClientId() {
-  const existing = storageGet(FIRESTORE_CLIENT_ID_STORAGE_KEY, "").trim();
-  if (existing) return existing;
-  const generated = `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  storageSet(FIRESTORE_CLIENT_ID_STORAGE_KEY, generated);
-  return generated;
-}
-
-function flightTimestampMs(flight) {
-  const candidates = [flight?.updatedAt, flight?.createdAt, flight?.savedAt, flight?.date];
-  for (const item of candidates) {
-    const parsed = Date.parse(item || "");
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return 0;
-}
-
-function flightMergeKey(flight) {
-  const icao = normalizeIcao(flight?.icao || flight?.hex || "");
-  const date = String(flight?.date || "").trim();
-  if (icao) return `${icao}|${date}`;
-  return sanitizeFirestoreDocId(flight?.id || "");
-}
-
-function loadDeletedFlights() {
-  const raw = storageJsonGet(FIRESTORE_DELETED_FLIGHTS_STORAGE_KEY, {});
-  return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
-}
-
-function saveDeletedFlights(tombstones) {
-  const now = Date.now();
-  const maxAgeMs = 90 * 24 * 60 * 60 * 1000;
-  const cleaned = {};
-  for (const [id, value] of Object.entries(tombstones || {})) {
-    const stamp = Number(value);
-    if (Number.isFinite(stamp) && now - stamp <= maxAgeMs) cleaned[id] = stamp;
-  }
-  storageJsonSet(FIRESTORE_DELETED_FLIGHTS_STORAGE_KEY, cleaned);
-}
-
-function firestoreFlightDocId(flight) {
-  if (typeof flight === "string") return sanitizeFirestoreDocId(flight);
-  return sanitizeFirestoreDocId(flight?.id || `${normalizeIcao(flight?.icao || flight?.hex || "")}-${flight?.date || todayLocalDate()}`);
-}
-
-function isFlightDeletedByTombstone(flight) {
-  const deleted = loadDeletedFlights();
-  const id = firestoreFlightDocId(flight);
-  const deletedAt = Number(deleted[id] || 0);
-  return deletedAt > 0 && deletedAt >= flightTimestampMs(flight);
-}
-
-function markFlightDeletedLocally(flight) {
-  const id = firestoreFlightDocId(flight);
-  const deleted = loadDeletedFlights();
-  deleted[id] = Date.now();
-  saveDeletedFlights(deleted);
-  return id;
-}
-
-function mergeRemoteTombstones(remoteTombstones) {
-  const local = loadDeletedFlights();
-  let changed = false;
-  for (const [id, stamp] of Object.entries(remoteTombstones || {})) {
-    const value = Number(stamp || 0);
-    if (Number.isFinite(value) && value > Number(local[id] || 0)) {
-      local[id] = value;
-      changed = true;
-    }
-  }
-  if (changed) saveDeletedFlights(local);
-}
-
-function normalizeFlightForStorage(flight) {
-  const source = flight && typeof flight === "object" ? flight : {};
-  const now = new Date().toISOString();
-  const icao = normalizeIcao(source.icao || source.hex || "");
-  const date = source.date || todayLocalDate();
-  const fallbackId = [icao || "samolot", date || "data"].join("-");
-  const id = sanitizeFirestoreDocId(source.id || fallbackId);
-  return {
-    ...source,
-    id,
-    icao,
-    date,
-    createdAt: source.createdAt || now,
-    updatedAt: source.updatedAt || source.createdAt || now
-  };
-}
-
-function normalizeFlightsForStorage(flights) {
-  const map = new Map();
-  for (const item of Array.isArray(flights) ? flights : []) {
-    const flight = normalizeFlightForStorage(item);
-    if (!isValidIcao(flight.icao)) continue;
-    if (isFlightDeletedByTombstone(flight)) continue;
-    const key = flightMergeKey(flight);
-    const existing = map.get(key);
-    if (!existing || flightTimestampMs(flight) >= flightTimestampMs(existing)) {
-      map.set(key, flight);
-    }
-  }
-  return Array.from(map.values()).sort((a, b) => flightTimestampMs(b) - flightTimestampMs(a));
-}
-
-function loadFlights() {
-  try {
-    const parsed = JSON.parse(storageGet(STORAGE_KEY, "[]"));
-    return normalizeFlightsForStorage(Array.isArray(parsed) ? parsed : []);
-  } catch {
-    return [];
-  }
-}
-
-function saveFlights(flights, options = {}) {
-  const normalized = normalizeFlightsForStorage(flights);
-  storageSet(STORAGE_KEY, JSON.stringify(normalized));
-  if (!options.skipSync && !firestoreApplyingRemote) {
-    scheduleFirestorePush();
-  }
-}
-
-function loadWatchlist() {
-  try {
-    const parsed = JSON.parse(storageGet(WATCHLIST_STORAGE_KEY, "[]"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveWatchlist(items, options = {}) {
-  storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(Array.isArray(items) ? items : []));
-  if (!options.skipSync) markFirestoreStateSectionDirty("watchlist");
-}
-
-function loadAlertLog() {
-  try {
-    const parsed = JSON.parse(storageGet(ALERT_LOG_STORAGE_KEY, "[]"));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveAlertLog(items) {
-  storageSet(ALERT_LOG_STORAGE_KEY, JSON.stringify(items.slice(0, ALERT_LOG_MAX_ENTRIES)));
-}
-
-function loadFiredAlertState() {
-  const parsed = storageJsonGet(ALERT_FIRED_STORAGE_KEY, {});
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-}
-
-function saveFiredAlertState(state, options = {}) {
-  storageJsonSet(ALERT_FIRED_STORAGE_KEY, state && typeof state === "object" ? state : {});
-  if (!options.skipSync) markFirestoreStateSectionDirty("alertFired");
-}
-
-function hasFiredAlertForIcao(icao) {
-  const cleanIcao = normalizeIcao(icao || "");
-  if (!isValidIcao(cleanIcao)) return false;
-  return Boolean(loadFiredAlertState()[cleanIcao]);
-}
-
-function markFiredAlertForIcao(icao) {
-  const cleanIcao = normalizeIcao(icao || "");
-  if (!isValidIcao(cleanIcao)) return;
-  const state = loadFiredAlertState();
-  state[cleanIcao] = new Date().toISOString();
-  saveFiredAlertState(state);
-}
-
-function clearFiredAlertForIcao(icao) {
-  const cleanIcao = normalizeIcao(icao || "");
-  if (!isValidIcao(cleanIcao)) return;
-  const state = loadFiredAlertState();
-  if (Object.prototype.hasOwnProperty.call(state, cleanIcao)) {
-    delete state[cleanIcao];
-    saveFiredAlertState(state);
-  }
-}
-
-function pruneFiredAlertStateToWatchlist(watchedIcaos) {
-  const allowed = watchedIcaos instanceof Set ? watchedIcaos : new Set();
-  const state = loadFiredAlertState();
-  let changed = false;
-  for (const key of Object.keys(state)) {
-    if (!allowed.has(normalizeIcao(key))) {
-      delete state[key];
-      changed = true;
-    }
-  }
-  if (changed) saveFiredAlertState(state);
-}
-
-function defaultAlertSettings() {
-  return {
-    enabled: false,
-    query: "",
-    distanceKm: "",
-    maxAltitudeFt: "",
-    watched: true,
-    special: false,
-    system: false
-  };
-}
-
-function loadAlertSettingsObject() {
-  const saved = storageJsonGet(ALERT_SETTINGS_STORAGE_KEY, defaultAlertSettings());
-  return { ...defaultAlertSettings(), ...(saved && typeof saved === "object" ? saved : {}) };
-}
-
-function saveAlertSettingsObject(settings, options = {}) {
-  storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, { ...defaultAlertSettings(), ...(settings || {}) });
-  if (!options.skipSync) markFirestoreStateSectionDirty("alertSettings");
-}
-
-function ensureWatchlistAlertsEnabled() {
-  const settings = loadAlertSettingsObject();
-  if (settings.enabled === true && settings.watched === true) return;
-  const next = { ...settings, enabled: true, watched: true };
-  saveAlertSettingsObject(next);
-  if (alertsEnabledInput) alertsEnabledInput.checked = true;
-  if (alertWatchedInput) {
-    alertWatchedInput.checked = true;
-    alertWatchedInput.disabled = true;
-  }
-  updateAlertStatusText("Alerty włączone dla listy obserwowanych.");
-}
-
-function timeStampText() {
-  return new Date().toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
-
-function updateStatusPanel(message, mode = "info") {
-  const clean = String(message || "").trim() || "Gotowy.";
-  if (lastStatusText) lastStatusText.textContent = clean;
-  if (lastStatusTime) lastStatusTime.textContent = `Ostatnio: ${timeStampText()}`;
-  if (statusChip) {
-    statusChip.textContent = mode === "busy" ? "Pracuję" : mode === "error" ? "Błąd" : "Gotowy";
-    statusChip.dataset.mode = mode;
-  }
-}
-
-function hideToast() {
-  if (!toast) return;
-  toast.classList.remove("show");
-  window.clearTimeout(showToast.timer);
-}
-
-function showToast(message, durationMs = 1900) {
-  updateStatusPanel(message, String(message || "").toLowerCase().includes("błąd") || String(message || "").toLowerCase().includes("nie uda") ? "error" : "info");
-  if (!toast) return;
-  toast.textContent = message;
-  toast.classList.add("show");
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(hideToast, durationMs);
-}
-
-
-function loadFirestoreStateMeta() {
-  const meta = storageJsonGet(FIRESTORE_STATE_META_STORAGE_KEY, {});
-  return meta && typeof meta === "object" && !Array.isArray(meta) ? meta : {};
-}
-
-function saveFirestoreStateMeta(meta) {
-  storageJsonSet(FIRESTORE_STATE_META_STORAGE_KEY, meta && typeof meta === "object" ? meta : {});
-}
-
-function firestoreSectionUpdatedAt(section) {
-  const meta = loadFirestoreStateMeta();
-  const value = Number(meta[section] || 0);
-  return Number.isFinite(value) ? value : 0;
-}
-
-function ensureFirestoreStateMetaSeeded() {
-  const meta = loadFirestoreStateMeta();
-  let changed = false;
-  const now = Date.now();
-  for (const section of FIRESTORE_STATE_SECTIONS) {
-    const current = Number(meta[section] || 0);
-    if (!Number.isFinite(current) || current <= 0) {
-      meta[section] = now;
-      changed = true;
-    }
-  }
-  if (changed) saveFirestoreStateMeta(meta);
-}
-
-function markFirestoreStateSectionDirty(section, stamp = Date.now()) {
-  if (firestoreApplyingRemote) return;
-  if (!FIRESTORE_STATE_SECTIONS.includes(section)) return;
-  const meta = loadFirestoreStateMeta();
-  meta[section] = Math.max(Number(meta[section] || 0), Number(stamp) || Date.now());
-  saveFirestoreStateMeta(meta);
-  scheduleFirestorePush();
-}
-
-function normalizeFirestoreSection(section, value) {
-  if (section === "api") {
-    const source = value && typeof value === "object" ? value : {};
-    const dataSource = Object.prototype.hasOwnProperty.call(API_SOURCES, source.dataSource) ? source.dataSource : DEFAULT_DATA_SOURCE;
-    return {
-      dataSource,
-      apiBase: String(source.apiBase || apiSourceByName(dataSource).apiBase || ""),
-      apiKey: String(source.apiKey || "")
-    };
-  }
-  if (section === "theme") return String(value || "light") === "dark" ? "dark" : "light";
-  if (section === "filters") return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  if (section === "performance") return normalizePerformanceSettings(value && typeof value === "object" ? value : defaultPerformanceSettings());
-  if (section === "watchlist") return Array.isArray(value) ? value : [];
-  if (section === "alertSettings") return { ...defaultAlertSettings(), ...(value && typeof value === "object" ? value : {}) };
-  if (section === "alertFired") return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return value;
-}
-
-function localFirestoreSectionValue(section) {
-  if (section === "api") {
-    const dataSource = storageGet(DATA_SOURCE_STORAGE_KEY, DEFAULT_DATA_SOURCE);
-    return normalizeFirestoreSection("api", {
-      dataSource,
-      apiBase: storageGet(API_BASE_STORAGE_KEY, apiSourceByName(dataSource).apiBase),
-      apiKey: storageGet(API_KEY_STORAGE_KEY, "")
-    });
-  }
-  if (section === "theme") return normalizeFirestoreSection("theme", storageGet(THEME_STORAGE_KEY, "light"));
-  if (section === "filters") return normalizeFirestoreSection("filters", storageJsonGet(FILTER_STORAGE_KEY, {}));
-  if (section === "performance") return normalizeFirestoreSection("performance", storageJsonGet(PERFORMANCE_STORAGE_KEY, defaultPerformanceSettings()));
-  if (section === "watchlist") return normalizeFirestoreSection("watchlist", loadWatchlist());
-  if (section === "alertSettings") return normalizeFirestoreSection("alertSettings", loadAlertSettingsObject());
-  if (section === "alertFired") return normalizeFirestoreSection("alertFired", loadFiredAlertState());
-  return null;
-}
-
-function buildLocalFirestoreState() {
-  const config = loadFirestoreConfig();
-  const sections = {};
-  for (const section of FIRESTORE_STATE_SECTIONS) {
-    sections[section] = {
-      updatedAtMs: firestoreSectionUpdatedAt(section),
-      value: localFirestoreSectionValue(section)
-    };
-  }
-  return {
-    id: FIRESTORE_STATE_DOC_ID,
-    syncVersion: 2,
-    syncKey: sanitizeSyncKey(config?.syncKey || ""),
-    _clientId: firestoreClientId,
-    _updatedAtMs: Date.now(),
-    updatedAt: new Date().toISOString(),
-    sections
-  };
-}
-
-
-function encodeFirestoreAppStateForFlightDoc(state) {
-  const config = loadFirestoreConfig();
-  const now = Date.now();
-  return {
-    id: FIRESTORE_STATE_DOC_ID,
-    syncKey: sanitizeSyncKey(config?.syncKey || ""),
-    deleted: false,
-    icao: "",
-    hex: "",
-    name: "ADS Viewer Pro — stan aplikacji",
-    date: "app-state",
-    routeShort: "app-state-v2",
-    routeVerbose: JSON.stringify(state || buildLocalFirestoreState()),
-    createdAt: new Date(now).toISOString(),
-    updatedAt: new Date(now).toISOString(),
-    _clientId: firestoreClientId,
-    _updatedAtMs: now
-  };
-}
-
-function decodeFirestoreAppStateFromFlightDoc(data) {
-  if (!data || typeof data !== "object") return null;
-  if (data.sections && typeof data.sections === "object") return data;
-  const encoded = String(data.routeVerbose || "");
-  if (!encoded) return null;
-  try {
-    const parsed = JSON.parse(encoded);
-    return parsed && typeof parsed === "object" ? parsed : null;
-  } catch {
-    return null;
-  }
-}
-
-function remoteFirestoreStateSections(data) {
-  const source = data && typeof data === "object" ? data.sections : null;
-  return source && typeof source === "object" && !Array.isArray(source) ? source : {};
-}
-
-function applyRemoteSectionToLocal(section, value) {
-  const normalized = normalizeFirestoreSection(section, value);
-  if (section === "api") {
-    storageSet(DATA_SOURCE_STORAGE_KEY, normalized.dataSource);
-    storageSet(API_BASE_STORAGE_KEY, normalized.apiBase);
-    storageSet(API_KEY_STORAGE_KEY, normalized.apiKey);
-    if (dataSourceInput) dataSourceInput.value = normalized.dataSource;
-    if (apiBaseInput) apiBaseInput.value = normalized.apiBase;
-    if (apiKeyInput) apiKeyInput.value = normalized.apiKey;
-    return;
-  }
-  if (section === "theme") {
-    storageSet(THEME_STORAGE_KEY, normalized);
-    applyTheme(normalized);
-    return;
-  }
-  if (section === "filters") {
-    storageJsonSet(FILTER_STORAGE_KEY, normalized);
-    loadAircraftFilters();
-    return;
-  }
-  if (section === "performance") {
-    storageJsonSet(PERFORMANCE_STORAGE_KEY, normalized);
-    loadPerformanceSettings();
-    return;
-  }
-  if (section === "watchlist") {
-    storageSet(WATCHLIST_STORAGE_KEY, JSON.stringify(normalized));
-    renderWatchlist();
-    updateAlertStatusText();
-    return;
-  }
-  if (section === "alertSettings") {
-    storageJsonSet(ALERT_SETTINGS_STORAGE_KEY, normalized);
-    applyAlertSettingsToForm();
-    return;
-  }
-  if (section === "alertFired") {
-    storageJsonSet(ALERT_FIRED_STORAGE_KEY, normalized);
-    updateAlertStatusText();
-  }
-}
-
-function applyRemoteAppState(remoteData) {
-  const sections = remoteFirestoreStateSections(remoteData);
-  const meta = loadFirestoreStateMeta();
-  const changedSections = new Set();
-  let needsPush = false;
-
-  firestoreApplyingRemote = true;
-  try {
-    for (const section of FIRESTORE_STATE_SECTIONS) {
-      const remoteSection = sections[section];
-      if (!remoteSection || typeof remoteSection !== "object") continue;
-      const remoteUpdatedAt = Number(remoteSection.updatedAtMs || 0);
-      const localUpdatedAt = Number(meta[section] || 0);
-      if (!Number.isFinite(remoteUpdatedAt)) continue;
-      if (remoteUpdatedAt > localUpdatedAt) {
-        applyRemoteSectionToLocal(section, remoteSection.value);
-        meta[section] = remoteUpdatedAt;
-        changedSections.add(section);
-      } else if (localUpdatedAt > remoteUpdatedAt) {
-        needsPush = true;
-      }
-    }
-    saveFirestoreStateMeta(meta);
-  } finally {
-    firestoreApplyingRemote = false;
-  }
-
-  if (changedSections.has("performance")) restartAircraftAutoRefresh();
-  if (changedSections.has("filters") && lastAircraftCache.length) {
-    const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
-    renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
-    renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
-  }
-  return { changed: changedSections.size > 0, needsPush };
-}
-
-async function pullAppStateFromFirestore() {
-  if (!firestoreState.ready || !firestoreState.stateDocRef) return { changed: false, needsPush: false };
-  const modules = await loadFirestoreModules();
-  const { getDoc } = modules.firestore;
-  const snapshot = await getDoc(firestoreState.stateDocRef);
-  if (!snapshot.exists()) return { changed: false, needsPush: false };
-  const state = decodeFirestoreAppStateFromFlightDoc(snapshot.data());
-  if (!state) return { changed: false, needsPush: false };
-  return applyRemoteAppState(state);
-}
-
-async function pushAppStateToFirestore() {
-  if (!firestoreState.ready || !firestoreState.stateDocRef) return;
-  const modules = await loadFirestoreModules();
-  const { setDoc } = modules.firestore;
-  ensureFirestoreStateMetaSeeded();
-  const state = buildLocalFirestoreState();
-  await setDoc(firestoreState.stateDocRef, encodeFirestoreAppStateForFlightDoc(state), { merge: true });
-}
-
-function firestoreStatusSummary(prefix = "Synchronizacja aktywna") {
-  return `${prefix}. Zapisane: ${loadFlights().length}. Obserwowane: ${loadWatchlist().length}.`;
-}
-
-function firestoreConfigFromForm() {
-  const syncKey = sanitizeSyncKey(firestoreSyncKeyInput?.value || "");
-  if (syncKey.length < 8) throw new Error("Kod synchronizacji musi mieć minimum 8 znaków.");
-  const apiKey = firestoreApiKeyInput?.value.trim() || "";
-  const authDomain = firestoreAuthDomainInput?.value.trim() || "";
-  const projectId = firestoreProjectIdInput?.value.trim() || "";
-  const appId = firestoreAppIdInput?.value.trim() || "";
-  if (!apiKey || !authDomain || !projectId || !appId) {
-    throw new Error("Uzupełnij apiKey, authDomain, projectId i appId z Firebase.");
-  }
-  return {
-    enabled: true,
-    apiKey,
-    authDomain,
-    projectId,
-    storageBucket: firestoreStorageBucketInput?.value.trim() || "",
-    messagingSenderId: firestoreMessagingSenderIdInput?.value.trim() || "",
-    appId,
-    syncKey
-  };
-}
-
-function firebaseConfigForSdk(config) {
-  const sdkConfig = {
-    apiKey: config.apiKey,
-    authDomain: config.authDomain,
-    projectId: config.projectId,
-    appId: config.appId
-  };
-  if (config.storageBucket) sdkConfig.storageBucket = config.storageBucket;
-  if (config.messagingSenderId) sdkConfig.messagingSenderId = config.messagingSenderId;
-  return sdkConfig;
-}
-
-function loadFirestoreConfig() {
-  const config = storageJsonGet(FIRESTORE_CONFIG_STORAGE_KEY, null);
-  return config && typeof config === "object" ? config : null;
-}
-
-function saveFirestoreConfig(config) {
-  storageJsonSet(FIRESTORE_CONFIG_STORAGE_KEY, config);
-  storageSet(FIRESTORE_SETUP_DISMISSED_KEY, "0");
-}
-
-function firestoreConfigComplete(config) {
-  return Boolean(config?.enabled && config.apiKey && config.authDomain && config.projectId && config.appId && sanitizeSyncKey(config.syncKey).length >= 8);
-}
-
-function firestoreConfigSignature(config) {
-  if (!config) return "";
-  return JSON.stringify({ projectId: config.projectId, appId: config.appId, syncKey: sanitizeSyncKey(config.syncKey) });
-}
-
-function setFirestoreStatus(message, mode = "info") {
-  const text = String(message || "").trim() || "Synchronizacja Firestore wyłączona.";
-  if (firestoreSyncStatus) {
-    firestoreSyncStatus.textContent = text;
-    firestoreSyncStatus.dataset.mode = mode;
-  }
-  if (firestoreModalStatus) {
-    firestoreModalStatus.textContent = text;
-    firestoreModalStatus.dataset.mode = mode;
-  }
-}
-
-function parseFirebaseConfigText(text) {
-  const result = {};
-  const source = String(text || "");
-  for (const key of ["apiKey", "authDomain", "projectId", "storageBucket", "messagingSenderId", "appId"]) {
-    const match = source.match(new RegExp(`${key}\\s*:\\s*["']([^"']+)["']`, "i"));
-    if (match) result[key] = match[1].trim();
-  }
-  return result;
-}
-
-function applyParsedFirebaseConfigToForm(parsed) {
-  if (!parsed || typeof parsed !== "object") return false;
-  const map = {
-    apiKey: firestoreApiKeyInput,
-    authDomain: firestoreAuthDomainInput,
-    projectId: firestoreProjectIdInput,
-    storageBucket: firestoreStorageBucketInput,
-    messagingSenderId: firestoreMessagingSenderIdInput,
-    appId: firestoreAppIdInput
-  };
-  let filled = false;
-  for (const [key, input] of Object.entries(map)) {
-    if (input && parsed[key]) {
-      input.value = parsed[key];
-      filled = true;
-    }
-  }
-  return filled;
-}
-
-function fillFirestoreForm(config = loadFirestoreConfig()) {
-  if (firestoreApiKeyInput) firestoreApiKeyInput.value = config?.apiKey || "";
-  if (firestoreAuthDomainInput) firestoreAuthDomainInput.value = config?.authDomain || "";
-  if (firestoreProjectIdInput) firestoreProjectIdInput.value = config?.projectId || "";
-  if (firestoreStorageBucketInput) firestoreStorageBucketInput.value = config?.storageBucket || "";
-  if (firestoreMessagingSenderIdInput) firestoreMessagingSenderIdInput.value = config?.messagingSenderId || "";
-  if (firestoreAppIdInput) firestoreAppIdInput.value = config?.appId || "";
-  if (firestoreSyncKeyInput) firestoreSyncKeyInput.value = config?.syncKey || generateSyncKey();
-  if (firestoreConfigPaste) firestoreConfigPaste.value = "";
-}
-
-function openFirestoreSetupModal(isFirstRun = false) {
-  if (!firestoreSetupModal) return;
-  fillFirestoreForm();
-  firestoreSetupModal.hidden = false;
-  document.body.classList.add("modal-open");
-  setFirestoreStatus(isFirstRun ? "Wklej konfigurację Firebase i ustaw kod synchronizacji." : "Edytujesz konfigurację Firestore.");
-  window.setTimeout(() => firestoreConfigPaste?.focus(), 50);
-}
-
-function closeFirestoreSetupModal() {
-  if (!firestoreSetupModal) return;
-  firestoreSetupModal.hidden = true;
-  document.body.classList.remove("modal-open");
-}
-
-async function loadFirestoreModules() {
-  if (!firestoreModulesPromise) {
-    firestoreModulesPromise = Promise.all([
-      import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-app.js`),
-      import(`https://www.gstatic.com/firebasejs/${FIREBASE_SDK_VERSION}/firebase-firestore.js`)
-    ]).then(([app, firestore]) => ({ app, firestore }));
-  }
-  return firestoreModulesPromise;
-}
-
-async function resetFirestoreConnection() {
-  if (firestoreState.unsubscribe) {
-    firestoreState.unsubscribe();
-  }
-  if (firestoreState.unsubscribeState) {
-    firestoreState.unsubscribeState();
-  }
-  firestoreState.unsubscribe = null;
-  firestoreState.unsubscribeState = null;
-  firestoreState.collectionRef = null;
-  firestoreState.stateDocRef = null;
-  firestoreState.db = null;
-  firestoreState.ready = false;
-}
-
-function remoteDocToFlight(docSnapshot) {
-  const data = docSnapshot.data ? docSnapshot.data() : docSnapshot;
-  if (!data || typeof data !== "object" || data.deleted) return null;
-  return normalizeFlightForStorage({ ...data, id: data.id || docSnapshot.id });
-}
-
-function remoteDocsToFlightsAndTombstones(snapshot) {
-  const flights = [];
-  const tombstones = {};
-  snapshot.forEach((docSnapshot) => {
-    const data = docSnapshot.data();
-    if (docSnapshot.id === FIRESTORE_STATE_DOC_ID || data?.id === FIRESTORE_STATE_DOC_ID) return;
-    if (!data || typeof data !== "object") return;
-    if (data.deleted) {
-      tombstones[docSnapshot.id] = Number(data.deletedAt || data._updatedAtMs || Date.now());
-      return;
-    }
-    const flight = remoteDocToFlight(docSnapshot);
-    if (flight) flights.push(flight);
-  });
-  return { flights, tombstones };
-}
-
-function mergeFlightCollections(localFlights, remoteFlights) {
-  const merged = new Map();
-  for (const item of [...(localFlights || []), ...(remoteFlights || [])]) {
-    const flight = normalizeFlightForStorage(item);
-    if (isFlightDeletedByTombstone(flight)) continue;
-    const key = flightMergeKey(flight);
-    const existing = merged.get(key);
-    if (!existing || flightTimestampMs(flight) >= flightTimestampMs(existing)) {
-      merged.set(key, flight);
-    }
-  }
-  return Array.from(merged.values()).sort((a, b) => flightTimestampMs(b) - flightTimestampMs(a));
-}
-
-function applyRemoteFlights(remoteFlights, remoteTombstones = {}) {
-  firestoreApplyingRemote = true;
-  try {
-    mergeRemoteTombstones(remoteTombstones);
-    const merged = mergeFlightCollections(loadFlights(), remoteFlights);
-    saveFlights(merged, { skipSync: true });
-    renderFlights();
-    return merged;
-  } finally {
-    firestoreApplyingRemote = false;
-  }
-}
-
-async function pushFlightsToFirestore(flights) {
-  if (!firestoreState.ready || !firestoreState.collectionRef) return;
-  const modules = await loadFirestoreModules();
-  const { doc, setDoc } = modules.firestore;
-  const config = loadFirestoreConfig();
-  const syncKey = sanitizeSyncKey(config?.syncKey || "");
-  const active = normalizeFlightsForStorage(flights).filter((flight) => !isFlightDeletedByTombstone(flight));
-  const chunkSize = 8;
-  for (let index = 0; index < active.length; index += chunkSize) {
-    const chunk = active.slice(index, index + chunkSize);
-    await Promise.all(chunk.map((flight) => {
-      const id = firestoreFlightDocId(flight);
-      const payload = {
-        ...flight,
-        id,
-        syncKey,
-        deleted: false,
-        _clientId: firestoreClientId,
-        _updatedAtMs: Date.now()
-      };
-      return setDoc(doc(firestoreState.collectionRef, id), payload, { merge: true });
-    }));
-    await new Promise((resolve) => (document.hidden ? window.setTimeout(resolve, 0) : window.requestAnimationFrame(resolve)));
-  }
-}
-
-async function pushDeletedFlightToFirestore(flightOrId) {
-  if (!firestoreState.ready || !firestoreState.collectionRef) return;
-  const modules = await loadFirestoreModules();
-  const { doc, setDoc } = modules.firestore;
-  const config = loadFirestoreConfig();
-  const syncKey = sanitizeSyncKey(config?.syncKey || "");
-  const id = firestoreFlightDocId(flightOrId);
-  const deletedAt = Number(loadDeletedFlights()[id] || Date.now());
-  await setDoc(doc(firestoreState.collectionRef, id), {
-    id,
-    syncKey,
-    deleted: true,
-    deletedAt,
-    updatedAt: new Date(deletedAt).toISOString(),
-    _clientId: firestoreClientId,
-    _updatedAtMs: deletedAt
-  }, { merge: true });
-}
-
-async function pushLocalTombstonesToFirestore() {
-  const deleted = loadDeletedFlights();
-  for (const id of Object.keys(deleted)) {
-    await pushDeletedFlightToFirestore(id);
-  }
-}
-
-function scheduleFirestorePush() {
-  if (firestoreApplyingRemote || firestorePushInProgress) return;
-  if (!firestoreState.ready) return;
-  window.clearTimeout(firestorePushTimer);
-  firestorePushTimer = window.setTimeout(() => {
-    syncFirestoreNow({ silent: true }).catch((error) => {
-      setFirestoreStatus(`Błąd synchronizacji: ${error.message || error}`, "error");
-    });
-  }, 700);
-}
-
-async function syncFirestoreNow(options = {}) {
-  const config = loadFirestoreConfig();
-  if (!firestoreConfigComplete(config)) {
-    if (!options.silent) openFirestoreSetupModal(true);
-    return false;
-  }
-  if (!firestoreState.ready) {
-    await initFirestoreSync({ silent: options.silent });
-    return true;
-  }
-  if (firestorePushInProgress) return true;
-  firestorePushInProgress = true;
-  try {
-    if (!options.silent) setFirestoreStatus("Synchronizuję dane programu...", "busy");
-    await pushFlightsToFirestore(loadFlights());
-    await pushLocalTombstonesToFirestore();
-    await pushAppStateToFirestore();
-    setFirestoreStatus(firestoreStatusSummary(), "ok");
-    return true;
-  } finally {
-    firestorePushInProgress = false;
-  }
-}
-
-async function initFirestoreSync(options = {}) {
-  const config = loadFirestoreConfig();
-  if (!firestoreConfigComplete(config)) {
-    setFirestoreStatus("Synchronizacja Firestore nie jest skonfigurowana.", "info");
-    if (!options.silent) openFirestoreSetupModal(true);
-    return false;
-  }
-  const signature = firestoreConfigSignature(config);
-  if (firestoreState.ready && firestoreState.configSignature === signature) return true;
-  if (firestoreState.initializing) return false;
-
-  firestoreState.initializing = true;
-  try {
-    setFirestoreStatus("Łączę z Firestore...", "busy");
-    await resetFirestoreConnection();
-    const modules = await loadFirestoreModules();
-    const { initializeApp, getApps } = modules.app;
-    const { getFirestore, collection, doc, getDocs, onSnapshot } = modules.firestore;
-    const appName = `ads-viewer-${sanitizeFirestoreDocId(config.projectId)}-${sanitizeFirestoreDocId(config.syncKey)}`;
-    const existing = getApps().find((item) => item.name === appName);
-    const app = existing || initializeApp(firebaseConfigForSdk(config), appName);
-    const db = getFirestore(app);
-    const collectionRef = collection(db, FIRESTORE_COLLECTION_ROOT, sanitizeSyncKey(config.syncKey), "flights");
-    const stateDocRef = doc(collectionRef, FIRESTORE_STATE_DOC_ID);
-    firestoreState = {
-      ...firestoreState,
-      app,
-      db,
-      collectionRef,
-      stateDocRef,
-      ready: true,
-      configSignature: signature
-    };
-
-    const snapshot = await getDocs(collectionRef);
-    const { flights: remoteFlights, tombstones } = remoteDocsToFlightsAndTombstones(snapshot);
-    const merged = applyRemoteFlights(remoteFlights, tombstones);
-    await pushFlightsToFirestore(merged);
-    await pushLocalTombstonesToFirestore();
-    const stateResult = await pullAppStateFromFirestore();
-    await pushAppStateToFirestore();
-    if (stateResult.needsPush) scheduleFirestorePush();
-
-    firestoreState.unsubscribe = onSnapshot(collectionRef, (liveSnapshot) => {
-      const { flights, tombstones: liveTombstones } = remoteDocsToFlightsAndTombstones(liveSnapshot);
-      applyRemoteFlights(flights, liveTombstones);
-      setFirestoreStatus(firestoreStatusSummary(), "ok");
-    }, (error) => {
-      setFirestoreStatus(`Błąd Firestore: ${error.message || error}`, "error");
-    });
-
-    firestoreState.unsubscribeState = onSnapshot(stateDocRef, (stateSnapshot) => {
-      if (!stateSnapshot.exists()) return;
-      const state = decodeFirestoreAppStateFromFlightDoc(stateSnapshot.data());
-      if (!state) return;
-      const result = applyRemoteAppState(state);
-      if (result.needsPush) scheduleFirestorePush();
-      if (result.changed) setFirestoreStatus(firestoreStatusSummary(), "ok");
-    }, (error) => {
-      setFirestoreStatus(`Błąd synchronizacji ustawień: ${error.message || error}`, "error");
-    });
-
-
-    setFirestoreStatus(firestoreStatusSummary(), "ok");
-    return true;
-  } catch (error) {
-    firestoreState.ready = false;
-    setFirestoreStatus(`Nie udało się połączyć z Firestore: ${error.message || error}`, "error");
-    if (!options.silent) showToast("Nie udało się połączyć z Firestore.", 4200);
-    return false;
-  } finally {
-    firestoreState.initializing = false;
-  }
-}
-
-function startFirestoreStartupFlow() {
-  const config = loadFirestoreConfig();
-  if (firestoreConfigComplete(config)) {
-    initFirestoreSync({ silent: true });
-    return;
-  }
-  setFirestoreStatus("Synchronizacja Firestore nie jest skonfigurowana.", "info");
-  if (storageGet(FIRESTORE_SETUP_DISMISSED_KEY, "") !== "1") {
-    window.setTimeout(() => openFirestoreSetupModal(true), 900);
-  }
-}
-
-async function deleteSavedFlight(flight) {
-  const id = markFlightDeletedLocally(flight);
-  saveFlights(loadFlights().filter((item) => firestoreFlightDocId(item) !== id), { skipSync: true });
-  renderFlights();
-  showToast("Usunięto zapis.");
-  try {
-    await pushDeletedFlightToFirestore(id);
-    setFirestoreStatus(firestoreStatusSummary("Usunięcie zsynchronizowane z Firestore"), "ok");
-  } catch (error) {
-    setFirestoreStatus(`Usunięto lokalnie. Firestore zsynchronizuje później: ${error.message || error}`, "error");
-  }
-}
-
-async function clearSavedFlights() {
-  const flights = loadFlights();
-  for (const flight of flights) markFlightDeletedLocally(flight);
-  saveFlights([], { skipSync: true });
-  renderFlights();
-  showToast("Lista wyczyszczona.");
-  try {
-    await pushLocalTombstonesToFirestore();
-    setFirestoreStatus(firestoreStatusSummary("Usunięcia zsynchronizowane z Firestore"), "ok");
-  } catch (error) {
-    setFirestoreStatus(`Wyczyszczono lokalnie. Firestore zsynchronizuje później: ${error.message || error}`, "error");
-  }
-}
-
-
-function setBusyVisible(isVisible, message = "Pracuję...") {
-  if (isVisible) updateStatusPanel(message, "busy");
-  else if (statusChip) statusChip.textContent = "Gotowy";
-  if (busyText) busyText.textContent = message;
-  if (busyOverlay) busyOverlay.hidden = !isVisible;
-  document.body.classList.toggle("is-busy", isVisible);
-  document.body.setAttribute("aria-busy", isVisible ? "true" : "false");
-  for (const selector of ["#loadAircraftButton", "#refreshAircraftButton", "#drawRouteButton", "#locateButton", "#forceUpdateButton"]) {
-    const button = document.querySelector(selector);
-    if (button) button.disabled = isVisible;
-  }
-}
-
-function beginBusy(message) {
-  busyDepth += 1;
-  setBusyVisible(true, message);
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    busyDepth = Math.max(0, busyDepth - 1);
-    if (busyDepth === 0) setBusyVisible(false);
-  };
-}
-
-async function runBusy(message, callback) {
-  const finishBusy = beginBusy(message);
-  try {
-    return await callback();
-  } finally {
-    finishBusy();
-  }
-}
+// aircraftMiniIconSvg przeniesiono do modules/aircraftUtils.js
+
+// aircraftMiniIconDataUrl przeniesiono do modules/aircraftUtils.js
+
+// aircraftThumbSvg przeniesiono do modules/aircraftUtils.js
+
+// aircraftThumbDataUrl przeniesiono do modules/aircraftUtils.js
+
+// photoCache przeniesiono do modules/cacheMediaRoutes.js
+
+// savePhotoCache przeniesiono do modules/cacheMediaRoutes.js
+
+// cleanAircraftRegistration przeniesiono do modules/cacheMediaRoutes.js
+
+// aircraftPhotoLookupKeys przeniesiono do modules/cacheMediaRoutes.js
+
+// photoUrlFromPlanespottersResponse przeniesiono do modules/cacheMediaRoutes.js
+
+// findRealAircraftPhotoUrl przeniesiono do modules/cacheMediaRoutes.js
+
+// setAircraftPhoto przeniesiono do modules/cacheMediaRoutes.js
+
+// createAircraftPhoto przeniesiono do modules/cacheMediaRoutes.js
+
+// routeEndpointIcon przeniesiono do modules/mapRoutes.js
+
+// routeAirports przeniesiono do modules/mapRoutes.js
+
+// routeAirportLabel przeniesiono do modules/mapRoutes.js
+
+// routeAirportVerbose przeniesiono do modules/mapRoutes.js
+
+// routeValueText przeniesiono do modules/mapRoutes.js
+
+// firstRouteValue przeniesiono do modules/mapRoutes.js
+
+// routeInfo przeniesiono do modules/mapRoutes.js
+
+// routeInfoFromAircraft przeniesiono do modules/mapRoutes.js
+
+// routeText przeniesiono do modules/mapRoutes.js
+
+// numericFirst przeniesiono do modules/coreStorage.js
+
+// airportPoint przeniesiono do modules/mapRoutes.js
+
+// routeAirportPoints przeniesiono do modules/mapRoutes.js
+
+// confirmedRouteEndpointPoints przeniesiono do modules/mapRoutes.js
+
+// aircraftListFromResponse przeniesiono do modules/aircraftUtils.js
+
+// cleanCoordinate przeniesiono do modules/coreStorage.js
+
+// sanitizeFirestoreDocId przeniesiono do modules/firestoreSync.js
+
+// sanitizeSyncKey przeniesiono do modules/savedWatchHistory.js
+
+// generateSyncKey przeniesiono do modules/savedWatchHistory.js
+
+// getOrCreateFirestoreClientId przeniesiono do modules/firestoreSync.js
+
+// flightTimestampMs przeniesiono do modules/savedWatchHistory.js
+
+// flightMergeKey przeniesiono do modules/savedWatchHistory.js
+
+// loadDeletedFlights przeniesiono do modules/firestoreSync.js
+
+// saveDeletedFlights przeniesiono do modules/firestoreSync.js
+
+// firestoreFlightDocId przeniesiono do modules/firestoreSync.js
+
+// isFlightDeletedByTombstone przeniesiono do modules/firestoreSync.js
+
+// markFlightDeletedLocally przeniesiono do modules/firestoreSync.js
+
+// mergeRemoteTombstones przeniesiono do modules/firestoreSync.js
+
+// normalizeFlightForStorage przeniesiono do modules/savedWatchHistory.js
+
+// normalizeFlightsForStorage przeniesiono do modules/savedWatchHistory.js
+
+// loadFlights przeniesiono do modules/savedWatchHistory.js
+
+// saveFlights przeniesiono do modules/savedWatchHistory.js
+
+// loadWatchlist przeniesiono do modules/savedWatchHistory.js
+
+// saveWatchlist przeniesiono do modules/savedWatchHistory.js
+
+// loadAlertLog przeniesiono do modules/alertsModule.js
+
+// saveAlertLog przeniesiono do modules/alertsModule.js
+
+// loadFiredAlertState przeniesiono do modules/alertsModule.js
+
+// saveFiredAlertState przeniesiono do modules/alertsModule.js
+
+// hasFiredAlertForIcao przeniesiono do modules/alertsModule.js
+
+// markFiredAlertForIcao przeniesiono do modules/alertsModule.js
+
+// clearFiredAlertForIcao przeniesiono do modules/alertsModule.js
+
+// pruneFiredAlertStateToWatchlist przeniesiono do modules/alertsModule.js
+
+// defaultAlertSettings przeniesiono do modules/alertsModule.js
+
+// loadAlertSettingsObject przeniesiono do modules/alertsModule.js
+
+// saveAlertSettingsObject przeniesiono do modules/alertsModule.js
+
+// ensureWatchlistAlertsEnabled przeniesiono do modules/alertsModule.js
+
+// timeStampText przeniesiono do modules/alertsModule.js
+
+// updateStatusPanel przeniesiono do modules/uiPanels.js
+
+// hideToast przeniesiono do modules/uiPanels.js
+
+// showToast przeniesiono do modules/uiPanels.js
+
+
+// loadFirestoreStateMeta przeniesiono do modules/firestoreSync.js
+
+// saveFirestoreStateMeta przeniesiono do modules/firestoreSync.js
+
+// firestoreSectionUpdatedAt przeniesiono do modules/firestoreSync.js
+
+// ensureFirestoreStateMetaSeeded przeniesiono do modules/firestoreSync.js
+
+// markFirestoreStateSectionDirty przeniesiono do modules/firestoreSync.js
+
+// normalizeFirestoreSection przeniesiono do modules/firestoreSync.js
+
+// localFirestoreSectionValue przeniesiono do modules/firestoreSync.js
+
+// buildLocalFirestoreState przeniesiono do modules/firestoreSync.js
+
+
+// encodeFirestoreAppStateForFlightDoc przeniesiono do modules/firestoreSync.js
+
+// decodeFirestoreAppStateFromFlightDoc przeniesiono do modules/firestoreSync.js
+
+// remoteFirestoreStateSections przeniesiono do modules/firestoreSync.js
+
+// applyRemoteSectionToLocal przeniesiono do modules/firestoreSync.js
+
+// applyRemoteAppState przeniesiono do modules/firestoreSync.js
+
+// pullAppStateFromFirestore przeniesiono do modules/firestoreSync.js
+
+// pushAppStateToFirestore przeniesiono do modules/firestoreSync.js
+
+// firestoreStatusSummary przeniesiono do modules/firestoreSync.js
+
+// firestoreConfigFromForm przeniesiono do modules/firestoreSync.js
+
+// firebaseConfigForSdk przeniesiono do modules/firestoreSync.js
+
+// loadFirestoreConfig przeniesiono do modules/firestoreSync.js
+
+// saveFirestoreConfig przeniesiono do modules/firestoreSync.js
+
+// firestoreConfigComplete przeniesiono do modules/firestoreSync.js
+
+// firestoreConfigSignature przeniesiono do modules/firestoreSync.js
+
+// setFirestoreStatus przeniesiono do modules/firestoreSync.js
+
+// parseFirebaseConfigText przeniesiono do modules/firestoreSync.js
+
+// applyParsedFirebaseConfigToForm przeniesiono do modules/firestoreSync.js
+
+// fillFirestoreForm przeniesiono do modules/firestoreSync.js
+
+// openFirestoreSetupModal przeniesiono do modules/firestoreSync.js
+
+// closeFirestoreSetupModal przeniesiono do modules/firestoreSync.js
+
+// loadFirestoreModules przeniesiono do modules/firestoreSync.js
+
+// resetFirestoreConnection przeniesiono do modules/firestoreSync.js
+
+// remoteDocToFlight przeniesiono do modules/firestoreSync.js
+
+// remoteDocsToFlightsAndTombstones przeniesiono do modules/firestoreSync.js
+
+// mergeFlightCollections przeniesiono do modules/firestoreSync.js
+
+// applyRemoteFlights przeniesiono do modules/firestoreSync.js
+
+// pushFlightsToFirestore przeniesiono do modules/firestoreSync.js
+
+// pushDeletedFlightToFirestore przeniesiono do modules/firestoreSync.js
+
+// pushLocalTombstonesToFirestore przeniesiono do modules/firestoreSync.js
+
+// scheduleFirestorePush przeniesiono do modules/firestoreSync.js
+
+// syncFirestoreNow przeniesiono do modules/firestoreSync.js
+
+// initFirestoreSync przeniesiono do modules/firestoreSync.js
+
+// startFirestoreStartupFlow przeniesiono do modules/firestoreSync.js
+
+// deleteSavedFlight przeniesiono do modules/savedWatchHistory.js
+
+// clearSavedFlights przeniesiono do modules/savedWatchHistory.js
+
+
+// setBusyVisible przeniesiono do modules/uiPanels.js
+
+// beginBusy przeniesiono do modules/uiPanels.js
+
+// runBusy przeniesiono do modules/uiPanels.js
 
 let manualBusyRelease = null;
 
-function startBusy(message) {
-  if (manualBusyRelease) manualBusyRelease();
-  manualBusyRelease = beginBusy(message);
-}
+// startBusy przeniesiono do modules/uiPanels.js
 
-function finishBusy() {
-  if (!manualBusyRelease) return;
-  const release = manualBusyRelease;
-  manualBusyRelease = null;
-  release();
-}
+// finishBusy przeniesiono do modules/uiPanels.js
 
-function invalidateMapSoon() {
-  if (!map) return;
-  window.setTimeout(() => map.invalidateSize?.(), 80);
-  window.setTimeout(() => map.invalidateSize?.(), 240);
-}
+// invalidateMapSoon przeniesiono do modules/uiPanels.js
 
-function closeBottomMoreMenu({ keepActive = false } = {}) {
-  if (!bottomMoreMenu) return;
-  bottomMoreMenu.classList.remove("is-open");
-  bottomMoreMenu.hidden = true;
-  bottomMoreButton?.setAttribute("aria-expanded", "false");
-  if (!keepActive) bottomMoreButton?.classList.remove("is-active");
-}
+// closeBottomMoreMenu przeniesiono do modules/uiPanels.js
 
-function setAircraftActionsMode(active) {
-  document.body.classList.toggle("aircraft-actions-mode", active === true);
-  if (active) closeBottomMoreMenu();
-}
+// setAircraftActionsMode przeniesiono do modules/uiPanels.js
 
-function toggleBottomMoreMenu() {
-  if (!bottomMoreMenu || !bottomMoreButton) return;
-  const shouldOpen = bottomMoreMenu.hidden || !bottomMoreMenu.classList.contains("is-open");
-  if (shouldOpen) {
-    bottomMoreMenu.hidden = false;
-    bottomMoreMenu.classList.add("is-open");
-    bottomMoreButton.setAttribute("aria-expanded", "true");
-    bottomMoreButton.classList.add("is-active");
-  } else {
-    closeBottomMoreMenu();
-  }
-}
+// toggleBottomMoreMenu przeniesiono do modules/uiPanels.js
 
-function selectedAircraftAlertQuery(aircraft) {
-  if (!aircraft) return "";
-  const icao = aircraftIcao(aircraft).toUpperCase();
-  const callsign = aircraftCallsign(aircraft).toUpperCase();
-  const registration = firstFilled(aircraft?.r, aircraft?.registration).toUpperCase();
-  return icao || callsign || registration || aircraftLabel(aircraft);
-}
+// selectedAircraftAlertQuery przeniesiono do modules/uiPanels.js
 
-function prepareAlertsPanelForSelectedAircraft() {
-  if (!selectedAircraft || !alertQueryInput) return;
-  const query = selectedAircraftAlertQuery(selectedAircraft);
-  if (!query) return;
+// prepareAlertsPanelForSelectedAircraft przeniesiono do modules/uiPanels.js
 
-  // Alerty mają działać wyłącznie dla listy obserwowanych.
-  // Nie tworzymy tu globalnego alertu po frazie, żeby program nie alarmował dla przypadkowych samolotów.
-  upsertWatchFromAircraft(selectedAircraft, { silent: true });
-  alertQueryInput.value = "";
-  if (alertsEnabledInput) alertsEnabledInput.checked = true;
-  if (alertWatchedInput) alertWatchedInput.checked = true;
-  if (alertSpecialInput) alertSpecialInput.checked = false;
-  if (alertSystemInput && "Notification" in window) alertSystemInput.checked = true;
+// closeDrawerPanel przeniesiono do modules/uiPanels.js
 
-  const settings = readAlertSettingsFromForm();
-  saveAlertSettingsObject(settings);
-  updateAlertStatusText(`Alert włączony dla listy obserwowanych. Dodano: ${query}.`);
-}
+// openDrawerPanel przeniesiono do modules/uiPanels.js
 
-function closeDrawerPanel() {
-  clearManualSearchInputLock();
-  if (!drawer) return;
-  drawer.classList.remove("is-open", "is-expanded", "is-dragging");
-  drawer.style.removeProperty("--sheet-drag-y");
-  drawer.setAttribute("aria-hidden", "true");
-  for (const panel of drawer.querySelectorAll(".drawer-panel")) panel.classList.remove("is-active");
-  for (const button of bottomNavButtons) button.classList.remove("is-active");
-  closeBottomMoreMenu();
-  invalidateMapSoon();
-}
+// applyAppVersion przeniesiono do modules/uiPanels.js
 
-function openDrawerPanel(panelId, title = "Panel") {
-  const panel = document.getElementById(panelId);
-  if (!drawer || !panel) return;
+// isStandaloneApp przeniesiono do modules/uiPanels.js
 
-  if (panelId === "alertsPanel") prepareAlertsPanelForSelectedAircraft();
+// updateInstallButtonVisibility przeniesiono do modules/uiPanels.js
 
-  const alreadyOpen = drawer.classList.contains("is-open") && panel.classList.contains("is-active");
-  if (alreadyOpen) {
-    closeDrawerPanel();
-    return;
-  }
+// updateInstallPromptVisibility przeniesiono do modules/uiPanels.js
 
-  hideSelectedAircraftSheet();
-  map?.closePopup?.();
-  closeBottomMoreMenu({ keepActive: MORE_PANEL_IDS.has(panelId) });
-  for (const item of drawer.querySelectorAll(".drawer-panel")) item.classList.toggle("is-active", item === panel);
-  for (const button of bottomNavButtons) {
-    if (button === bottomMoreButton) {
-      button.classList.toggle("is-active", MORE_PANEL_IDS.has(panelId));
-    } else {
-      button.classList.toggle("is-active", button.dataset.panel === panelId);
-    }
-  }
-  if (drawerTitle) drawerTitle.textContent = title;
-  drawer.classList.remove("is-expanded", "is-dragging");
-  drawer.style.removeProperty("--sheet-drag-y");
-  drawer.classList.add("is-open");
-  drawer.setAttribute("aria-hidden", "false");
-  invalidateMapSoon();
-}
+// dismissInstallPromptForBrowser przeniesiono do modules/uiPanels.js
 
-function applyAppVersion() {
-  if (appVersionBadge) appVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
-  if (settingsVersionBadge) settingsVersionBadge.textContent = APP_VERSION.startsWith("V") ? APP_VERSION : `v${APP_VERSION}`;
-  document.title = `ADS Viewer Pro ${APP_VERSION}`;
-  document.documentElement.dataset.appVersion = APP_VERSION_STAMP;
+// promptPwaInstall przeniesiono do modules/uiPanels.js
 
-  const previousBuild = storageGet(APP_BUILD_STORAGE_KEY, "");
-  if (previousBuild && previousBuild !== APP_VERSION) {
-    localStorage.removeItem(TRACK_STORAGE_KEY);
-    traceApiAttemptedAt.clear();
-  }
-  storageSet(APP_BUILD_STORAGE_KEY, APP_VERSION);
-}
+// deleteWritableCookies przeniesiono do modules/uiPanels.js
 
-function isStandaloneApp() {
-  return window.matchMedia?.("(display-mode: standalone)")?.matches || window.navigator.standalone === true;
-}
+// forceProgramUpdate przeniesiono do modules/uiPanels.js
 
-function updateInstallButtonVisibility() {
-  if (installButton) {
-    const standalone = isStandaloneApp();
-    const markedInstalled = storageGet(PWA_INSTALLED_STORAGE_KEY, "") === "1";
-    installButton.hidden = standalone || markedInstalled;
-    installButton.disabled = false;
-    installButton.textContent = deferredInstallPrompt ? "Zainstaluj" : "Jak zainstalować";
-    installButton.title = deferredInstallPrompt
-      ? "Zainstaluj aplikację na urządzeniu"
-      : "Pokaż informację, jak zainstalować aplikację z menu przeglądarki";
-  }
-  updateInstallPromptVisibility();
-}
+// explainFetchError przeniesiono do modules/apiSources.js
 
-function updateInstallPromptVisibility() {
-  if (!installPrompt) return;
-  const browserChoice = storageGet(PWA_BROWSER_CHOICE_STORAGE_KEY, "") === "browser";
-  const markedInstalled = storageGet(PWA_INSTALLED_STORAGE_KEY, "") === "1";
-  installPrompt.hidden = isStandaloneApp() || markedInstalled || browserChoice;
-}
+// fetchWithTimeout przeniesiono do modules/apiSources.js
 
-function dismissInstallPromptForBrowser() {
-  storageSet(PWA_BROWSER_CHOICE_STORAGE_KEY, "browser");
-  updateInstallPromptVisibility();
-  showToast("Zostajesz w wersji przeglądarkowej. Instalację znajdziesz w ustawieniach programu.", 3600);
-}
+// applyTheme przeniesiono do modules/uiPanels.js
 
-async function promptPwaInstall() {
-  if (isStandaloneApp()) {
-    showToast("Aplikacja jest już uruchomiona jako zainstalowana PWA.", 2600);
-    updateInstallButtonVisibility();
-    return;
-  }
+// currentTileConfig przeniesiono do modules/uiPanels.js
 
-  if (!deferredInstallPrompt) {
-    updateInstallPromptVisibility();
-    showToast("Ta przeglądarka nie udostępniła przycisku instalacji. Użyj menu przeglądarki: Zainstaluj aplikację / Dodaj do ekranu głównego.", 6200);
-    return;
-  }
+// initMap przeniesiono do modules/mapRoutes.js
 
-  deferredInstallPrompt.prompt();
-  const choice = await deferredInstallPrompt.userChoice;
-  if (choice?.outcome === "accepted") {
-    storageSet(PWA_INSTALLED_STORAGE_KEY, "1");
-    storageSet(PWA_BROWSER_CHOICE_STORAGE_KEY, "installed");
-  }
-  deferredInstallPrompt = null;
-  updateInstallButtonVisibility();
-}
+// refreshTileLayer przeniesiono do modules/mapRoutes.js
 
-function deleteWritableCookies() {
-  if (!document.cookie) return;
-  for (const cookie of document.cookie.split(";")) {
-    const name = cookie.split("=")[0].trim();
-    if (!name) continue;
-    document.cookie = `${name}=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/`;
-  }
-}
+// setRouteSummary przeniesiono do modules/mapRoutes.js
 
-async function forceProgramUpdate() {
-  const finishBusy = beginBusy("Odświeżam program i pobieram najnowszą wersję...");
-  try {
-    if ("caches" in window) {
-      const names = await caches.keys();
-      await Promise.all(names.map((name) => caches.delete(name)));
-    }
+// validPoint przeniesiono do modules/mapRoutes.js
 
-    if ("serviceWorker" in navigator) {
-      const registrations = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(registrations.map((registration) => registration.unregister()));
-    }
+// finiteNumberOrNull przeniesiono do modules/coreStorage.js
 
-    deleteWritableCookies();
-    try { sessionStorage.clear(); } catch {}
+// pointTimeMs przeniesiono do modules/mapRoutes.js
 
-    const url = new URL(window.location.href);
-    url.searchParams.set("fresh", APP_VERSION_STAMP);
-    showToast("Program odświeżony. Ładuję najnowszą wersję...", 1600);
-    window.setTimeout(() => window.location.replace(url.toString()), 350);
-  } catch (error) {
-    showToast(`Nie udało się odświeżyć programu: ${error.message}`, 4200);
-  } finally {
-    finishBusy();
-  }
-}
+// tracePointAltitudeFt przeniesiono do modules/mapRoutes.js
 
-function explainFetchError(error) {
-  if (!navigator.onLine) return "telefon nie ma aktywnego internetu";
-  if (error?.name === "AbortError") return "przekroczono czas oczekiwania na API";
-  if (error?.message) return error.message;
-  return "nieznany błąd sieci";
-}
+// tracePointSpeedKt przeniesiono do modules/mapRoutes.js
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, {
-      ...options,
-      cache: "no-store",
-      signal: controller.signal
-    });
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      throw new Error(`Przekroczono czas oczekiwania po ${Math.round(timeoutMs / 1000)} s.`);
-    }
-    if (!navigator.onLine) {
-      throw new Error("Brak internetu w telefonie albo przeglądarka jest offline.");
-    }
-    throw error;
-  } finally {
-    window.clearTimeout(timer);
-  }
-}
+// isGroundLikeTracePoint przeniesiono do modules/mapRoutes.js
 
-function applyTheme(theme) {
-  const nextTheme = theme === "dark" ? "dark" : "light";
-  document.documentElement.dataset.theme = nextTheme;
-  if (themeInput) themeInput.value = nextTheme;
-  storageSet(THEME_STORAGE_KEY, nextTheme);
-  const themeMeta = document.querySelector("meta[name='theme-color']");
-  if (themeMeta) themeMeta.setAttribute("content", nextTheme === "light" ? "#f3f6fb" : "#0f172a");
-  refreshTileLayer();
-}
+// distanceKmBetweenPoints przeniesiono do modules/mapRoutes.js
 
-function currentTileConfig() {
-  if (document.documentElement.dataset.theme === "light") {
-    return {
-      url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      attribution: '&copy; OpenStreetMap contributors'
-    };
-  }
+// normalizeLongitude przeniesiono do modules/mapRoutes.js
 
-  return {
-    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
-  };
-}
+// greatCirclePointBetween przeniesiono do modules/mapRoutes.js
 
-function initMap() {
-  if (map || !window.L) return;
-  map = L.map("flightMap", {
-    zoomControl: true,
-    worldCopyJump: true,
-    preferCanvas: true
-  }).setView([50.496, 20.749], 7);
+// greatCircleRoutePoints przeniesiono do modules/mapRoutes.js
 
-  map.createPane("trailPane");
-  map.getPane("trailPane").style.zIndex = "410";
-  map.getPane("trailPane").style.pointerEvents = "none";
-  map.createPane("routePane");
-  map.getPane("routePane").style.zIndex = "430";
-  map.getPane("routePane").style.pointerEvents = "none";
-  map.createPane("aircraftPane");
-  map.getPane("aircraftPane").style.zIndex = "650";
-  map.createPane("userPane");
-  map.getPane("userPane").style.zIndex = "760";
-  map.getPane("userPane").style.pointerEvents = "none";
+// combineRouteLegs przeniesiono do modules/mapRoutes.js
 
-  trailLayer = L.layerGroup().addTo(map);
-  routeLayer = L.layerGroup().addTo(map);
-  aircraftLayer = L.layerGroup().addTo(map);
-  userLocationLayer = L.layerGroup().addTo(map);
-  map.on("click", () => {
-    hideSelectedAircraftSheet();
-    closeDrawerPanel();
-    map.closePopup?.();
-  });
-  refreshTileLayer();
-}
+// plannedAirportRoutePointsThroughAircraft przeniesiono do modules/mapRoutes.js
 
-function refreshTileLayer() {
-  if (!map || !window.L) return;
-  const config = currentTileConfig();
-  if (tileLayer) map.removeLayer(tileLayer);
-  tileLayer = L.tileLayer(config.url, {
-    maxZoom: 19,
-    attribution: config.attribution
-  }).addTo(map);
-}
+// shouldBreakTraceSegment przeniesiono do modules/mapRoutes.js
 
-function setRouteSummary(message) {
-  if (routeSummary) routeSummary.textContent = message;
-}
+// splitTraceIntoPlausibleSegments przeniesiono do modules/mapRoutes.js
 
-function validPoint(point) {
-  return point && Number.isFinite(point.lat) && Number.isFinite(point.lon);
-}
+// flightPointFromFormLikeObject przeniesiono do modules/mapRoutes.js
 
-function finiteNumberOrNull(value) {
+// segmentLastTimeMs przeniesiono do modules/mapRoutes.js
+
+// selectTraceSegmentForFlight przeniesiono do modules/mapRoutes.js
+
+// filterTracePointsByUtcDate przeniesiono do modules/mapRoutes.js
+
+// prepareTracePointsForFlight przeniesiono do modules/mapRoutes.js
+
+// appendCurrentAircraftPointToTrace przeniesiono do modules/mapRoutes.js
+
+// pointFromAircraft przeniesiono do modules/mapRoutes.js
+
+
+// destinationPoint przeniesiono do modules/mapRoutes.js
+
+// directionDistanceKm przeniesiono do modules/mapRoutes.js
+
+// drawDirectionLine przeniesiono do modules/mapRoutes.js
+
+// drawRoute przeniesiono do modules/mapRoutes.js
+
+// clearRoute przeniesiono do modules/mapRoutes.js
+
+// buildAdsbUrl przeniesiono do modules/apiSources.js
+
+// normalizeApiBase przeniesiono do modules/apiSources.js
+
+// validatedApiBase przeniesiono do modules/apiSources.js
+
+// selectedApiSource przeniesiono do modules/apiSources.js
+
+// apiSourceByName przeniesiono do modules/apiSources.js
+
+// sourceLabel przeniesiono do modules/apiSources.js
+
+// syncApiBaseFromSource przeniesiono do modules/apiSources.js
+
+// settingsForSource przeniesiono do modules/apiSources.js
+
+// candidateSettings przeniesiono do modules/apiSources.js
+
+// buildRadiusUrl przeniesiono do modules/apiSources.js
+
+// buildHexUrl przeniesiono do modules/apiSources.js
+
+// buildCallsignUrls przeniesiono do modules/apiSources.js
+
+// buildRegistrationUrls przeniesiono do modules/apiSources.js
+
+// looksLikeRegistration przeniesiono do modules/apiSources.js
+
+// iataFlightToLikelyCallsigns przeniesiono do modules/apiSources.js
+
+// fetchJsonWithFallback przeniesiono do modules/apiSources.js
+// yieldToUi przeniesiono do modules/coreStorage.js
+
+// runOnceForKey przeniesiono do modules/coreStorage.js
+
+
+// fetchAircraftFromCandidate przeniesiono do modules/apiSources.js
+
+// fetchFirstAircraftResult przeniesiono do modules/apiSources.js
+
+// aircraftLabel przeniesiono do modules/aircraftUtils.js
+
+// aircraftMeta przeniesiono do modules/aircraftUtils.js
+
+// aircraftExtraMeta przeniesiono do modules/aircraftUtils.js
+
+// aircraftVerticalRate przeniesiono do modules/aircraftUtils.js
+
+// aircraftAltitudeNumber przeniesiono do modules/aircraftUtils.js
+
+// aircraftFlightPhase przeniesiono do modules/aircraftUtils.js
+
+// aircraftRouteIndicatorAngle przeniesiono do modules/aircraftUtils.js
+
+// aircraftPhaseMarkup przeniesiono do modules/aircraftUtils.js
+
+// airlineGuessFromCallsign przeniesiono do modules/aircraftUtils.js
+
+// routePartsForDisplay przeniesiono do modules/mapRoutes.js
+
+function clampNumber(value, min, max) {
   const number = Number(value);
-  return Number.isFinite(number) ? number : null;
+  if (!Number.isFinite(number)) return min;
+  return Math.min(max, Math.max(min, number));
 }
 
-function pointTimeMs(point) {
-  if (!point?.at) return null;
-  const time = Date.parse(point.at);
-  return Number.isFinite(time) ? time : null;
-}
+// routeProgressFraction przeniesiono do modules/mapRoutes.js
 
-function tracePointAltitudeFt(point) {
-  const raw = point?.altitude;
-  if (String(raw || "").toLowerCase() === "ground") return 0;
-  return finiteNumberOrNull(raw);
-}
+// formatRouteDistanceKm przeniesiono do modules/mapRoutes.js
 
-function tracePointSpeedKt(point) {
-  return finiteNumberOrNull(point?.speed);
-}
+// aircraftRouteProgressInfo przeniesiono do modules/mapRoutes.js
 
-function isGroundLikeTracePoint(point) {
-  const altitude = tracePointAltitudeFt(point);
-  const speed = tracePointSpeedKt(point);
-  return (altitude !== null && altitude <= 500) && (speed === null || speed <= 90);
-}
+// updateAircraftSheetRouteProgress przeniesiono do modules/mapRoutes.js
 
-function distanceKmBetweenPoints(a, b) {
-  if (!validPoint(a) || !validPoint(b)) return null;
-  const radiusKm = 6371;
-  const lat1 = a.lat * Math.PI / 180;
-  const lat2 = b.lat * Math.PI / 180;
-  const dLat = (b.lat - a.lat) * Math.PI / 180;
-  const dLon = (b.lon - a.lon) * Math.PI / 180;
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return radiusKm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
-}
 
-function normalizeLongitude(lon) {
-  return ((lon + 540) % 360) - 180;
-}
-
-function greatCirclePointBetween(start, end, fraction) {
-  if (!validPoint(start) || !validPoint(end)) return null;
-  const lat1 = start.lat * Math.PI / 180;
-  const lon1 = start.lon * Math.PI / 180;
-  const lat2 = end.lat * Math.PI / 180;
-  const lon2 = end.lon * Math.PI / 180;
-
-  const delta = 2 * Math.asin(Math.sqrt(
-    Math.sin((lat2 - lat1) / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2
-  ));
-
-  if (!Number.isFinite(delta) || delta === 0) {
-    return { ...start };
-  }
-
-  const sinDelta = Math.sin(delta);
-  const a = Math.sin((1 - fraction) * delta) / sinDelta;
-  const b = Math.sin(fraction * delta) / sinDelta;
-
-  const x = a * Math.cos(lat1) * Math.cos(lon1) + b * Math.cos(lat2) * Math.cos(lon2);
-  const y = a * Math.cos(lat1) * Math.sin(lon1) + b * Math.cos(lat2) * Math.sin(lon2);
-  const z = a * Math.sin(lat1) + b * Math.sin(lat2);
-
-  const lat = Math.atan2(z, Math.sqrt(x * x + y * y)) * 180 / Math.PI;
-  const lon = Math.atan2(y, x) * 180 / Math.PI;
-  return {
-    lat,
-    lon: normalizeLongitude(lon),
-    at: "",
-    altitude: null,
-    speed: null,
-    track: null
-  };
-}
-
-function greatCircleRoutePoints(start, end) {
-  if (!validPoint(start) || !validPoint(end)) return [];
-  const distanceKm = distanceKmBetweenPoints(start, end) || 0;
-  const steps = Math.min(180, Math.max(32, Math.ceil(distanceKm / 90)));
-  const result = [];
-
-  for (let index = 0; index <= steps; index += 1) {
-    const point = greatCirclePointBetween(start, end, index / steps);
-    if (point) result.push(point);
-  }
-
-  if (result.length) {
-    result[0] = { ...result[0], ...start };
-    result[result.length - 1] = { ...result[result.length - 1], ...end };
-  }
-  return result;
-}
-
-function combineRouteLegs(...legs) {
-  const combined = [];
-  for (const leg of legs) {
-    const cleanLeg = (Array.isArray(leg) ? leg : []).filter(validPoint);
-    for (const point of cleanLeg) {
-      const previous = combined[combined.length - 1];
-      const sameAsPrevious = previous && Math.abs(previous.lat - point.lat) < 0.000001 && Math.abs(previous.lon - point.lon) < 0.000001;
-      if (!sameAsPrevious) combined.push(point);
-    }
-  }
-  return combined;
-}
-
-function plannedAirportRoutePointsThroughAircraft(aircraft, endpoints) {
-  if (!endpoints?.start || !endpoints?.end) return [];
-  const aircraftPoint = pointFromAircraft(aircraft);
-  if (!validPoint(aircraftPoint)) {
-    return greatCircleRoutePoints(endpoints.start, endpoints.end).filter(validPoint);
-  }
-
-  const distanceFromStartKm = distanceKmBetweenPoints(endpoints.start, aircraftPoint);
-  const distanceFromEndKm = distanceKmBetweenPoints(aircraftPoint, endpoints.end);
-  if (distanceFromStartKm !== null && distanceFromStartKm < 8) {
-    return greatCircleRoutePoints(aircraftPoint, endpoints.end).filter(validPoint);
-  }
-  if (distanceFromEndKm !== null && distanceFromEndKm < 8) {
-    return greatCircleRoutePoints(endpoints.start, aircraftPoint).filter(validPoint);
-  }
-
-  return combineRouteLegs(
-    greatCircleRoutePoints(endpoints.start, aircraftPoint),
-    greatCircleRoutePoints(aircraftPoint, endpoints.end)
-  );
-}
-
-function shouldBreakTraceSegment(previous, point) {
-  if (!validPoint(previous) || !validPoint(point)) return true;
-  const distanceKm = distanceKmBetweenPoints(previous, point);
-  const previousTime = pointTimeMs(previous);
-  const pointTime = pointTimeMs(point);
-
-  if (previousTime !== null && pointTime !== null) {
-    const deltaMs = pointTime - previousTime;
-    if (deltaMs < -60 * 1000) return true;
-    if (deltaMs > TRACE_MAX_TIME_GAP_MS) return true;
-    if (distanceKm !== null && deltaMs > 0) {
-      const speedKmh = distanceKm / (deltaMs / 3600000);
-      if (distanceKm > 35 && speedKmh > TRACE_MAX_REASONABLE_KMH) return true;
-    }
-  } else if (distanceKm !== null && distanceKm > TRACE_MAX_DISTANCE_WITHOUT_TIME_KM) {
-    return true;
-  }
-
-  return false;
-}
-
-function splitTraceIntoPlausibleSegments(points) {
-  const clean = (Array.isArray(points) ? points : []).filter(validPoint);
-  if (clean.length < 2) return clean.length ? [clean] : [];
-
-  const sorted = clean.slice().sort((a, b) => {
-    const aTime = pointTimeMs(a);
-    const bTime = pointTimeMs(b);
-    if (aTime === null || bTime === null) return 0;
-    return aTime - bTime;
-  });
-
-  const segments = [];
-  let current = [];
-  for (const point of sorted) {
-    const previous = current[current.length - 1];
-    if (previous && shouldBreakTraceSegment(previous, point)) {
-      if (current.length) segments.push(current);
-      current = [];
-    }
-    current.push(point);
-  }
-  if (current.length) segments.push(current);
-  return segments.filter((segment) => segment.length);
-}
-
-function flightPointFromFormLikeObject(flight) {
-  const lat = Number.parseFloat(flight?.lat);
-  const lon = Number.parseFloat(flight?.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
-}
-
-function segmentLastTimeMs(segment) {
-  for (let i = segment.length - 1; i >= 0; i -= 1) {
-    const time = pointTimeMs(segment[i]);
-    if (time !== null) return time;
-  }
-  return 0;
-}
-
-function selectTraceSegmentForFlight(points, flight) {
-  const segments = splitTraceIntoPlausibleSegments(points)
-    .filter((segment) => segment.length >= 2)
-    .sort((a, b) => segmentLastTimeMs(b) - segmentLastTimeMs(a));
-
-  if (!segments.length) return [];
-
-  const currentPoint = flightPointFromFormLikeObject(flight);
-  if (currentPoint) {
-    const nearCurrent = segments
-      .map((segment) => ({
-        segment,
-        distanceKm: distanceKmBetweenPoints(segment[segment.length - 1], currentPoint)
-      }))
-      .filter((item) => item.distanceKm !== null && item.distanceKm <= TRACE_CURRENT_MATCH_MAX_KM)
-      .sort((a, b) => a.distanceKm - b.distanceKm);
-    if (nearCurrent.length) return nearCurrent[0].segment;
-    return [];
-  }
-
-  return segments[0];
-}
-
-function filterTracePointsByUtcDate(points, requestedDate) {
-  const date = String(requestedDate || "").slice(0, 10);
-  if (!date) return points;
-  return points.filter((point) => {
-    const time = pointTimeMs(point);
-    if (time === null) return true;
-    return new Date(time).toISOString().slice(0, 10) === date;
-  });
-}
-
-function prepareTracePointsForFlight(points, flight, options = {}) {
-  let clean = (Array.isArray(points) ? points : []).filter(validPoint);
-  if (options.filterDate === true) {
-    clean = filterTracePointsByUtcDate(clean, flight?.date);
-  }
-  return selectTraceSegmentForFlight(clean, flight);
-}
-
-function appendCurrentAircraftPointToTrace(points, aircraft) {
-  const clean = (Array.isArray(points) ? points : []).filter(validPoint);
-  const current = pointFromAircraft(aircraft);
-  if (!validPoint(current)) return clean;
-  if (!clean.length) return [current];
-
-  const last = clean[clean.length - 1];
-  const distanceKm = distanceKmBetweenPoints(last, current);
-  if (distanceKm !== null && distanceKm < 1) return clean;
-  if (distanceKm !== null && distanceKm > TRACE_APPEND_CURRENT_MAX_KM) return clean;
-
-  const lastTime = pointTimeMs(last);
-  const currentTime = pointTimeMs(current);
-  if (lastTime !== null && currentTime !== null && currentTime < lastTime - 60000) return clean;
-
-  if (shouldBreakTraceSegment(last, current) && !(distanceKm !== null && distanceKm <= TRACE_APPEND_CURRENT_MAX_KM)) return clean;
-  return [...clean, current];
-}
-
-function pointFromAircraft(aircraft) {
-  const lat = Number.parseFloat(aircraft.lat);
-  const lon = Number.parseFloat(aircraft.lon);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return {
-    lat,
-    lon,
-    at: new Date().toISOString(),
-    altitude: aircraft.alt_baro ?? null,
-    speed: aircraft.gs ?? null,
-    track: aircraftHeading(aircraft),
-    verticalRate: aircraft.baro_rate ?? aircraft.geom_rate ?? null
-  };
-}
-
-
-function destinationPoint(lat, lon, bearingDeg, distanceKm) {
-  const radiusKm = 6371;
-  const bearing = bearingDeg * Math.PI / 180;
-  const lat1 = lat * Math.PI / 180;
-  const lon1 = lon * Math.PI / 180;
-  const d = distanceKm / radiusKm;
-  const lat2 = Math.asin(Math.sin(lat1) * Math.cos(d) + Math.cos(lat1) * Math.sin(d) * Math.cos(bearing));
-  const lon2 = lon1 + Math.atan2(Math.sin(bearing) * Math.sin(d) * Math.cos(lat1), Math.cos(d) - Math.sin(lat1) * Math.sin(lat2));
-  return [lat2 * 180 / Math.PI, ((lon2 * 180 / Math.PI + 540) % 360) - 180];
-}
-
-function directionDistanceKm(speedKt) {
-  const speed = Number(speedKt);
-  if (!Number.isFinite(speed) || speed <= 0) return 30;
-  return Math.min(90, Math.max(15, speed * 1.852 * 5 / 60));
-}
-
-function drawDirectionLine(layer, point, heading, speed, options = {}) {
-  if (!validPoint(point) || !Number.isFinite(Number(heading))) return null;
-  const end = destinationPoint(point.lat, point.lon, Number(heading), directionDistanceKm(speed));
-  return L.polyline([[point.lat, point.lon], end], {
-    pane: "routePane",
-    interactive: false,
-    color: options.color || "#0ea5e9",
-    weight: options.weight || 2,
-    opacity: options.opacity || 0.82,
-    dashArray: options.dashArray || "8 7"
-  }).addTo(layer);
-}
-
-function drawRoute(points, label = "Trasa", options = {}) {
-  initMap();
-  if (!map || !routeLayer) return;
-  routeLayer.clearLayers();
-  const clean = points.filter(validPoint);
-  lastRouteBounds = null;
-
-  if (!clean.length) {
-    setRouteSummary("Brak punktów trasy do pokazania.");
-    return;
-  }
-
-  const latLngs = clean.map((point) => [point.lat, point.lon]);
-  const plannedOnly = options.plannedOnly === true;
-  if (latLngs.length > 1) {
-    L.polyline(latLngs, {
-      pane: "routePane",
-      interactive: false,
-      color: "#ffffff",
-      weight: plannedOnly ? 7 : 9,
-      opacity: plannedOnly ? 0.74 : 0.88,
-      dashArray: plannedOnly ? "10 10" : undefined
-    }).addTo(routeLayer);
-
-    L.polyline(latLngs, {
-      pane: "routePane",
-      interactive: false,
-      color: plannedOnly ? "#2563eb" : "#f97316",
-      weight: plannedOnly ? 3 : 5,
-      opacity: plannedOnly ? 0.82 : 0.98,
-      dashArray: plannedOnly ? "10 10" : undefined
-    }).addTo(routeLayer);
-  } else if (options.showHeadingWhenSingle === true && Number.isFinite(Number(clean[0].track))) {
-    drawDirectionLine(routeLayer, clean[0], clean[0].track, clean[0].speed, { color: "#f97316", weight: 4, opacity: 0.96 });
-  }
-
-  const start = clean[0];
-  const end = clean[clean.length - 1];
-  const endpoints = options.endpoints || null;
-
-  if (latLngs.length === 1 && options.showCurrentMarker !== false) {
-    L.marker([start.lat, start.lon], {
-      pane: "routePane",
-      interactive: false,
-      keyboard: false,
-      icon: routeEndpointIcon("AKTUALNIE", "start"),
-      title: "Aktualna pozycja"
-    }).addTo(routeLayer);
-  }
-
-  if (endpoints?.start && endpoints?.end) {
-    L.marker([endpoints.start.lat, endpoints.start.lon], {
-      pane: "routePane",
-      interactive: false,
-      keyboard: false,
-      icon: routeEndpointIcon("START", "start"),
-      title: `Start: ${endpoints.start.label || "potwierdzony punkt startu"}`
-    }).addTo(routeLayer);
-
-    const endMarkerText = options.endMarkerText || (plannedOnly ? "CEL" : "STOP");
-    const endMarkerTitle = plannedOnly ? "Cel" : "Stop";
-    L.marker([endpoints.end.lat, endpoints.end.lon], {
-      pane: "routePane",
-      interactive: false,
-      keyboard: false,
-      icon: routeEndpointIcon(endMarkerText, "end"),
-      title: `${endMarkerTitle}: ${endpoints.end.label || "potwierdzony punkt końcowy"}`
-    }).addTo(routeLayer);
-  }
-
-  lastRouteBounds = L.latLngBounds(latLngs);
-  if (options.fitMap !== false) {
-    map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: latLngs.length === 1 ? 10 : 11 });
-  }
-
-  const suffix = latLngs.length === 1
-    ? (options.showHeadingWhenSingle === true ? "1 punkt + kierunek lotu" : "1 punkt rzeczywisty")
-    : (plannedOnly ? `${latLngs.length} punkty znanej trasy lotniskowej` : `${latLngs.length} punktów rzeczywistego śladu`);
-  const endpointText = endpoints?.start && endpoints?.end
-    ? ` Start ${endpoints.start.label}; ${plannedOnly ? "cel" : "stop"} ${endpoints.end.label}.`
-    : " Bez potwierdzonego startu i lądowania — nie pokazuję znaczników START/STOP.";
-  setRouteSummary(`${label}: ${suffix}.${endpointText}`);
-}
-
-function clearRoute() {
-  if (routeLayer) routeLayer.clearLayers();
-  lastRouteBounds = null;
-  setRouteSummary("Mapa wyczyszczona.");
-}
-
-function buildAdsbUrl(flight) {
-  const params = new URLSearchParams();
-  params.set("icao", flight.icao);
-  if (flight.lat) params.set("lat", flight.lat);
-  if (flight.lon) params.set("lon", flight.lon);
-  if (flight.zoom) params.set("zoom", flight.zoom);
-  params.set("showTrace", flight.date);
-  params.set("trackLabels", "");
-  return `${ADSB_BASE_URL}?${params.toString().replace("trackLabels=", "trackLabels")}`;
-}
-
-function normalizeApiBase(value) {
-  return (value || API_SOURCES[DEFAULT_DATA_SOURCE].apiBase).trim().replace(/\/+$/, "");
-}
-
-function validatedApiBase(value) {
-  const apiBase = normalizeApiBase(value);
-  try {
-    const url = new URL(apiBase);
-    if (url.protocol !== "https:" && url.protocol !== "http:") throw new Error();
-    return url.href.replace(/\/+$/, "");
-  } catch {
-    throw new Error("Adres API musi byc pelnym adresem http/https.");
-  }
-}
-
-function selectedApiSource() {
-  return API_SOURCES[dataSourceInput.value] || API_SOURCES[DEFAULT_DATA_SOURCE];
-}
-
-function apiSourceByName(name) {
-  return API_SOURCES[name] || API_SOURCES[DEFAULT_DATA_SOURCE];
-}
-
-function sourceLabel(name) {
-  return apiSourceByName(name).label || name;
-}
-
-function syncApiBaseFromSource() {
-  const source = selectedApiSource();
-  if (dataSourceInput.value !== "custom") {
-    apiBaseInput.value = source.apiBase;
-  }
-}
-
-function settingsForSource(baseSettings, sourceName) {
-  const source = apiSourceByName(sourceName);
-  return {
-    ...baseSettings,
-    apiBase: sourceName === baseSettings.sourceName ? baseSettings.apiBase : source.apiBase,
-    sourceName
-  };
-}
-
-function candidateSettings(baseSettings) {
-  const source = apiSourceByName(baseSettings.sourceName);
-  if (source.requiresKey || baseSettings.sourceName === "custom") return [baseSettings];
-
-  const names = [baseSettings.sourceName, ...FREE_FALLBACK_SOURCES].filter((name, index, list) => list.indexOf(name) === index);
-  return names.map((name) => settingsForSource(baseSettings, name));
-}
-
-function buildRadiusUrl(settings) {
-  const source = apiSourceByName(settings.sourceName);
-  if (source.radiusStyle === "point") {
-    return `${settings.apiBase}/point/${settings.lat}/${settings.lon}/${settings.dist}`;
-  }
-  return `${settings.apiBase}/lat/${settings.lat}/lon/${settings.lon}/dist/${settings.dist}`;
-}
-
-function buildHexUrl(settings, icao) {
-  const source = apiSourceByName(settings.sourceName);
-  const endpointHex = source.hexCollection ? `${icao},` : icao;
-  return `${settings.apiBase}/hex/${endpointHex}`;
-}
-
-function buildCallsignUrls(settings, callsign) {
-  const clean = normalizeCallsign(callsign);
-  if (!clean) return [];
-  const source = apiSourceByName(settings.sourceName);
-  if (source.hexCollection) {
-    return [`${settings.apiBase}/call/${encodeURIComponent(clean)}`];
-  }
-  return [`${settings.apiBase}/callsign/${encodeURIComponent(clean)}`];
-}
-
-function buildRegistrationUrls(settings, registration) {
-  const clean = cleanAircraftRegistration(registration).toUpperCase();
-  if (!clean) return [];
-  const source = apiSourceByName(settings.sourceName);
-  if (source.hexCollection) {
-    return [`${settings.apiBase}/registration/${encodeURIComponent(clean)}`];
-  }
-  return [
-    `${settings.apiBase}/reg/${encodeURIComponent(clean)}`,
-    `${settings.apiBase}/registration/${encodeURIComponent(clean)}`
-  ];
-}
-
-function looksLikeRegistration(value) {
-  const clean = cleanAircraftRegistration(value).toUpperCase();
-  return /^[A-Z0-9]{1,3}-[A-Z0-9]{2,5}$/.test(clean) || /^N[0-9][A-Z0-9]{1,5}$/.test(clean);
-}
-
-function iataFlightToLikelyCallsigns(value) {
-  const clean = normalizeSearchText(value).replace(/-/g, "");
-  const match = clean.match(/^([A-Z]{2})([0-9]{1,4}[A-Z]?)$/);
-  if (!match) return [];
-  const airlineMap = {
-    BA: "BAW", BT: "BTI", FR: "RYR", W6: "WZZ", LO: "LOT", LH: "DLH", KL: "KLM", AF: "AFR",
-    UA: "UAL", AA: "AAL", DL: "DAL", EK: "UAE", QR: "QTR", TK: "THY", LX: "SWR", OS: "AUA",
-    SK: "SAS", AY: "FIN", EI: "EIN", IB: "IBE", VY: "VLG", U2: "EZY", LS: "EXS", PC: "PGT"
-  };
-  const prefix = airlineMap[match[1]];
-  return prefix ? [`${prefix}${match[2]}`] : [];
-}
-
-async function fetchJsonWithFallback(url, settings, headers = {}, options = {}) {
-  const source = apiSourceByName(settings.sourceName);
-  const timeoutMs = options.timeoutMs || FETCH_TIMEOUT_MS;
-  const allowProxy = options.allowProxy !== false;
-  const attempts = [url];
-  if (allowProxy && source.allowProxy && !settings.apiKey) {
-    attempts.push(...CORS_PROXY_BUILDERS.map((builder) => builder(url)));
-  }
-
-  let lastError = null;
-  for (const attemptUrl of attempts) {
-    try {
-      const proxied = attemptUrl !== url;
-      const response = await fetchWithTimeout(attemptUrl, {
-        headers: proxied ? { "Accept": "application/json" } : headers
-      }, timeoutMs);
-      if (!response.ok) throw new Error(`API zwróciło błąd ${response.status}.`);
-      return await response.json();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  throw lastError || new Error("Nie udało się pobrać danych.");
-}
-
-async function fetchAircraftFromCandidate(candidate, headers) {
-  const data = await fetchJsonWithFallback(buildRadiusUrl(candidate), candidate, headers, {
-    timeoutMs: RADIUS_FETCH_TIMEOUT_MS,
-    allowProxy: false
-  });
-  const aircraft = aircraftListFromResponse(data)
-    .filter((item) => isValidIcao(normalizeIcao(item.hex || "")))
-    .map((item) => ({ ...item, _sourceName: sourceLabel(candidate.sourceName) }));
-  return { aircraft, candidate, sourceName: sourceLabel(candidate.sourceName) };
-}
-
-async function fetchFirstAircraftResult(settings, headers) {
-  const candidates = candidateSettings(settings);
-  if (candidates.length === 1) {
-    return fetchAircraftFromCandidate(candidates[0], headers);
-  }
-
-  let firstEmptyResult = null;
-  let firstRealError = null;
-  const probes = candidates.map((candidate) => fetchAircraftFromCandidate(candidate, headers).then((result) => {
-    if (result.aircraft.length) return result;
-    if (!firstEmptyResult) firstEmptyResult = result;
-    const error = new Error("Źródło zwróciło pustą listę.");
-    error.emptyResult = result;
-    throw error;
-  }).catch((error) => {
-    if (error.emptyResult && !firstEmptyResult) firstEmptyResult = error.emptyResult;
-    if (!error.emptyResult && !firstRealError) firstRealError = error;
-    throw error;
-  }));
-
-  try {
-    return await Promise.any(probes);
-  } catch (error) {
-    if (firstEmptyResult) return firstEmptyResult;
-    if (error instanceof AggregateError) {
-      const usefulError = error.errors?.find((item) => !item.emptyResult) || error.errors?.[0];
-      throw usefulError || new Error("Nie udało się pobrać danych.");
-    }
-    throw firstRealError || error || new Error("Nie udało się pobrać danych.");
-  }
-}
-
-function aircraftLabel(aircraft) {
-  const flight = (aircraft.flight || "").trim();
-  const reg = (aircraft.r || "").trim();
-  const type = (aircraft.t || "").trim();
-  const hex = normalizeIcao(aircraft.hex || "");
-  return flight || reg || type || (hex ? hex.toUpperCase() : "Samolot");
-}
-
-function aircraftMeta(aircraft) {
-  const parts = [];
-  if (aircraft.hex) parts.push(aircraft.hex.toUpperCase());
-  if (aircraft.t) parts.push(String(aircraft.t).trim());
-  if (aircraft.r) parts.push(String(aircraft.r).trim());
-  parts.push(formatAltitude(aircraft.alt_baro));
-  parts.push(formatSpeed(aircraft.gs));
-  parts.push(`kurs ${formatHeading(aircraftHeading(aircraft))}`);
-  const freshness = aircraftFreshnessInfo(aircraft);
-  if (freshness.ageText !== "brak danych") parts.push(`${freshness.label} ${freshness.ageText}`);
-  return parts.filter((item) => item && item !== "brak danych").join(" • ");
-}
-
-function aircraftExtraMeta(aircraft) {
-  const details = [];
-  if (aircraft.baro_rate !== undefined || aircraft.geom_rate !== undefined) {
-    details.push(`wznoszenie/opadanie ${numberText(aircraft.baro_rate ?? aircraft.geom_rate)} ft/min`);
-  }
-  if (aircraft.squawk) details.push(`squawk ${aircraft.squawk}`);
-  if (aircraft.nav_altitude_mcp) details.push(`zadana wys. ${formatAltitude(aircraft.nav_altitude_mcp)}`);
-  if (aircraft.messages !== undefined) details.push(`wiad. ${numberText(aircraft.messages)}`);
-  return details.join(" • ");
-}
-
-function aircraftVerticalRate(aircraft) {
-  return numericFirst(aircraft?.baro_rate, aircraft?.geom_rate, aircraft?.verticalRate, aircraft?.vertical_rate);
-}
-
-function aircraftAltitudeNumber(aircraft) {
-  if (aircraft?.alt_baro === "ground") return 0;
-  return numericFirst(aircraft?.alt_baro, aircraft?.alt_geom, aircraft?.altitude);
-}
-
-function aircraftFlightPhase(aircraft) {
-  const altitude = aircraftAltitudeNumber(aircraft);
-  const speed = numericFirst(aircraft?.gs, aircraft?.speed);
-  const verticalRate = aircraftVerticalRate(aircraft);
-
-  if (aircraft?.alt_baro === "ground" || (Number.isFinite(altitude) && altitude < 150 && Number.isFinite(speed) && speed < 50)) {
-    return { label: "na ziemi", detail: "samolot stoi albo kołuje", css: "ground", angle: 0 };
-  }
-  if (Number.isFinite(verticalRate) && verticalRate > 250) {
-    return { label: "wznosi się", detail: `+${numberText(verticalRate)} ft/min`, css: "climb", angle: -18 };
-  }
-  if (Number.isFinite(verticalRate) && verticalRate < -250) {
-    return { label: "zniża się", detail: `${numberText(verticalRate)} ft/min`, css: "descent", angle: 18 };
-  }
-  return { label: "lot poziomy", detail: Number.isFinite(verticalRate) ? `${numberText(verticalRate)} ft/min` : "brak danych pionowych", css: "level", angle: 0 };
-}
-
-function aircraftPhaseMarkup(aircraft) {
-  const phase = aircraftFlightPhase(aircraft);
-  const group = aircraftTypeGroup(aircraft || {});
-  return `<span class="phase-plane phase-${phase.css}" style="--phase-angle:${phase.angle}deg">${aircraftSvgMarkup(group)}</span>`;
-}
-
-function airlineGuessFromCallsign(aircraft) {
-  const flight = aircraftCallsign(aircraft);
-  const operator = firstFilled(aircraft?.operator, aircraft?.ownOp, aircraft?.op, aircraft?.airline, aircraft?.owner, aircraft?.desc);
-  if (operator) return operator;
-  const prefixes = {
-    LOT: "LOT Polish Airlines",
-    RYR: "Ryanair",
-    DLH: "Lufthansa",
-    WZZ: "Wizz Air",
-    UAE: "Emirates",
-    QTR: "Qatar Airways",
-    THY: "Turkish Airlines",
-    AFR: "Air France",
-    KLM: "KLM",
-    BAW: "British Airways",
-    EZY: "easyJet",
-    SAS: "SAS",
-    UPS: "UPS",
-    FDX: "FedEx"
-  };
-  const prefix = String(flight || "").match(/^[A-Z]{2,3}/)?.[0] || "";
-  return prefixes[prefix] || firstFilled(aircraft?.r, aircraft?.registration, "brak danych");
-}
-
-function routePartsForDisplay(aircraft) {
-  const info = routeInfoFromAircraft(aircraft);
-  const text = info.short || "";
-  const parts = text.split(/\s*→\s*/).filter(Boolean);
-  return {
-    from: parts[0] || "N/A",
-    to: parts.length > 1 ? parts[parts.length - 1] : "N/A",
-    caption: info.verbose || "Skąd/dokąd: brak danych"
-  };
-}
 
 function firstTimeValue(...values) {
   for (const value of values) {
@@ -3217,1854 +1006,166 @@ function firstTimeValue(...values) {
   return "brak danych";
 }
 
-function routeDetailRows(aircraft) {
-  const route = routePartsForDisplay(aircraft);
-  return [
-    ["Skąd", route.from],
-    ["Dokąd", route.to],
-    ["Planowany start", firstTimeValue(aircraft?.scheduled_departure, aircraft?.departure_time, aircraft?.dep_time, aircraft?.takeoff_time, aircraft?._route?.scheduled_departure, aircraft?._route?.departure_time, aircraft?.departure?.time, aircraft?.origin?.time)],
-    ["Planowany przylot", firstTimeValue(aircraft?.scheduled_arrival, aircraft?.arrival_time, aircraft?.arr_time, aircraft?.landing_time, aircraft?.eta, aircraft?._route?.scheduled_arrival, aircraft?._route?.arrival_time, aircraft?.arrival?.time, aircraft?.destination?.time)],
-    ["Opis trasy", route.caption],
-    ["Aktualna wysokość", formatAltitude(aircraft?.alt_baro)],
-    ["Aktualna prędkość", formatSpeed(aircraft?.gs)],
-    ["Kurs", formatHeading(aircraftHeading(aircraft))]
-  ];
-}
-
-function aircraftDetailsRows(aircraft) {
-  const point = pointFromAircraft(aircraft);
-  const route = routeInfoFromAircraft(aircraft);
-  const freshness = aircraftFreshnessInfo(aircraft);
-  const verticalRate = aircraftVerticalRate(aircraft);
-  const rows = [
-    ["Callsign", aircraftCallsign(aircraft) || aircraftLabel(aircraft)],
-    ["HEX", normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych"],
-    ["Typ", firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, aircraftKind(aircraft), "brak danych")],
-    ["Rejestracja", firstFilled(aircraft?.r, aircraft?.registration, "brak danych")],
-    ["Operator / linia", airlineGuessFromCallsign(aircraft)],
-    ["Trasa", route.verbose || route.short || "brak danych"],
-    ["Status pozycji", `${freshness.label} • ${freshness.ageText}`],
-    ["Wysokość", formatAltitude(aircraft?.alt_baro)],
-    ["Wysokość geometryczna", formatAltitude(aircraft?.alt_geom)],
-    ["Prędkość", formatSpeed(aircraft?.gs)],
-    ["Kurs", formatHeading(aircraftHeading(aircraft))],
-    ["Wznoszenie/opadanie", Number.isFinite(verticalRate) ? `${numberText(verticalRate)} ft/min` : "brak danych"],
-    ["Squawk", firstFilled(aircraft?.squawk, "brak danych")],
-    ["Zadana wysokość", aircraft?.nav_altitude_mcp ? formatAltitude(aircraft.nav_altitude_mcp) : "brak danych"],
-    ["Pozycja", point ? `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}` : "brak danych"],
-    ["Źródło", aircraftSourceText(aircraft)]
-  ];
-  return rows;
-}
-
-function renderAircraftDetailsPanel(aircraft) {
-  if (!aircraftSheetMorePanel) return;
-  aircraftSheetMorePanel.replaceChildren();
-  for (const [name, value] of aircraftDetailsRows(aircraft)) {
-    const row = document.createElement("div");
-    row.className = "detail-row";
-    const valueElement = createTextElement("strong", "detail-value", value);
-    if (["Callsign", "HEX", "Rejestracja", "Pozycja"].includes(name)) {
-      enableCopyableAircraftValue(valueElement, value, name);
-    }
-    row.append(createTextElement("span", "detail-name", name), valueElement);
-    aircraftSheetMorePanel.append(row);
-  }
-}
-
-function setAircraftDetailsVisible(visible) {
-  if (!aircraftSheet || !aircraftSheetMorePanel) return;
-  aircraftSheetMorePanel.hidden = !visible;
-  aircraftSheet.classList.toggle("is-expanded", visible);
-  if (aircraftSheetRoute) aircraftSheetRoute.textContent = visible ? "Ukryj szczegóły" : "Szczegóły";
-  if (visible) {
-    invalidateMapSoon();
-    window.setTimeout(() => aircraftSheetMorePanel.scrollIntoView({ block: "nearest", behavior: "smooth" }), 80);
-  }
-}
-
-function showSelectedAircraftSheet(aircraft) {
-  if (!aircraftSheet || !aircraft) return;
-  selectedAircraft = aircraft;
-  updateSelectedAircraftMarkerHighlight();
-  const label = aircraftLabel(aircraft);
-  const type = firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, aircraftKind(aircraft), aircraftGroupLabel(aircraftTypeGroup(aircraft)));
-  const route = routePartsForDisplay(aircraft);
-  const phase = aircraftFlightPhase(aircraft);
-
-  if (aircraftSheetCallsign) aircraftSheetCallsign.textContent = label;
-  if (aircraftSheetType) aircraftSheetType.textContent = type || "brak danych";
-  if (aircraftSheetOperator) aircraftSheetOperator.textContent = airlineGuessFromCallsign(aircraft);
-  if (aircraftSheetRouteFrom) aircraftSheetRouteFrom.textContent = route.from;
-  if (aircraftSheetRouteTo) aircraftSheetRouteTo.textContent = route.to;
-  if (aircraftSheetRouteCaption) aircraftSheetRouteCaption.textContent = route.caption;
-  if (aircraftSheetAltitude) aircraftSheetAltitude.textContent = formatAltitude(aircraft?.alt_baro);
-  if (aircraftSheetSpeed) aircraftSheetSpeed.textContent = formatSpeed(aircraft?.gs);
-  if (aircraftSheetRegistration) aircraftSheetRegistration.textContent = firstFilled(aircraft?.r, aircraft?.registration, normalizeIcao(aircraft?.hex || "").toUpperCase(), "brak danych");
-  if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(aircraft);
-  if (aircraftSheetPhaseText) aircraftSheetPhaseText.textContent = `${phase.label} • ${phase.detail}`;
-  updateAircraftSheetLiveDetails(aircraft);
-  if (aircraftSheetPhoto) setAircraftPhoto(aircraftSheetPhoto, aircraft, { realPhoto: true });
-
-  if (aircraftSheetMorePanel) renderAircraftDetailsPanel(aircraft);
-  setAircraftDetailsVisible(false);
-  aircraftSheet.hidden = false;
-  aircraftSheet.classList.remove("is-expanded", "is-dragging");
-  aircraftSheet.style.removeProperty("--sheet-drag-y");
-  aircraftSheet.classList.add("is-open");
-  setAircraftActionsMode(true);
-}
-
-function hideSelectedAircraftSheet() {
-  if (!aircraftSheet) return;
-  setAircraftActionsMode(false);
-  aircraftSheet.classList.remove("is-open", "is-expanded", "is-dragging");
-  aircraftSheet.style.removeProperty("--sheet-drag-y");
-  window.setTimeout(() => { if (!aircraftSheet.classList.contains("is-open")) aircraftSheet.hidden = true; }, 160);
-}
-
-function selectedAircraftShareText(aircraft) {
-  const route = routeInfoFromAircraft(aircraft);
-  return [
-    aircraftLabel(aircraft),
-    route.short ? `Trasa: ${route.short}` : "Trasa: brak danych",
-    `Typ: ${firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, "brak danych")}`,
-    `Rejestracja: ${firstFilled(aircraft?.r, aircraft?.registration, "brak danych")}`,
-    `Wysokość: ${formatAltitude(aircraft?.alt_baro)}`,
-    `Prędkość: ${formatSpeed(aircraft?.gs)}`,
-    `Kurs: ${formatHeading(aircraftHeading(aircraft))}`
-  ].join("\n");
-}
-
-function openAircraftQuickPopup(marker, aircraft) {
-  if (!map || window.matchMedia?.("(max-width: 760px)")?.matches) return;
-  L.popup({ maxWidth: 245, autoPan: true, keepInView: true })
-    .setLatLng(marker.getLatLng())
-    .setContent(aircraftPopupContent(aircraft))
-    .openOn(map);
-}
-
-function aircraftPopupContent(aircraft) {
-  const wrapper = document.createElement("div");
-  wrapper.className = "map-popup";
-  const phase = aircraftFlightPhase(aircraft);
-
-  const head = document.createElement("div");
-  head.className = "map-popup-head";
-  const titleBlock = document.createElement("div");
-  titleBlock.className = "map-popup-title-block";
-  titleBlock.append(
-    createTextElement("strong", "map-popup-title", aircraftLabel(aircraft)),
-    createTextElement("span", "map-popup-type", firstFilled(aircraft?.t, aircraft?.type, aircraft?.aircraftType, aircraftGroupLabel(aircraftTypeGroup(aircraft))))
-  );
-  const phaseNode = document.createElement("div");
-  phaseNode.className = "map-popup-phase";
-  phaseNode.innerHTML = aircraftPhaseMarkup(aircraft);
-  phaseNode.append(createTextElement("span", "map-popup-phase-text", phase.label));
-  head.append(titleBlock, phaseNode);
-
-  const photo = createAircraftPhoto(aircraft, "map-popup-photo", { realPhoto: true });
-  const route = routePartsForDisplay(aircraft);
-  const routeGrid = document.createElement("div");
-  routeGrid.className = "map-popup-route-grid";
-  routeGrid.append(
-    createTextElement("strong", "route-code", route.from),
-    createTextElement("span", "route-plane", "✈"),
-    createTextElement("strong", "route-code", route.to)
-  );
-
-  const popupHex = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24)).toUpperCase() || "brak danych";
-  const popupHexRow = createTextElement("span", "map-popup-hex copyable-aircraft-value", `# ${popupHex}`);
-  enableCopyableAircraftValue(popupHexRow, popupHex, "HEX / #");
-
-  const metrics = document.createElement("div");
-  metrics.className = "map-popup-metrics";
-  metrics.append(
-    metricCard("Wys.", formatAltitude(aircraft?.alt_baro)),
-    metricCard("Pręd.", formatSpeed(aircraft?.gs)),
-    metricCard("Kurs", formatHeading(aircraftHeading(aircraft))),
-    metricCard("Dane", aircraftFreshnessInfo(aircraft).label)
-  );
-
-  wrapper.append(
-    head,
-    photo,
-    routeGrid,
-    popupHexRow,
-    createTextElement("span", "map-popup-route", route.caption),
-    metrics,
-    createTextElement("span", "map-popup-meta", `${phase.label} • ${phase.detail}`)
-  );
-
-  const saveButton = document.createElement("button");
-  saveButton.type = "button";
-  saveButton.className = "primary-button popup-save-button";
-  saveButton.textContent = "Zapisz";
-  saveButton.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    upsertFlight(aircraftToFlight(aircraft));
-    showToast("Samolot zapisany.");
-  });
-  wrapper.append(saveButton);
-
-  return wrapper;
-}
-
-function metricCard(label, value) {
-  const card = document.createElement("div");
-  card.className = "metric-card";
-  card.append(createTextElement("span", "metric-label", label), createTextElement("strong", "metric-value", value));
-  return card;
-}
-
-
-function watchItemFromIcao(icao, options = {}) {
-  const cleanIcao = normalizeIcao(icao);
-  return {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${cleanIcao}`,
-    icao: cleanIcao,
-    name: options.name || cleanIcao.toUpperCase(),
-    callsign: options.callsign || "",
-    registration: options.registration || "",
-    type: options.type || "",
-    kind: options.kind || "",
-    lat: "",
-    lon: "",
-    altitude: "",
-    speed: "",
-    heading: "",
-    pendingLive: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    lastSeenAt: "",
-    lastCheckedAt: ""
-  };
-}
-
-function watchItemFromAircraft(aircraft) {
-  const flight = aircraftToFlight(aircraft);
-  return {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${flight.icao}`,
-    icao: flight.icao,
-    name: flight.name || flight.icao.toUpperCase(),
-    callsign: flight.callsign || "",
-    registration: flight.registration || "",
-    type: flight.type || "",
-    kind: flight.kind || aircraftTypeGroup(aircraft),
-    lat: flight.lat || "",
-    lon: flight.lon || "",
-    altitude: flight.altitude ?? "",
-    speed: flight.speed ?? "",
-    heading: flight.heading ?? "",
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    lastSeenAt: new Date().toISOString()
-  };
-}
-
-function watchToFlight(item) {
-  return {
-    id: item?.id || `${Date.now()}-${item?.icao || "watch"}`,
-    icao: normalizeIcao(item?.icao || item?.hex || ""),
-    name: item?.name || item?.callsign || normalizeIcao(item?.icao || "").toUpperCase(),
-    date: todayLocalDate(),
-    zoom: zoomInput?.value?.trim?.() || "9.2",
-    lat: item?.lat || "",
-    lon: item?.lon || "",
-    callsign: item?.callsign || "",
-    type: item?.type || "",
-    registration: item?.registration || "",
-    altitude: item?.altitude ?? "",
-    speed: item?.speed ?? "",
-    heading: item?.heading ?? "",
-    kind: item?.kind || ""
-  };
-}
-
-function upsertWatchItem(item, options = {}) {
-  const cleanIcao = normalizeIcao(item?.icao || item?.hex || "");
-  if (!isValidIcao(cleanIcao)) {
-    if (!options.silent) showToast("Brak poprawnego kodu ICAO/hex do obserwowania.", 3600);
-    return false;
-  }
-  const watchItem = { ...item, icao: cleanIcao, updatedAt: new Date().toISOString() };
-  const items = loadWatchlist();
-  const existing = items.find((entry) => normalizeIcao(entry.icao || "") === cleanIcao);
-  const next = items.filter((entry) => normalizeIcao(entry.icao || "") !== cleanIcao);
-  next.unshift({ ...(existing || {}), ...watchItem, id: existing?.id || watchItem.id || (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${cleanIcao}`) });
-  if (!existing) clearFiredAlertForIcao(cleanIcao);
-  saveWatchlist(next);
-  if (options.enableAlerts !== false) ensureWatchlistAlertsEnabled();
-  renderWatchlist();
-  checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
-  return true;
-}
-
-function upsertWatchFromAircraft(aircraft, options = {}) {
-  if (!aircraft) {
-    if (!options.silent) showToast("Najpierw wybierz samolot.", 2600);
-    return false;
-  }
-  const ok = upsertWatchItem(watchItemFromAircraft(aircraft), options);
-  if (ok && !options.silent) showToast("Dodano do obserwowanych.");
-  return ok;
-}
-
-async function addWatchFromCurrentInput() {
-  try {
-    const raw = icaoInput.value.trim();
-    if (!raw) throw new Error("Wpisz samolot w polu Szukaj albo wybierz go na mapie.");
-    const resolvedIcao = normalizeIcao(icaoInput.dataset.resolvedIcao || "");
-    const directIcao = explicitIcaoFromInput(raw) || (isValidIcao(resolvedIcao) ? resolvedIcao : "");
-
-    if (isValidIcao(directIcao)) {
-      const liveOrSelected = aircraftIcao(selectedAircraft) === directIcao ? selectedAircraft : findAircraftByIcaoInCache(directIcao);
-      if (liveOrSelected && pointFromAircraft(liveOrSelected)) {
-        upsertWatchFromAircraft(liveOrSelected);
-      } else {
-        const staticName = nameInput?.value?.trim?.() || directIcao.toUpperCase();
-        upsertWatchItem(watchItemFromIcao(directIcao, { name: staticName }));
-        enrichOfflineWatchItemInBackground(directIcao);
-      }
-      showToast(`Dodano ${directIcao.toUpperCase()} do obserwowanych. Brak pozycji LIVE nie blokuje alertu.`, 4600);
-      setAircraftStatus(`${directIcao.toUpperCase()}: dodany do obserwowanych. Jeśli nie ma pozycji LIVE, program będzie sprawdzał ten HEX globalnie w tle.`);
-      checkWatchedAircraftGlobalInBackground(lastAircraftCache, { immediate: true });
-      return;
-    }
-
-    const match = findAircraftBySmartQuery(raw);
-    if (match) {
-      const aircraft = match.icao && !match.hex ? flightToAircraft(match) : match;
-      upsertWatchFromAircraft(aircraft);
-      return;
-    }
-
-    const resolved = resolveSmartFlightInput(raw);
-    upsertWatchItem({
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${resolved.icao}`,
-      icao: resolved.icao,
-      name: resolved.name || resolved.icao.toUpperCase(),
-      lat: resolved.lat || "",
-      lon: resolved.lon || "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastSeenAt: ""
-    });
-    showToast("Dodano do obserwowanych.");
-  } catch (error) {
-    showToast(error.message || "Nie udało się dodać obserwowanego.", 4200);
-  }
-}
-
-function updateWatchlistFromAircraft(aircraftArray) {
-  const watched = loadWatchlist();
-  if (!watched.length || !Array.isArray(aircraftArray) || !aircraftArray.length) {
-    renderWatchlist();
-    return;
-  }
-
-  const byIcao = new Map(aircraftArray.map((item) => [aircraftIcao(item), item]).filter(([icao]) => isValidIcao(icao)));
-  let changed = false;
-  const next = watched.map((item) => {
-    const cleanIcao = normalizeIcao(item.icao || "");
-    const live = byIcao.get(cleanIcao);
-    if (!live) return item;
-    const point = pointFromAircraft(live);
-    const updated = watchItemFromAircraft(mergeFlightRouteIntoAircraft(live, item));
-    changed = true;
-    return {
-      ...item,
-      ...updated,
-      id: item.id,
-      name: updated.name || item.name,
-      lat: point ? String(point.lat) : item.lat,
-      lon: point ? String(point.lon) : item.lon,
-      lastSeenAt: new Date().toISOString(),
-      lastCheckedAt: new Date().toISOString(),
-      pendingLive: false,
-      updatedAt: new Date().toISOString()
-    };
-  });
-
-  if (changed) saveWatchlist(next, { skipSync: true });
-  renderWatchlist();
-}
-
-function renderWatchlist() {
-  if (!watchList || !watchTemplate) return;
-  const items = loadWatchlist();
-  watchList.replaceChildren();
-  if (watchEmptyState) watchEmptyState.hidden = items.length > 0;
-
-  const liveIcaos = new Set((lastAircraftCache || []).map(aircraftIcao).filter(isValidIcao));
-  const fragment = document.createDocumentFragment();
-  for (const item of items) {
-    const node = watchTemplate.content.firstElementChild.cloneNode(true);
-    const flight = watchToFlight(item);
-    const live = liveIcaos.has(flight.icao);
-    setAircraftPhoto(node.querySelector(".flight-thumb"), flight);
-    node.querySelector(".flight-name").textContent = item.name || item.callsign || flight.icao.toUpperCase();
-    const metaParts = [
-      live ? "LIVE" : (item.lastSeenAt ? "poza mapą" : "czeka na LIVE"),
-      flight.icao ? flight.icao.toUpperCase() : "",
-      item.callsign,
-      item.registration,
-      item.type,
-      item.lastSeenAt ? `ostatnio ${new Date(item.lastSeenAt).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit" })}` : ""
-    ].filter(Boolean);
-    node.querySelector(".flight-meta").textContent = metaParts.join(" • ");
-    node.classList.toggle("is-live", live);
-
-    node.querySelector(".ads-watch").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openFlightInAds(flight);
-    });
-
-    node.querySelector(".map-watch").addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      clearManualSearchInputLock();
-      fillForm(flight, { force: true });
-      await showSavedFlightOnMap(flight);
-    });
-
-    node.querySelector(".delete-watch").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      clearFiredAlertForIcao(flight.icao);
-      saveWatchlist(loadWatchlist().filter((entry) => entry.id !== item.id && normalizeIcao(entry.icao || "") !== flight.icao));
-      renderWatchlist();
-      showToast("Usunięto z obserwowanych.");
-    });
-
-    fragment.append(node);
-  }
-  watchList.append(fragment);
-}
-
-
-function loadFlightHistory() {
-  const parsed = storageJsonGet(HISTORY_STORAGE_KEY, []);
-  return Array.isArray(parsed) ? parsed : [];
-}
-
-function saveFlightHistory(items) {
-  storageJsonSet(HISTORY_STORAGE_KEY, Array.isArray(items) ? items.slice(0, HISTORY_MAX_ENTRIES) : []);
-}
-
-function historyTimeText(value) {
-  if (!value) return "brak czasu";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "brak czasu";
-  return date.toLocaleString("pl-PL", {
-    day: "2-digit",
-    month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-
-function historySearchText(item) {
-  return [
-    item?.name,
-    item?.icao,
-    item?.callsign,
-    item?.registration,
-    item?.type,
-    item?.kind,
-    item?.routeShort,
-    item?.reason,
-    item?.firstSeenAt,
-    item?.lastSeenAt
-  ].filter(Boolean).join(" ").toUpperCase();
-}
-
-function historyReasonForAircraft(aircraft, watchedIcaos, basePoint) {
-  const reasons = [];
-  const icao = aircraftIcao(aircraft);
-  const alt = aircraftAltitudeNumber(aircraft);
-  const point = pointFromAircraft(aircraft);
-  if (watchedIcaos.has(icao)) reasons.push("obserwowany");
-  if (aircraftTypeGroup(aircraft) === "special") reasons.push("specjalny/wojskowy");
-  if (Number.isFinite(alt) && alt <= HISTORY_LOW_ALT_FT) reasons.push(`niski: ${formatAltitude(alt)}`);
-  if (basePoint && point) {
-    const distance = distanceKmBetween(basePoint, point);
-    if (Number.isFinite(distance) && distance <= HISTORY_CLOSE_KM) reasons.push(`blisko: ${numberText(distance, 1)} km`);
-  }
-  return reasons.length ? reasons.join(", ") : "widziany na mapie";
-}
-
-function historyEntryFromAircraft(aircraft, reason, nowIso) {
-  const flight = aircraftToFlight(aircraft);
-  const point = pointFromAircraft(aircraft);
-  return {
-    id: `${flight.icao}-${Math.floor(Date.now() / HISTORY_BUCKET_MS)}`,
-    icao: flight.icao,
-    name: flight.name || flight.icao.toUpperCase(),
-    callsign: flight.callsign || aircraftCallsign(aircraft),
-    registration: flight.registration || "",
-    type: flight.type || "",
-    kind: flight.kind || aircraftTypeGroup(aircraft),
-    routeShort: flight.routeShort || "",
-    routeVerbose: flight.routeVerbose || "",
-    lat: point ? String(point.lat) : flight.lat,
-    lon: point ? String(point.lon) : flight.lon,
-    altitude: aircraft.alt_baro ?? flight.altitude ?? "",
-    speed: aircraft.gs ?? flight.speed ?? "",
-    heading: aircraftHeading(aircraft) ?? flight.heading ?? "",
-    firstSeenAt: nowIso,
-    lastSeenAt: nowIso,
-    count: 1,
-    reason
-  };
-}
-
-function recordAircraftHistory(aircraftArray) {
-  if (!Array.isArray(aircraftArray) || !aircraftArray.length) {
-    renderFlightHistory();
-    return;
-  }
-  const now = Date.now();
-  if (now - lastHistoryWriteAt < HISTORY_RECORD_COOLDOWN_MS) return;
-  lastHistoryWriteAt = now;
-
-  const watchedIcaos = new Set(loadWatchlist().map((item) => normalizeIcao(item.icao || "")).filter(isValidIcao));
-  const basePoint = alertBasePoint();
-  const nowIso = new Date(now).toISOString();
-  const history = loadFlightHistory();
-  const byId = new Map(history.map((item) => [item.id, item]));
-  const performance = readPerformanceSettings();
-  const candidates = lifecycleFilteredAircraft(aircraftArray, performance).slice(0, Math.min(HISTORY_RECORD_LIMIT, performance.mapLimit || HISTORY_RECORD_LIMIT));
-
-  for (const aircraft of candidates) {
-    const icao = aircraftIcao(aircraft);
-    if (!isValidIcao(icao) || !pointFromAircraft(aircraft)) continue;
-    const bucket = Math.floor(now / HISTORY_BUCKET_MS);
-    const id = `${icao}-${bucket}`;
-    const reason = historyReasonForAircraft(aircraft, watchedIcaos, basePoint);
-    const fresh = historyEntryFromAircraft(aircraft, reason, nowIso);
-    const existing = byId.get(id);
-    byId.set(id, existing ? {
-      ...existing,
-      ...fresh,
-      id,
-      firstSeenAt: existing.firstSeenAt || fresh.firstSeenAt,
-      count: Number(existing.count || 1) + 1,
-      reason: Array.from(new Set([existing.reason, fresh.reason].filter(Boolean).join(", ").split(", ").filter(Boolean))).join(", ")
-    } : fresh);
-  }
-
-  const next = Array.from(byId.values())
-    .sort((a, b) => new Date(b.lastSeenAt || 0) - new Date(a.lastSeenAt || 0))
-    .slice(0, HISTORY_MAX_ENTRIES);
-  saveFlightHistory(next);
-  renderFlightHistory();
-}
-
-function historyItemToFlight(item) {
-  return {
-    id: item?.id || `${Date.now()}-${item?.icao || "history"}`,
-    icao: normalizeIcao(item?.icao || ""),
-    name: item?.name || item?.callsign || normalizeIcao(item?.icao || "").toUpperCase(),
-    date: todayLocalDate(),
-    zoom: zoomInput?.value?.trim?.() || "9.2",
-    lat: item?.lat || "",
-    lon: item?.lon || "",
-    callsign: item?.callsign || "",
-    type: item?.type || "",
-    registration: item?.registration || "",
-    routeShort: item?.routeShort || "",
-    routeVerbose: item?.routeVerbose || "",
-    altitude: item?.altitude ?? "",
-    speed: item?.speed ?? "",
-    heading: item?.heading ?? "",
-    kind: item?.kind || ""
-  };
-}
-
-function renderFlightHistory() {
-  if (!historyList || !historyTemplate) return;
-  const items = loadFlightHistory();
-  const query = String(historySearchInput?.value || "").trim().toUpperCase();
-  const visibleItems = query ? items.filter((item) => historySearchText(item).includes(query)) : items;
-  historyList.replaceChildren();
-  if (historyEmptyState) historyEmptyState.hidden = items.length > 0;
-
-  const fragment = document.createDocumentFragment();
-  for (const item of visibleItems) {
-    const node = historyTemplate.content.firstElementChild.cloneNode(true);
-    const flight = historyItemToFlight(item);
-    setAircraftPhoto(node.querySelector(".flight-thumb"), flight, { realPhoto: false, compact: true });
-    node.querySelector(".flight-name").textContent = item.name || item.callsign || flight.icao.toUpperCase();
-    const metaParts = [
-      historyTimeText(item.lastSeenAt),
-      item.icao ? item.icao.toUpperCase() : "",
-      item.callsign,
-      item.registration,
-      item.type,
-      item.routeShort,
-      item.reason,
-      item.count > 1 ? `${item.count} odświeżeń` : ""
-    ].filter(Boolean);
-    node.querySelector(".flight-meta").textContent = metaParts.join(" • ");
-
-    node.querySelector(".ads-history").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openFlightInAds(flight);
-    });
-    node.querySelector(".map-history").addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      clearManualSearchInputLock();
-      fillForm(flight, { force: true });
-      await showSavedFlightOnMap(flight);
-    });
-    node.querySelector(".watch-history").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      upsertWatchItem({
-        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${flight.icao}`,
-        icao: flight.icao,
-        name: flight.name,
-        callsign: flight.callsign,
-        registration: flight.registration,
-        type: flight.type,
-        kind: flight.kind,
-        lat: flight.lat,
-        lon: flight.lon,
-        altitude: flight.altitude,
-        speed: flight.speed,
-        heading: flight.heading,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        lastSeenAt: item.lastSeenAt || ""
-      });
-    });
-    node.querySelector(".delete-history").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      saveFlightHistory(loadFlightHistory().filter((entry) => entry.id !== item.id));
-      renderFlightHistory();
-      showToast("Usunięto wpis z historii.");
-    });
-    fragment.append(node);
-  }
-  historyList.append(fragment);
-}
-
-async function exportFlightHistory() {
-  const items = loadFlightHistory();
-  if (!items.length) {
-    showToast("Historia jest pusta.");
-    return;
-  }
-  const rows = items.map((item) => {
-    const flight = historyItemToFlight(item);
-    return [
-      historyTimeText(item.lastSeenAt),
-      flight.name,
-      flight.icao,
-      flight.callsign,
-      flight.registration,
-      flight.type,
-      flight.lat,
-      flight.lon,
-      flight.altitude,
-      flight.speed,
-      item.reason,
-      buildAdsbUrl(flight)
-    ].map((value) => String(value || "").replace(/;/g, ",")).join(";");
-  });
-  await copyText(["czas;nazwa;icao;callsign;rejestracja;typ;lat;lon;wysokosc;predkosc;powod;link_ads", ...rows].join("\n"));
-  showToast("Historia skopiowana jako CSV.");
-}
-
-
-function sanitizeFileName(value, fallback = "samolot") {
-  const cleaned = String(value || "")
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "_")
-    .replace(/\s+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 90);
-  return cleaned || fallback;
-}
-
-function csvCell(value) {
-  const text = String(value ?? "");
-  return /[;"\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
-function makeAircraftExportBaseName(aircraft) {
-  const icao = aircraftIcao(aircraft).toUpperCase();
-  const callsign = aircraftCallsign(aircraft) || "";
-  const registration = firstFilled(aircraft?.r, aircraft?.registration);
-  return sanitizeFileName([icao, registration, callsign].filter(Boolean).join("_"), "samolot");
-}
-
-function makeAircraftExportZipName(aircraft) {
-  const icao = aircraftIcao(aircraft).toUpperCase();
-  return sanitizeFileName(icao, "samolot");
-}
-
-function aircraftExportHistoryRows(aircraft) {
-  const icao = aircraftIcao(aircraft);
-  const flight = aircraftToFlight(aircraft);
-  const latestTrack = loadLatestTrackPoints(icao);
-  const points = loadTrackPoints(icao, flight.date).length ? loadTrackPoints(icao, flight.date) : latestTrack.points;
-  const history = loadFlightHistory().filter((item) => normalizeIcao(item?.icao || "") === icao);
-  return { points, history, trackDate: latestTrack.date || flight.date };
-}
-
-function aircraftTrackCsv(aircraft) {
-  const { points } = aircraftExportHistoryRows(aircraft);
-  const header = "czas;lat;lon;wysokosc_ft;predkosc_kt;kurs;wznoszenie_ft_min";
-  const rows = points.map((point) => [
-    point.at || "",
-    point.lat ?? "",
-    point.lon ?? "",
-    point.altitude ?? "",
-    point.speed ?? "",
-    point.track ?? "",
-    point.verticalRate ?? ""
-  ].map(csvCell).join(";"));
-  return [header, ...rows].join("\n");
-}
-
-function aircraftSeenHistoryCsv(aircraft) {
-  const { history } = aircraftExportHistoryRows(aircraft);
-  const header = "pierwszy_wpis;ostatni_wpis;icao;callsign;rejestracja;typ;lat;lon;wysokosc;predkosc;kurs;powod;liczba";
-  const rows = history.map((item) => [
-    item.firstSeenAt || "",
-    item.lastSeenAt || "",
-    item.icao || "",
-    item.callsign || "",
-    item.registration || "",
-    item.type || "",
-    item.lat || "",
-    item.lon || "",
-    item.altitude ?? "",
-    item.speed ?? "",
-    item.heading ?? "",
-    item.reason || "",
-    item.count || 1
-  ].map(csvCell).join(";"));
-  return [header, ...rows].join("\n");
-}
-
-function aircraftExportPhotoMeta(photoInfo = {}) {
-  const hasRealPhoto = photoInfo.real === true && !!photoInfo.blob;
-  return {
-    fileName: hasRealPhoto ? (photoInfo.fileName || "zdjecie.jpg") : "",
-    url: photoInfo.url || "",
-    real: hasRealPhoto,
-    mimeType: hasRealPhoto ? (photoInfo.blob?.type || photoInfo.mimeType || "") : "",
-    sizeBytes: hasRealPhoto ? (photoInfo.blob?.size || photoInfo.sizeBytes || 0) : 0,
-    note: hasRealPhoto
-      ? "Zapisano prawdziwe zdjęcie samolotu pobrane z API zdjęć."
-      : "Brak prawdziwego zdjęcia do zapisania. Grafika poglądowa nie jest dodawana do paczki ZIP."
-  };
-}
-
-function flattenExportValue(value, prefix = "", rows = []) {
-  if (value === undefined || typeof value === "function") return rows;
-  if (value === null || typeof value !== "object") {
-    rows.push([prefix || "wartosc", value ?? ""]);
-    return rows;
-  }
-  if (Array.isArray(value)) {
-    if (!value.length) rows.push([prefix, "[]"]);
-    value.forEach((item, index) => flattenExportValue(item, `${prefix}[${index}]`, rows));
-    return rows;
-  }
-  const keys = Object.keys(value);
-  if (!keys.length) rows.push([prefix, "{}"]);
-  for (const key of keys) {
-    const nextPrefix = prefix ? `${prefix}.${key}` : key;
-    flattenExportValue(value[key], nextPrefix, rows);
-  }
-  return rows;
-}
-
-function aircraftCurrentDataCsv(aircraft, photoInfo = {}) {
-  const photo = aircraftExportPhotoMeta(photoInfo);
-  const rows = [["sekcja", "pole", "wartosc"]];
-  for (const [name, value] of aircraftDetailsRows(aircraft)) rows.push(["dane", name, value]);
-  for (const [name, value] of routeDetailRows(aircraft)) rows.push(["trasa", name, value]);
-  rows.push(["linki", "ADS", buildAdsbUrl(aircraftToFlight(aircraft))]);
-  rows.push(["zdjecie", "plik", photo.fileName]);
-  rows.push(["zdjecie", "url", photo.url || "brak danych"]);
-  rows.push(["zdjecie", "prawdziwe_zdjecie", photo.real ? "tak" : "nie"]);
-  for (const [path, value] of flattenExportValue(aircraft)) rows.push(["raw", path, value]);
-  return rows.map((row) => row.map(csvCell).join(";")).join("\n");
-}
-
-function aircraftExportJson(aircraft, photoInfo = {}) {
-  const flight = aircraftToFlight(aircraft);
-  const details = Object.fromEntries(aircraftDetailsRows(aircraft));
-  const routeDetails = Object.fromEntries(routeDetailRows(aircraft));
-  const { points, history, trackDate } = aircraftExportHistoryRows(aircraft);
-  return {
-    exportedAt: new Date().toISOString(),
-    appVersion: APP_VERSION,
-    flight,
-    details,
-    routeDetails,
-    route: routeInfoFromAircraft(aircraft),
-    rawAircraft: aircraft,
-    photo: aircraftExportPhotoMeta(photoInfo),
-    adsbUrl: buildAdsbUrl(flight),
-    localTrack: { date: trackDate, count: points.length, points },
-    localSeenHistory: history
-  };
-}
-
-function aircraftExportText(aircraft, photoInfo = {}) {
-  const flight = aircraftToFlight(aircraft);
-  const photo = aircraftExportPhotoMeta(photoInfo);
-  const rows = aircraftDetailsRows(aircraft).map(([name, value]) => `${name}: ${value}`);
-  const { points, history } = aircraftExportHistoryRows(aircraft);
-  return [
-    `ADS Viewer Pro — karta samolotu`,
-    `Eksport: ${new Date().toLocaleString("pl-PL")}`,
-    `Wersja programu: ${APP_VERSION}`,
-    "",
-    ...rows,
-    "",
-    `Link ADS: ${buildAdsbUrl(flight)}`,
-    `Plik zdjęcia: ${photo.fileName}`,
-    photo.url ? `Zdjęcie źródłowe: ${photo.url}` : "Zdjęcie źródłowe: brak danych",
-    `Prawdziwe zdjęcie zapisane: ${photo.real ? "tak" : "nie"}`,
-    "",
-    `Lokalne punkty trasy/przelotu zapisane przez program: ${points.length}`,
-    `Lokalne wpisy historii widzeń: ${history.length}`,
-    "",
-    "Uwaga: pełna historyczna lista dawnych przelotów jest dostępna tylko wtedy, gdy źródło API ją udostępnia albo program wcześniej obserwował ten samolot."
-  ].join("\n");
-}
-
-function aircraftExportHtml(aircraft, imageFileName, photoInfo = {}) {
-  const detailsRows = aircraftDetailsRows(aircraft).map(([name, value]) => `<tr><th>${escapeHtml(name)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
-  const routeRows = routeDetailRows(aircraft).map(([name, value]) => `<tr><th>${escapeHtml(name)}</th><td>${escapeHtml(value)}</td></tr>`).join("");
-  const photo = aircraftExportPhotoMeta(photoInfo);
-  const { points, history } = aircraftExportHistoryRows(aircraft);
-  const title = aircraftLabel(aircraft);
-  const photoBlock = photo.real && imageFileName
-    ? `<div><img src="${escapeHtml(imageFileName)}" alt="Zdjęcie samolotu"><p class="muted">Plik zdjęcia: ${escapeHtml(photo.fileName)} · prawdziwe: tak</p></div>`
-    : `<div class="photo-missing"><strong>Brak prawdziwego zdjęcia w eksporcie.</strong><p class="muted">Program nie zapisuje grafiki poglądowej jako zdjęcia samolotu.</p></div>`;
-  return `<!doctype html>
-<html lang="pl"><head><meta charset="utf-8"><title>${escapeHtml(title)} — ADS Viewer Pro</title>
-<style>
-body{font-family:Segoe UI,Arial,sans-serif;margin:24px;background:#f8fafc;color:#0f172a}main{max-width:980px;margin:auto;background:white;border-radius:18px;padding:24px;box-shadow:0 12px 40px #0002}img{max-width:360px;border-radius:14px}table{border-collapse:collapse;width:100%;margin:16px 0}th,td{border-bottom:1px solid #e5e7eb;text-align:left;padding:8px}th{width:230px;color:#475569}.muted{color:#64748b}.grid{display:grid;grid-template-columns:380px 1fr;gap:20px}.photo-missing{border:1px dashed #cbd5e1;border-radius:14px;padding:18px;background:#f8fafc}@media(max-width:760px){.grid{grid-template-columns:1fr}}
-</style></head><body><main>
-<h1>${escapeHtml(title)}</h1>
-<p class="muted">Eksport: ${escapeHtml(new Date().toLocaleString("pl-PL"))} · ${escapeHtml(APP_VERSION)}</p>
-<div class="grid">${photoBlock}<div><table>${detailsRows}</table></div></div>
-<h2>Trasa / przelot</h2><table>${routeRows}</table>
-<p>Lokalne punkty trasy zapisane przez program: <strong>${points.length}</strong></p>
-<p>Lokalne wpisy historii widzeń: <strong>${history.length}</strong></p>
-<p>Link ADS: <a href="${escapeHtml(buildAdsbUrl(aircraftToFlight(aircraft)))}">otwórz</a></p>
-${photo.url ? `<p>Źródło zdjęcia: <a href="${escapeHtml(photo.url)}">${escapeHtml(photo.url)}</a></p>` : ""}
-</main></body></html>`;
-}
-
-
-function docxEscapeXml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&apos;"
-  }[char]));
-}
-
-function docxCell(value, options = {}) {
-  const width = options.width || 2400;
-  const fill = options.fill ? `<w:shd w:fill="${options.fill}"/>` : "";
-  const bold = options.bold ? "<w:b/>" : "";
-  const text = firstFilled(value, "-");
-  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/>${fill}</w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr>${bold}<w:sz w:val="16"/></w:rPr><w:t xml:space="preserve">${docxEscapeXml(text)}</w:t></w:r></w:p></w:tc>`;
-}
-
-function docxRow(values, options = {}) {
-  const widths = options.widths || [];
-  return `<w:tr>${values.map((value, index) => docxCell(value, {
-    width: widths[index] || 2400,
-    bold: options.bold,
-    fill: options.fill
-  })).join("")}</w:tr>`;
-}
-
-function docxImageCell(width = 5200) {
-  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing><wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" distT="0" distB="0" distL="0" distR="0"><wp:extent cx="3150000" cy="1900000"/><wp:docPr id="1" name="Zdjęcie samolotu"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="zdjecie"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImage1"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="3150000" cy="1900000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p></w:tc>`;
-}
-
-function docxPhotoCell(photoInfo, width = 5200) {
-  if (photoInfo?.real === true && photoInfo?.blob) return docxImageCell(width);
-  return docxCell("brak", { width });
-}
-
-
-function absoluteUrlOrEmpty(url, base = "") {
-  try {
-    return new URL(String(url || "").trim(), base || window.location.href).toString();
-  } catch {
-    return String(url || "").trim();
-  }
-}
-
-async function fetchTextWithCorsFallbacks(url, timeoutMs = 8000) {
-  let lastError = null;
-  for (const attemptUrl of [url, ...CORS_PROXY_BUILDERS.map((builder) => builder(url))]) {
-    try {
-      const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" } }, timeoutMs);
-      if (!response.ok) throw new Error(`Źródło zwróciło ${response.status}.`);
-      return await response.text();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (lastError) throw lastError;
-  return "";
-}
-
-async function fetchJsonWithCorsFallbacks(url, timeoutMs = 8000) {
-  let lastError = null;
-  for (const attemptUrl of [url, ...CORS_PROXY_BUILDERS.map((builder) => builder(url))]) {
-    try {
-      const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "application/json" } }, timeoutMs);
-      if (!response.ok) throw new Error(`Źródło zwróciło ${response.status}.`);
-      return await response.json();
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (lastError) throw lastError;
-  return null;
-}
-
-function htmlDecodedText(value) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(`<body>${String(value || "")}</body>`, 'text/html');
-  return String(doc.body?.textContent || "").replace(/\s+/g, ' ').trim();
-}
-
-function htmlFieldValue(html, labels = []) {
-  const source = String(html || "");
-  for (const label of labels) {
-    const escaped = String(label).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s*');
-    const patterns = [
-      new RegExp(`<t[dh][^>]*>\\s*${escaped}\\s*</t[dh]>\\s*<t[dh][^>]*>([\\s\\S]*?)</t[dh]>`, 'i'),
-      new RegExp(`${escaped}\\s*</[^>]+>\\s*<[^>]+>([\\s\\S]*?)</[^>]+>`, 'i'),
-      new RegExp(`${escaped}\\s*:?\\s*</[^>]+>\\s*<[^>]+>([\\s\\S]*?)</[^>]+>`, 'i')
-    ];
-    for (const pattern of patterns) {
-      const match = source.match(pattern);
-      if (match && match[1]) {
-        const cleaned = htmlDecodedText(match[1].replace(/<br\s*\/?>/gi, ' / ').replace(/<[^>]+>/g, ' '));
-        if (cleaned) return cleaned;
-      }
-    }
-  }
-  return "";
-}
-
-function titleTextFromHtml(html) {
-  const match = String(html || "").match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  return match ? htmlDecodedText(match[1]) : "";
-}
-
-function manufacturerFromType(typeText) {
-  const source = String(typeText || "").trim();
-  if (!source) return "";
-  const known = [
-    'Airbus', 'Boeing', 'Embraer', 'Bombardier', 'ATR', 'Antonov', 'Cessna', 'Gulfstream', 'Dassault', 'Pilatus',
-    'Beechcraft', 'Lockheed', 'McDonnell Douglas', 'Douglas', 'Saab', 'Fokker', 'Tupolev', 'Ilyushin', 'De Havilland'
-  ];
-  const found = known.find((item) => source.toLowerCase().startsWith(item.toLowerCase()));
-  if (found) return found;
-  return source.split(/\s+/)[0] || "";
-}
-
-function jetPhotosDetailLinksFromHtml(html, baseUrl) {
-  const links = [];
-  const seen = new Set();
-  const pattern = /href=["']([^"']*\/photo\/\d+[^"']*)["']/ig;
-  let match;
-  while ((match = pattern.exec(String(html || "")))) {
-    const absolute = absoluteUrlOrEmpty(match[1], baseUrl);
-    if (absolute && !seen.has(absolute)) {
-      seen.add(absolute);
-      links.push(absolute);
-    }
-    if (links.length >= 5) break;
-  }
-  return links;
-}
-
-async function fetchJetPhotosMetadata(registration) {
-  const reg = cleanAircraftRegistration(registration);
-  if (!reg) return null;
-  const searchUrl = `https://www.jetphotos.com/registration/${encodeURIComponent(reg)}`;
-  let listingHtml = "";
-  try {
-    listingHtml = await fetchTextWithCorsFallbacks(searchUrl, 9000);
-  } catch {
-    return null;
-  }
-  const detailLinks = jetPhotosDetailLinksFromHtml(listingHtml, searchUrl);
-  for (const detailUrl of detailLinks) {
-    try {
-      const detailHtml = await fetchTextWithCorsFallbacks(detailUrl, 9000);
-      const title = titleTextFromHtml(detailHtml);
-      const titleParts = title.split('|').map((item) => item.trim()).filter(Boolean);
-      const titleType = titleParts[1] || "";
-      const titleOperator = titleParts[2] || "";
-      const serial = firstFilled(
-        htmlFieldValue(detailHtml, ['Serial #', 'Serial Number', 'MSN']),
-        htmlFieldValue(detailHtml, ['Construction Number'])
-      );
-      const airline = firstFilled(htmlFieldValue(detailHtml, ['Airline']), titleOperator);
-      const aircraftType = firstFilled(htmlFieldValue(detailHtml, ['Aircraft']), titleType);
-      const manufacturer = firstFilled(htmlFieldValue(detailHtml, ['Manufacturer']), manufacturerFromType(aircraftType));
-      const result = {
-        registration: reg,
-        r: reg,
-        aircraftType,
-        type: aircraftType,
-        t: aircraftType,
-        operator: airline,
-        owner: airline,
-        airline,
-        manufacturer,
-        serial_number: serial,
-        serialNumber: serial,
-        msn: serial,
-        source_url: detailUrl,
-        _jetPhotosSource: detailUrl
-      };
-      if (result.aircraftType || result.operator || result.serial_number || result.manufacturer) return result;
-    } catch {
-      // próbujemy kolejny wynik
-    }
-  }
-  return null;
-}
-
-async function fetchAdsbDbAircraftMetadata(aircraft) {
-  const cleanIcao = normalizeIcao(firstFilled(aircraft?.hex, aircraft?.icao, aircraft?.icao24));
-  if (!cleanIcao) return null;
-  const url = `${ADSBDB_AIRCRAFT_API_BASE_URL}${cleanIcao.toUpperCase()}`;
-  try {
-    const data = await fetchJsonWithCorsFallbacks(url, 8000);
-    const root = data?.response?.aircraft || data?.response || data?.aircraft || data || {};
-    const registration = firstFilled(root.registration, root.reg, root.tail, root.n_number);
-    const aircraftType = firstFilled(root.type, root.icao_type, root.icaoType, root.aircraft_type, root.model, root.aircraft, root.description);
-    const manufacturer = firstFilled(root.manufacturer, root.make);
-    const owner = firstFilled(root.registered_owner, root.owner, root.operator, root.airline, root.op);
-    const serial = firstFilled(root.serial_number, root.serial, root.serialNumber, root.msn, root.cn, root.construction_number, root.constructionNumber);
-    const result = {
-      hex: cleanIcao,
-      icao: cleanIcao,
-      registration,
-      r: registration,
-      aircraftType,
-      type: aircraftType,
-      t: aircraftType,
-      manufacturer,
-      operator: owner,
-      owner,
-      airline: owner,
-      serial_number: serial,
-      serialNumber: serial,
-      msn: serial,
-      line_number: firstFilled(root.line_number, root.lineNumber, root.line_no),
-      first_flight: firstFilled(root.first_flight, root.firstFlight, root.firstFlightDate),
-      delivery_date: firstFilled(root.delivery_date, root.deliveryDate, root.delivery, root.delivered),
-      engines: firstFilled(root.engines, root.engine, root.engine_type, root.engineType),
-      configuration: firstFilled(root.configuration, root.config),
-      country: firstFilled(root.country, root.registration_country, root.flag)
-    };
-    if (Object.values(result).some((value) => String(value || '').trim())) return result;
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function mergeAircraftExportData(primary, extra) {
-  const base = primary && typeof primary === 'object' ? primary : {};
-  const supplement = extra && typeof extra === 'object' ? extra : {};
-  const merged = { ...supplement, ...base };
-  const registration = firstFilled(base.r, base.registration, supplement.r, supplement.registration);
-  const aircraftType = firstFilled(base.t, base.type, base.aircraftType, supplement.t, supplement.type, supplement.aircraftType);
-  const operator = firstFilled(base.operator, base.owner, base.airline, supplement.operator, supplement.owner, supplement.airline);
-  const manufacturer = firstFilled(base.manufacturer, base.make, supplement.manufacturer, supplement.make);
-  const serial = firstFilled(base.serial_number, base.serialNumber, base.msn, base.MSN, base.cn, base.constructionNumber, supplement.serial_number, supplement.serialNumber, supplement.msn, supplement.MSN, supplement.cn, supplement.constructionNumber);
-  const lineNumber = firstFilled(base.line_number, base.lineNumber, base.ln, supplement.line_number, supplement.lineNumber, supplement.ln);
-  const firstFlight = firstFilled(base.first_flight, base.firstFlight, base.firstFlightDate, supplement.first_flight, supplement.firstFlight, supplement.firstFlightDate);
-  const deliveryDate = firstFilled(base.delivery_date, base.deliveryDate, base.delivery, base.delivered, supplement.delivery_date, supplement.deliveryDate, supplement.delivery, supplement.delivered);
-  const engines = firstFilled(base.engines, base.engine, base.engine_type, base.engineType, supplement.engines, supplement.engine, supplement.engine_type, supplement.engineType);
-  const configuration = firstFilled(base.configuration, base.config, supplement.configuration, supplement.config);
-  const country = firstFilled(base.country, base.registration_country, base.flag, supplement.country, supplement.registration_country, supplement.flag);
-  if (registration) merged.r = merged.registration = registration;
-  if (aircraftType) merged.t = merged.type = merged.aircraftType = aircraftType;
-  if (operator) merged.operator = merged.owner = merged.airline = operator;
-  if (manufacturer) merged.manufacturer = merged.make = manufacturer;
-  if (serial) merged.serial_number = merged.serialNumber = merged.msn = serial;
-  if (lineNumber) merged.line_number = merged.lineNumber = lineNumber;
-  if (firstFlight) merged.first_flight = merged.firstFlight = merged.firstFlightDate = firstFlight;
-  if (deliveryDate) merged.delivery_date = merged.deliveryDate = merged.delivery = merged.delivered = deliveryDate;
-  if (engines) merged.engines = merged.engine = merged.engine_type = merged.engineType = engines;
-  if (configuration) merged.configuration = merged.config = configuration;
-  if (country) merged.country = merged.registration_country = merged.flag = country;
-  return merged;
-}
-
-async function buildAeroExportAircraft(aircraft) {
-  let merged = mergeAircraftExportData(aircraft, {});
-  try {
-    const staticData = await fetchAdsbDbAircraftMetadata(merged);
-    if (staticData) merged = mergeAircraftExportData(merged, staticData);
-  } catch {
-    // bez twardego błędu
-  }
-  try {
-    const jetPhotosData = await fetchJetPhotosMetadata(firstFilled(merged.r, merged.registration));
-    if (jetPhotosData) merged = mergeAircraftExportData(merged, jetPhotosData);
-  } catch {
-    // bez twardego błędu
-  }
-  return merged;
-}
-
-function aircraftAeroDocxData(aircraft, photoInfo = {}) {
-  const details = Object.fromEntries(aircraftDetailsRows(aircraft));
-  const raw = aircraft || {};
-  const route = routeInfoFromAircraft(aircraft);
-  const flight = aircraftToFlight(aircraft);
-  const photo = aircraftExportPhotoMeta(photoInfo);
-  return {
-    registration: firstFilled(raw.r, raw.registration, details["Rejestracja"], "brak danych"),
-    aircraftType: firstFilled(raw.t, raw.type, raw.aircraftType, details["Typ"], "brak danych"),
-    manufacturer: firstFilled(raw.manufacturer, raw.make, raw.producer, "brak danych"),
-    serialNumber: firstFilled(raw.serial_number, raw.serialNumber, raw.msn, raw.MSN, raw.cn, raw.c_n, raw.constructionNumber, raw.line_number, raw.lineNumber, "brak danych"),
-    lineNumber: firstFilled(raw.line_number, raw.lineNumber, raw.ln, "brak danych"),
-    hexCode: normalizeIcao(firstFilled(raw.hex, raw.icao, raw.icao24, flight.icao)).toUpperCase() || "brak danych",
-    operator: firstFilled(raw.operator, raw.owner, raw.airline, details["Operator / linia"], airlineGuessFromCallsign(aircraft), "brak danych"),
-    country: firstFilled(raw.country, raw.registration_country, raw.flag, "brak danych"),
-    firstFlight: firstFilled(raw.first_flight, raw.firstFlight, raw.firstFlightDate, "brak danych"),
-    deliveryDate: firstFilled(raw.delivery_date, raw.deliveryDate, raw.delivered, raw.delivery, "brak danych"),
-    engines: firstFilled(raw.engines, raw.engine, raw.engine_type, raw.engineType, "brak danych"),
-    configuration: firstFilled(raw.configuration, raw.config, "brak danych"),
-    photoSource: photo.url || "brak danych",
-    routeText: route.verbose || route.short || "brak danych",
-    adsbUrl: buildAdsbUrl(flight),
-    photo
-  };
-}
-
-function aircraftAeroDocxFlightRows(aircraft) {
-  const { history } = aircraftExportHistoryRows(aircraft);
-  if (!history.length) {
-    const route = routeInfoFromAircraft(aircraft);
-    const now = new Date().toLocaleDateString("pl-PL");
-    return [[now, "", aircraftCallsign(aircraft) || aircraftLabel(aircraft), route.origin || "", route.destination || "", "", "", "1 lot"]];
-  }
-  return history.slice(0, 80).map((item) => {
-    const route = routeInfoFromAircraft(item);
-    return [
-      item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleDateString("pl-PL") : "",
-      item.lastSeenAt ? new Date(item.lastSeenAt).toLocaleTimeString("pl-PL") : "",
-      item.callsign || aircraftCallsign(item) || "",
-      route.origin || "",
-      route.destination || "",
-      "",
-      "",
-      String(item.count || 1)
-    ];
-  });
-}
-
-async function createAeroStyleDocxBlob(aircraft, photoInfo = {}) {
-  const data = aircraftAeroDocxData(aircraft, photoInfo);
-  const title = `SAMOLOT ${data.aircraftType !== "brak danych" ? data.aircraftType : ""} ${data.registration !== "brak danych" ? data.registration : ""} ${data.operator !== "brak danych" ? data.operator : ""}`.replace(/\s+/g, " ").trim() || "ZESTAWIENIE SAMOLOTU";
-  const summaryHeaders = ["NUMER SERYJNY", "NUMER REJESTRACYJNY / BOCZNY", "RODZAJ SILNIKA", "HEX", "DATA PIERWSZEGO LOTU", "DATA ODBIORU / PRZEKAZANIA", "GALERIA"];
-  const summaryValues = [data.serialNumber, data.registration, data.engines, data.hexCode, data.firstFlight, data.deliveryDate];
-  const summaryWidths = [1650, 2100, 1800, 1300, 1750, 1900, 5200];
-  const details = [
-    ["Rejestracja / numer boczny", data.registration],
-    ["Typ samolotu", data.aircraftType],
-    ["Producent", data.manufacturer],
-    ["Numer seryjny / MSN", data.serialNumber],
-    ["Numer linii produkcyjnej", data.lineNumber],
-    ["HEX / Mode-S", data.hexCode],
-    ["Operator", data.operator],
-    ["Kraj rejestracji", data.country],
-    ["Data pierwszego lotu", data.firstFlight],
-    ["Data dostawy / przekazania", data.deliveryDate],
-    ["Silniki", data.engines],
-    ["Konfiguracja", data.configuration],
-    ["Trasa", data.routeText],
-    ["Link ADS", data.adsbUrl],
-    ["Źródło zdjęcia", data.photoSource]
-  ];
-  const flightHeaders = ["DATA", "GODZINA", "NUMER LOTU", "START", "LĄDOWANIE", "GODZINA", "CZAS LOTU", "LICZBA LOTÓW"];
-  const flightWidths = [1350, 1200, 1800, 2300, 2300, 1200, 1350, 1350];
-  const documentXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>
-<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:rPr><w:b/><w:sz w:val="36"/></w:rPr><w:t>${docxEscapeXml(title)}</w:t></w:r></w:p>
-<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>
-${docxRow(summaryHeaders, { bold: true, fill: "DDEBF7", widths: summaryWidths })}
-<w:tr>${summaryValues.map((value, index) => docxCell(value, { width: summaryWidths[index] })).join("")}${docxPhotoCell(photoInfo, summaryWidths[6])}</w:tr>
-</w:tbl>
-<w:p/>
-<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>DANE SAMOLOTU</w:t></w:r></w:p>
-<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>
-${details.map(([label, value]) => docxRow([label, value], { widths: [3000, 11000] })).join("\n")}
-</w:tbl>
-<w:p/>
-<w:p><w:r><w:rPr><w:b/></w:rPr><w:t>LOTY / HISTORIA LOTÓW</w:t></w:r></w:p>
-<w:tbl><w:tblPr><w:tblW w:w="0" w:type="auto"/><w:tblBorders><w:top w:val="single" w:sz="4"/><w:left w:val="single" w:sz="4"/><w:bottom w:val="single" w:sz="4"/><w:right w:val="single" w:sz="4"/><w:insideH w:val="single" w:sz="4"/><w:insideV w:val="single" w:sz="4"/></w:tblBorders></w:tblPr>
-${docxRow(flightHeaders, { bold: true, fill: "DDEBF7", widths: flightWidths })}
-${aircraftAeroDocxFlightRows(aircraft).map((row) => docxRow(row, { widths: flightWidths })).join("\n")}
-</w:tbl>
-<w:sectPr><w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/><w:pgMar w:top="680" w:right="680" w:bottom="680" w:left="680" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr>
-</w:body></w:document>`;
-  const imageExt = (photoInfo.fileName || "zdjecie.jpg").split(".").pop().toLowerCase() || "jpg";
-  const files = [
-    { name: "[Content_Types].xml", blob: blobFromText(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="jpeg" ContentType="image/jpeg"/><Default Extension="jpg" ContentType="image/jpeg"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`, "application/xml") },
-    { name: "_rels/.rels", blob: blobFromText(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`, "application/xml") },
-    { name: "word/document.xml", blob: blobFromText(documentXml, "application/xml") },
-    { name: "word/_rels/document.xml.rels", blob: blobFromText(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${photoInfo?.real === true && photoInfo?.blob ? `<Relationship Id="rIdImage1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/zdjecie.${imageExt}"/>` : ""}</Relationships>`, "application/xml") }
-  ];
-  if (photoInfo?.real === true && photoInfo?.blob) files.push({ name: `word/media/zdjecie.${imageExt}`, blob: photoInfo.blob });
-  return createZipBlob(files);
-}
-
-async function downloadAeroStyleDocxForAircraft(aircraft) {
-  const exportAircraft = await buildAeroExportAircraft(aircraft);
-  let photoInfo;
-  try {
-    photoInfo = await aircraftPhotoBlobForExport(exportAircraft);
-  } catch (photoError) {
-    console.warn("Nie udało się pobrać zdjęcia do DOCX.", photoError);
-    photoInfo = { blob: null, fileName: "", url: "", real: false };
-  }
-  const docxBlob = await createAeroStyleDocxBlob(exportAircraft, photoInfo);
-  const fileName = `${makeAircraftExportBaseName(exportAircraft)}_zestawienie.docx`;
-  downloadBlob(fileName, new Blob([docxBlob], { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document" }));
-  return fileName;
-}
-
-function blobFromText(text, type = "text/plain;charset=utf-8") {
-  return new Blob([text], { type });
-}
-
-async function blobFromDataUrl(dataUrl) {
-  const response = await fetch(dataUrl);
-  return response.blob();
-}
-
-async function aircraftPhotoBlobForExport(aircraft) {
-  let photoUrl = "";
-  try {
-    photoUrl = await findRealAircraftPhotoUrl(aircraft);
-    if (photoUrl) {
-      const attempts = [photoUrl, ...CORS_PROXY_BUILDERS.map((builder) => builder(photoUrl))];
-      for (const attemptUrl of attempts) {
-        try {
-          const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "image/*,*/*;q=0.8" } }, 10000);
-          if (!response.ok) continue;
-          const blob = await response.blob();
-          if (blob && blob.size > 0) {
-            const mime = blob.type || "image/jpeg";
-            const ext = mime.includes("png") ? "png" : mime.includes("webp") ? "webp" : mime.includes("jpeg") ? "jpg" : "jpg";
-            return { blob, fileName: `zdjecie.${ext}`, url: photoUrl, real: true };
-          }
-        } catch {
-          // próbujemy kolejne podejście
-        }
-      }
-    }
-  } catch {
-    // Brak prawdziwego zdjęcia albo blokada pobierania. Nie zapisujemy grafiki zastępczej do eksportu.
-  }
-  return { blob: null, fileName: "", url: photoUrl, real: false };
-}
-
-async function ensureDirectoryWritable(directoryHandle) {
-  if (!directoryHandle || typeof directoryHandle.queryPermission !== "function") return true;
-  const options = { mode: "readwrite" };
-  let permission = await directoryHandle.queryPermission(options);
-  if (permission === "granted") return true;
-  if (typeof directoryHandle.requestPermission === "function") {
-    permission = await directoryHandle.requestPermission(options);
-  }
-  return permission === "granted";
-}
-
-async function writeBlobToDirectory(directoryHandle, fileName, blob) {
-  const fileHandle = await directoryHandle.getFileHandle(fileName, { create: true });
-  const writable = await fileHandle.createWritable();
-  try {
-    await writable.write(blob);
-  } finally {
-    await writable.close();
-  }
-}
-
-async function writeTextToDirectory(directoryHandle, fileName, text, type = "text/plain;charset=utf-8") {
-  await writeBlobToDirectory(directoryHandle, fileName, blobFromText(text, type));
-}
-
-function downloadBlob(fileName, blob) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-
-function dosDateTime(date = new Date()) {
-  const year = Math.max(1980, date.getFullYear());
-  const dosTime = (date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2);
-  const dosDate = ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate();
-  return { dosDate, dosTime };
-}
+// routeDetailRows przeniesiono do modules/mapRoutes.js
+
+// aircraftDetailsRows przeniesiono do modules/aircraftUtils.js
+
+// renderAircraftDetailsPanel przeniesiono do modules/uiPanels.js
+
+// setAircraftDetailsVisible przeniesiono do modules/uiPanels.js
+
+// showSelectedAircraftSheet przeniesiono do modules/uiPanels.js
+
+// hideSelectedAircraftSheet przeniesiono do modules/uiPanels.js
+
+// selectedAircraftShareText przeniesiono do modules/uiPanels.js
+
+// openAircraftQuickPopup przeniesiono do modules/uiPanels.js
+
+// aircraftPopupContent przeniesiono do modules/uiPanels.js
+
+// metricCard przeniesiono do modules/uiPanels.js
+
+
+// watchItemFromIcao przeniesiono do modules/savedWatchHistory.js
+
+// watchItemFromAircraft przeniesiono do modules/savedWatchHistory.js
+
+// watchToFlight przeniesiono do modules/savedWatchHistory.js
+
+// upsertWatchItem przeniesiono do modules/savedWatchHistory.js
+
+// upsertWatchFromAircraft przeniesiono do modules/savedWatchHistory.js
+
+// addWatchFromCurrentInput przeniesiono do modules/savedWatchHistory.js
+
+// updateWatchlistFromAircraft przeniesiono do modules/savedWatchHistory.js
+
+// renderWatchlist przeniesiono do modules/savedWatchHistory.js
+
+
+// loadFlightHistory przeniesiono do modules/savedWatchHistory.js
+
+// saveFlightHistory przeniesiono do modules/savedWatchHistory.js
+
+// historyTimeText przeniesiono do modules/savedWatchHistory.js
+
+// historySearchText przeniesiono do modules/savedWatchHistory.js
+
+// historyReasonForAircraft przeniesiono do modules/savedWatchHistory.js
+
+// historyEntryFromAircraft przeniesiono do modules/savedWatchHistory.js
+
+// recordAircraftHistory przeniesiono do modules/savedWatchHistory.js
+
+// historyItemToFlight przeniesiono do modules/savedWatchHistory.js
+
+// renderFlightHistory przeniesiono do modules/savedWatchHistory.js
+
+// exportFlightHistory przeniesiono do modules/exportModule.js
+
+
+// sanitizeFileName przeniesiono do modules/coreStorage.js
+
+// csvCell przeniesiono do modules/coreStorage.js
+
+// makeAircraftExportBaseName przeniesiono do modules/exportModule.js
+
+// makeAircraftExportZipName przeniesiono do modules/exportModule.js
+
+// aircraftExportHistoryRows przeniesiono do modules/exportModule.js
+
+// aircraftTrackCsv przeniesiono do modules/exportModule.js
+
+// aircraftSeenHistoryCsv przeniesiono do modules/exportModule.js
+
+// aircraftExportPhotoMeta przeniesiono do modules/exportModule.js
+
+// flattenExportValue przeniesiono do modules/exportModule.js
+
+// aircraftCurrentDataCsv przeniesiono do modules/exportModule.js
+
+// aircraftExportJson przeniesiono do modules/exportModule.js
+
+// aircraftExportText przeniesiono do modules/exportModule.js
+
+// aircraftExportHtml przeniesiono do modules/exportModule.js
+
+
+
+// Eksport DOCX przeniesiony do services/docxExportService.js.
+
+// ensureDirectoryWritable przeniesiono do modules/exportModule.js
+
+// writeBlobToDirectory przeniesiono do modules/exportModule.js
+
+// writeTextToDirectory przeniesiono do modules/exportModule.js
+
+// downloadBlob przeniesiono do modules/exportModule.js
+
+
+// dosDateTime przeniesiono do modules/exportModule.js
 
 let crcTableCache = null;
-function crc32Table() {
-  if (crcTableCache) return crcTableCache;
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n += 1) {
-    let c = n;
-    for (let k = 0; k < 8; k += 1) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
-    table[n] = c >>> 0;
-  }
-  crcTableCache = table;
-  return table;
-}
+// crc32Table przeniesiono do modules/exportModule.js
 
-function crc32(bytes) {
-  const table = crc32Table();
-  let c = 0xffffffff;
-  for (const b of bytes) c = table[(c ^ b) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
+// crc32 przeniesiono do modules/exportModule.js
 
-async function blobToUint8Array(blob) {
-  return new Uint8Array(await blob.arrayBuffer());
-}
+// blobToUint8Array przeniesiono do modules/exportModule.js
 
-function uint16(value) {
-  return [value & 0xff, (value >>> 8) & 0xff];
-}
+// uint16 przeniesiono do modules/exportModule.js
 
-function uint32(value) {
-  return [value & 0xff, (value >>> 8) & 0xff, (value >>> 16) & 0xff, (value >>> 24) & 0xff];
-}
+// uint32 przeniesiono do modules/exportModule.js
 
-async function createZipBlob(files) {
-  const encoder = new TextEncoder();
-  const chunks = [];
-  const central = [];
-  let offset = 0;
-  const { dosDate, dosTime } = dosDateTime();
+// createZipBlob przeniesiono do modules/exportModule.js
 
-  for (const file of files) {
-    const nameBytes = encoder.encode(file.name.replace(/\\/g, "/"));
-    const dataBytes = await blobToUint8Array(file.blob);
-    const crc = crc32(dataBytes);
-    const localHeader = new Uint8Array([
-      ...uint32(0x04034b50), ...uint16(20), ...uint16(0), ...uint16(0),
-      ...uint16(dosTime), ...uint16(dosDate), ...uint32(crc),
-      ...uint32(dataBytes.length), ...uint32(dataBytes.length),
-      ...uint16(nameBytes.length), ...uint16(0)
-    ]);
-    chunks.push(localHeader, nameBytes, dataBytes);
+// safeZipName przeniesiono do modules/exportModule.js
 
-    const centralHeader = new Uint8Array([
-      ...uint32(0x02014b50), ...uint16(20), ...uint16(20), ...uint16(0), ...uint16(0),
-      ...uint16(dosTime), ...uint16(dosDate), ...uint32(crc),
-      ...uint32(dataBytes.length), ...uint32(dataBytes.length),
-      ...uint16(nameBytes.length), ...uint16(0), ...uint16(0), ...uint16(0),
-      ...uint16(0), ...uint32(0), ...uint32(offset)
-    ]);
-    central.push(centralHeader, nameBytes);
-    offset += localHeader.length + nameBytes.length + dataBytes.length;
-  }
+// downloadAircraftExportZip przeniesiono do modules/exportModule.js
 
-  const centralSize = central.reduce((sum, part) => sum + part.length, 0);
-  const centralOffset = offset;
-  const endRecord = new Uint8Array([
-    ...uint32(0x06054b50), ...uint16(0), ...uint16(0),
-    ...uint16(files.length), ...uint16(files.length),
-    ...uint32(centralSize), ...uint32(centralOffset), ...uint16(0)
-  ]);
+// buildAircraftExportFiles przeniesiono do modules/exportModule.js
 
-  return new Blob([...chunks, ...central, endRecord], { type: "application/zip" });
-}
+// exportSelectedAircraftToFolder przeniesiono do modules/exportModule.js
 
-function safeZipName(name) {
-  return String(name || "eksport").replace(/[<>:"/\\|?*\x00-\x1F]/g, "_").replace(/\s+/g, "_").slice(0, 120) || "eksport";
-}
+// readAlertSettingsFromForm przeniesiono do modules/alertsModule.js
 
-async function downloadAircraftExportZip(zipName, files, innerFolderName = zipName) {
-  const safeZip = safeZipName(zipName);
-  const safeFolder = safeZipName(innerFolderName || zipName);
-  const zipFiles = files.map((file) => ({
-    name: `${safeFolder}/${file.name}`,
-    blob: file.blob
-  }));
-  const zipBlob = await createZipBlob(zipFiles);
-  downloadBlob(`${safeZip}.zip`, zipBlob);
-}
+// applyAlertSettingsToForm przeniesiono do modules/alertsModule.js
 
-async function buildAircraftExportFiles(aircraft, baseName) {
-  let photoInfo;
-  try {
-    photoInfo = await aircraftPhotoBlobForExport(aircraft);
-  } catch (photoError) {
-    console.warn("Nie udało się pobrać prawdziwego zdjęcia. Eksport będzie bez pliku zdjęcia.", photoError);
-    photoInfo = {
-      blob: null,
-      fileName: "",
-      url: "",
-      real: false
-    };
-  }
+// saveAlertSettingsFromForm przeniesiono do modules/alertsModule.js
 
-  const photo = aircraftExportPhotoMeta(photoInfo);
-  const files = [
-    {
-      name: "_eksport_start.txt",
-      blob: blobFromText(`Eksport rozpoczęty: ${new Date().toLocaleString("pl-PL")}\nWersja: ${APP_VERSION}\nSamolot: ${aircraftLabel(aircraft)}\nFolder: ${baseName}\n`)
-    },
-    { name: "dane.json", blob: blobFromText(JSON.stringify(aircraftExportJson(aircraft, photoInfo), null, 2), "application/json;charset=utf-8") },
-    { name: "aktualne_dane.csv", blob: blobFromText(aircraftCurrentDataCsv(aircraft, photoInfo), "text/csv;charset=utf-8") },
-    { name: "opis.txt", blob: blobFromText(aircraftExportText(aircraft, photoInfo)) },
-    { name: "historia_trasy.csv", blob: blobFromText(aircraftTrackCsv(aircraft), "text/csv;charset=utf-8") },
-    { name: "historia_widzen.csv", blob: blobFromText(aircraftSeenHistoryCsv(aircraft), "text/csv;charset=utf-8") },
-    { name: "raport.html", blob: blobFromText(aircraftExportHtml(aircraft, photo.fileName, photoInfo), "text/html;charset=utf-8") },
-    { name: "zdjecie_zrodlo.txt", blob: blobFromText(photo.url || "Brak prawdziwego zdjęcia. Nie zapisano grafiki poglądowej.") },
-    {
-      name: "_eksport_zakonczony.txt",
-      blob: blobFromText(`Eksport zakończony: ${new Date().toLocaleString("pl-PL")}\nFolder: ${baseName}\nPlik zdjęcia: ${photo.fileName}\nPrawdziwe zdjęcie: ${photo.real ? "tak" : "nie"}\n`)
-    }
-  ];
+// updateAlertStatusText przeniesiono do modules/alertsModule.js
 
-  if (photoInfo.blob) {
-    files.splice(7, 0, { name: photo.fileName, blob: photoInfo.blob });
-  }
+// renderAlertLog przeniesiono do modules/alertsModule.js
 
-  return files;
-}
+// pushAlertLog przeniesiono do modules/alertsModule.js
 
-async function exportSelectedAircraftToFolder(event) {
-  event?.preventDefault?.();
-  event?.stopPropagation?.();
+// numericSetting przeniesiono do modules/alertsModule.js
 
-  if (!selectedAircraft) {
-    alert("Najpierw wybierz samolot do eksportu.");
-    showToast("Najpierw wybierz samolot.");
-    return;
-  }
+// alertBasePoint przeniesiono do modules/alertsModule.js
 
-  const aircraft = { ...selectedAircraft };
-  try {
-    startBusy("Przygotowuję plik DOCX z zestawieniem samolotu...");
-    const fileName = await downloadAeroStyleDocxForAircraft(aircraft);
-    finishBusy();
-    showToast(`Pobrano zestawienie DOCX: ${fileName}`, 9000);
-  } catch (error) {
-    finishBusy();
-    console.error("Nie udało się przygotować DOCX:", error);
-    alert(`Nie udało się przygotować DOCX:
-${error?.message || error?.name || "nieznany błąd"}`);
-  }
-}
+// distanceKmBetween przeniesiono do modules/alertsModule.js
 
-function readAlertSettingsFromForm() {
-  return {
-    enabled: alertsEnabledInput?.checked === true,
-    query: alertQueryInput?.value?.trim?.() || "",
-    distanceKm: alertDistanceKmInput?.value?.trim?.() || "",
-    maxAltitudeFt: alertMaxAltitudeInput?.value?.trim?.() || "",
-    watched: true,
-    special: alertSpecialInput?.checked === true,
-    system: alertSystemInput?.checked === true
-  };
-}
+// aircraftMatchesAlertQuery przeniesiono do modules/alertsModule.js
 
-function applyAlertSettingsToForm() {
-  const settings = loadAlertSettingsObject();
-  if (alertsEnabledInput) alertsEnabledInput.checked = settings.enabled === true;
-  if (alertQueryInput) alertQueryInput.value = settings.query || "";
-  if (alertDistanceKmInput) alertDistanceKmInput.value = settings.distanceKm || "";
-  if (alertMaxAltitudeInput) alertMaxAltitudeInput.value = settings.maxAltitudeFt || "";
-  if (alertWatchedInput) {
-    alertWatchedInput.checked = true;
-    alertWatchedInput.disabled = true;
-  }
-  if (alertSpecialInput) alertSpecialInput.checked = settings.special === true;
-  if (alertSystemInput) alertSystemInput.checked = settings.system === true;
-  updateAlertStatusText();
-}
+// ensureNotificationPermission przeniesiono do modules/alertsModule.js
 
-function saveAlertSettingsFromForm() {
-  const settings = readAlertSettingsFromForm();
-  saveAlertSettingsObject(settings);
-  updateAlertStatusText();
-  showToast("Alerty zapisane.");
-}
+// showSystemAlertNotification przeniesiono do modules/alertsModule.js
 
-function updateAlertStatusText(message = "") {
-  if (!alertStatus) return;
-  const settings = loadAlertSettingsObject();
-  const watchedCount = loadWatchlist().length;
-  const firedCount = Object.keys(loadFiredAlertState()).length;
-  const activeParts = [`obserwowane: ${watchedCount}`, `wysłane jednorazowo: ${firedCount}`];
-  if (settings.query) activeParts.push(`filtr: ${settings.query}`);
-  if (settings.special) activeParts.push("tylko wojskowe/specjalne z obserwowanych");
-  if (settings.distanceKm) activeParts.push(`do ${settings.distanceKm} km`);
-  if (settings.maxAltitudeFt) activeParts.push(`poniżej ${settings.maxAltitudeFt} ft`);
-  const prefix = settings.enabled ? "Alerty włączone" : "Alerty wyłączone";
-  alertStatus.textContent = message || `${prefix}: ${activeParts.join(", ")}.`;
-}
+// notifyAlertUser przeniesiono do modules/alertsModule.js
 
-function renderAlertLog() {
-  if (!alertLogList) return;
-  const log = loadAlertLog();
-  alertLogList.replaceChildren();
-  if (!log.length) {
-    const empty = document.createElement("li");
-    empty.className = "alert-log-item muted";
-    empty.textContent = "Brak alertów w tej sesji.";
-    alertLogList.append(empty);
-    return;
-  }
-  const fragment = document.createDocumentFragment();
-  for (const entry of log.slice(0, ALERT_LOG_MAX_ENTRIES)) {
-    const item = document.createElement("li");
-    item.className = "alert-log-item";
-    const time = entry.at ? new Date(entry.at).toLocaleTimeString("pl-PL", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
-    item.innerHTML = `<strong>${escapeHtml(time)}</strong><span>${escapeHtml(entry.message || "Alert")}</span>`;
-    fragment.append(item);
-  }
-  alertLogList.append(fragment);
-}
+// canTriggerAlert przeniesiono do modules/alertsModule.js
 
-function pushAlertLog(message) {
-  const log = loadAlertLog();
-  log.unshift({ id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`, at: new Date().toISOString(), message });
-  saveAlertLog(log);
-  renderAlertLog();
-}
+// mergeUniqueAircraftByIcao przeniesiono do modules/alertsModule.js
 
-function numericSetting(value) {
-  const clean = String(value ?? "").trim();
-  if (!clean) return null;
-  const number = Number(clean.replace(",", "."));
-  return Number.isFinite(number) && number >= 0 ? number : null;
-}
+// selectWatchedItemsForGlobalProbe przeniesiono do modules/alertsModule.js
 
-function alertBasePoint() {
-  const lat = Number.parseFloat(firstFilled(browseLatInput?.value, latInput?.value).replace(",", "."));
-  const lon = Number.parseFloat(firstFilled(browseLonInput?.value, lonInput?.value).replace(",", "."));
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  return { lat, lon };
-}
+// markWatchedProbeChecked przeniesiono do modules/alertsModule.js
 
-function distanceKmBetween(a, b) {
-  const earthKm = 6371;
-  const toRad = (value) => Number(value) * Math.PI / 180;
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
-  return 2 * earthKm * Math.asin(Math.min(1, Math.sqrt(h)));
-}
+// checkWatchedAircraftGlobalInBackground przeniesiono do modules/alertsModule.js
 
-function aircraftMatchesAlertQuery(aircraft, query) {
-  const cleanQuery = normalizeSearchText(query);
-  if (!cleanQuery) return false;
-  return aircraftSearchValues(aircraft).some((value) => value === cleanQuery || value.includes(cleanQuery) || cleanQuery.includes(value));
-}
+// checkAircraftAlerts przeniesiono do modules/alertsModule.js
 
-async function ensureNotificationPermission() {
-  if (!("Notification" in window)) return "unsupported";
-  if (Notification.permission === "granted") return "granted";
-  if (Notification.permission === "denied") return "denied";
-  return Notification.requestPermission();
-}
-
-async function showSystemAlertNotification(message) {
-  if (!("Notification" in window) || Notification.permission !== "granted") return;
-
-  const options = {
-    body: message,
-    icon: NOTIFICATION_ICON,
-    badge: NOTIFICATION_ICON,
-    tag: `ads-viewer-alert-${String(message).slice(0, 80)}`,
-    renotify: true,
-    requireInteraction: false,
-    data: { url: location.href },
-    vibrate: [180, 80, 180]
-  };
-
-  if ("serviceWorker" in navigator) {
-    try {
-      const registration = await navigator.serviceWorker.ready;
-      if (registration?.showNotification) {
-        await registration.showNotification("ADS Viewer Pro", options);
-        return;
-      }
-    } catch {
-      // Jeżeli service worker nie jest gotowy, użyj zwykłego Notification.
-    }
-  }
-
-  new Notification("ADS Viewer Pro", options);
-}
-
-function notifyAlertUser(message, settings) {
-  showToast(message, 6500);
-  if (settings.system) {
-    showSystemAlertNotification(message).catch(() => {
-      // Powiadomienie systemowe jest dodatkiem. Toast nadal działa.
-    });
-  }
-}
-
-function canTriggerAlert(key, force = false) {
-  if (force) return true;
-  const now = Date.now();
-  const previous = alertCooldownMap.get(key) || 0;
-  if (now - previous < ALERT_COOLDOWN_MS) return false;
-  alertCooldownMap.set(key, now);
-  return true;
-}
-
-function mergeUniqueAircraftByIcao(baseAircraft, extraAircraft) {
-  const mapByIcao = new Map();
-  for (const item of [...(baseAircraft || []), ...(extraAircraft || [])]) {
-    const icao = aircraftIcao(item);
-    if (!isValidIcao(icao)) continue;
-    const previous = mapByIcao.get(icao);
-    mapByIcao.set(icao, previous ? mergeFlightRouteIntoAircraft(item, previous) : item);
-  }
-  return [...mapByIcao.values()];
-}
-
-function selectWatchedItemsForGlobalProbe(currentAircraft = [], options = {}) {
-  const watched = loadWatchlist().filter((item) => isValidIcao(normalizeIcao(item.icao || item.hex || "")));
-  if (!watched.length) return [];
-
-  const liveIcaos = new Set((currentAircraft || []).map(aircraftIcao).filter(isValidIcao));
-  const now = Date.now();
-  const rotated = watched.map((item, index) => watched[(watchlistGlobalProbeCursor + index) % watched.length]);
-  const selected = [];
-
-  for (const item of rotated) {
-    const icao = normalizeIcao(item.icao || item.hex || "");
-    if (!isValidIcao(icao) || liveIcaos.has(icao)) continue;
-    const last = watchlistProbeLastCheckedAt.get(icao) || Number(item.lastProbeAt || 0) || 0;
-    if (!options.immediate && now - last < WATCHLIST_GLOBAL_CHECK_INTERVAL_MS) continue;
-    selected.push(item);
-    if (selected.length >= WATCHLIST_GLOBAL_CHECK_LIMIT) break;
-  }
-
-  if (watched.length) watchlistGlobalProbeCursor = (watchlistGlobalProbeCursor + Math.max(1, selected.length)) % watched.length;
-  return selected;
-}
-
-function markWatchedProbeChecked(icaos) {
-  const cleanSet = new Set((icaos || []).map(normalizeIcao).filter(isValidIcao));
-  if (!cleanSet.size) return;
-  const checkedAt = new Date().toISOString();
-  const items = loadWatchlist();
-  let changed = false;
-  const next = items.map((item) => {
-    const icao = normalizeIcao(item.icao || item.hex || "");
-    if (!cleanSet.has(icao)) return item;
-    changed = true;
-    return { ...item, lastProbeAt: Date.now(), lastCheckedAt: checkedAt };
-  });
-  if (changed) saveWatchlist(next, { skipSync: true });
-}
-
-async function checkWatchedAircraftGlobalInBackground(currentAircraft = [], options = {}) {
-  if (watchlistGlobalProbeInProgress || document.hidden) return;
-  const settings = loadAlertSettingsObject();
-  const watched = loadWatchlist();
-  if (!watched.length) return;
-
-  // Globalne odpytywanie HEX ma sens głównie dla alertów.
-  // Przy wyłączonych alertach robimy tylko aktualizację UI z bieżącej mapy, bez dodatkowego obciążania API.
-  if (!settings.enabled && !options.immediate) return;
-
-  const selected = selectWatchedItemsForGlobalProbe(currentAircraft, options);
-  if (!selected.length) return;
-
-  watchlistGlobalProbeInProgress = true;
-  const requestedIcaos = selected.map((item) => normalizeIcao(item.icao || item.hex || "")).filter(isValidIcao);
-  for (const icao of requestedIcaos) watchlistProbeLastCheckedAt.set(icao, Date.now());
-
-  try {
-    const probes = requestedIcaos.map(async (icao) => {
-      try {
-        return await fetchAircraftByHex(icao, {
-          preferCache: false,
-          fallbackAllSources: true,
-          timeoutMs: HEX_FETCH_TIMEOUT_MS,
-          allowProxy: true
-        });
-      } catch {
-        return null;
-      }
-    });
-
-    const found = (await Promise.all(probes)).filter(Boolean);
-    markWatchedProbeChecked(requestedIcaos);
-    if (!found.length) {
-      renderWatchlist();
-      updateAlertStatusText();
-      return;
-    }
-
-    applyCachedRoutesToAircraft(found);
-    const combined = mergeUniqueAircraftByIcao(lastAircraftCache, found);
-    lastAircraftCache = combined;
-    const visibleAircraft = filterAircraftForDisplay(combined);
-    const renderSettings = lastRenderSettings || { apiBase: API_SOURCES[DEFAULT_DATA_SOURCE].apiBase, sourceName: DEFAULT_DATA_SOURCE, apiKey: "" };
-    renderAircraft(visibleAircraft, renderSettings);
-    renderAircraftMap(visibleAircraft, renderSettings, { preserveView: true });
-    updateWatchlistFromAircraft(found);
-    recordAircraftHistory(found);
-    checkAircraftAlerts(found);
-    enrichAircraftRoutesInBackground(found, lastRenderSettings || {}, "obserwowane HEX");
-    setAircraftStatus(`Obserwowane HEX: znaleziono LIVE ${found.map((item) => aircraftIcao(item).toUpperCase()).join(", ")}.`);
-  } finally {
-    watchlistGlobalProbeInProgress = false;
-  }
-}
-
-function checkAircraftAlerts(aircraftArray, options = {}) {
-  const settings = loadAlertSettingsObject();
-  if (!settings.enabled && !options.force) {
-    updateAlertStatusText();
-    return;
-  }
-
-  const watchedIcaos = new Set(loadWatchlist().map((item) => normalizeIcao(item.icao || "")).filter(isValidIcao));
-  pruneFiredAlertStateToWatchlist(watchedIcaos);
-  if (!watchedIcaos.size) {
-    if (options.toastIfEmpty) showToast("Lista obserwowanych jest pusta. Alerty działają tylko dla obserwowanych samolotów.", 3800);
-    updateAlertStatusText("Alerty: brak samolotów na liście obserwowanych.");
-    return;
-  }
-
-  const source = Array.isArray(aircraftArray) ? aircraftArray : [];
-  if (!source.length) {
-    if (options.toastIfEmpty) showToast("Brak samolotów do sprawdzenia alertów.", 3000);
-    return;
-  }
-
-  const maxDistanceKm = numericSetting(settings.distanceKm);
-  const maxAltitudeFt = numericSetting(settings.maxAltitudeFt);
-  const basePoint = maxDistanceKm !== null ? alertBasePoint() : null;
-  const triggered = [];
-
-  for (const aircraft of source) {
-    if (triggered.length >= 4) break;
-    const icao = aircraftIcao(aircraft);
-    if (!isValidIcao(icao)) continue;
-
-    // Główna zasada: alerty wolno wywoływać tylko dla samolotów dodanych do listy obserwowanych.
-    if (!watchedIcaos.has(icao)) continue;
-
-    // Druga zasada: dla jednego obserwowanego samolotu wysyłamy tylko jeden alert.
-    // Ponowny alert będzie możliwy dopiero po usunięciu i ponownym dodaniu samolotu do obserwowanych.
-    if (!options.force && hasFiredAlertForIcao(icao)) continue;
-
-    if (settings.query && !aircraftMatchesAlertQuery(aircraft, settings.query)) continue;
-
-    const reasons = ["obserwowany"];
-
-    if (settings.special) {
-      if (aircraftTypeGroup(aircraft) !== "special") continue;
-      reasons.push("wojskowy/specjalny");
-    }
-
-    const altitude = aircraftAltitudeFeet(aircraft);
-    if (maxAltitudeFt !== null) {
-      if (altitude === null || altitude > maxAltitudeFt) continue;
-      reasons.push(`niski przelot ${formatAltitude(altitude)}`);
-    }
-
-    const point = pointFromAircraft(aircraft);
-    if (maxDistanceKm !== null) {
-      if (!basePoint || !point) continue;
-      const distance = distanceKmBetween(basePoint, point);
-      if (distance > maxDistanceKm) continue;
-      reasons.push(`blisko: ${distance.toFixed(1)} km`);
-    }
-
-    const key = icao;
-    if (!canTriggerAlert(key, options.force)) continue;
-    const message = `${aircraftLabel(aircraft)} — ${reasons.join(", ")}`;
-    triggered.push({ icao, message });
-  }
-
-  if (!triggered.length) {
-    if (options.toastIfEmpty) showToast("Brak obserwowanych samolotów w aktualnych danych.", 3200);
-    updateAlertStatusText();
-    return;
-  }
-
-  for (const alert of triggered) {
-    if (!options.force) markFiredAlertForIcao(alert.icao);
-    pushAlertLog(alert.message);
-    notifyAlertUser(`Alert: ${alert.message}`, settings);
-  }
-  updateAlertStatusText(`Ostatni alert: ${triggered[0].message}`);
-}
-
-function aircraftToFlight(aircraft) {
-  const point = pointFromAircraft(aircraft);
-  const route = routeInfoFromAircraft(aircraft);
-  return {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${firstFilled(aircraft.hex, aircraft.icao)}`,
-    icao: normalizeIcao(firstFilled(aircraft.hex, aircraft.icao)),
-    name: aircraftLabel(aircraft),
-    date: todayLocalDate(),
-    zoom: zoomInput.value.trim() || "9.2",
-    lat: point ? String(point.lat) : (aircraft?._offlineWatchOnly ? "" : browseLatInput.value.trim()),
-    lon: point ? String(point.lon) : (aircraft?._offlineWatchOnly ? "" : browseLonInput.value.trim()),
-    callsign: aircraftCallsign(aircraft),
-    type: firstFilled(aircraft.t, aircraft.type, aircraft.aircraftType),
-    registration: firstFilled(aircraft.r, aircraft.registration),
-    routeShort: route.short,
-    routeVerbose: route.verbose,
-    altitude: aircraft.alt_baro ?? "",
-    speed: aircraft.gs ?? "",
-    heading: aircraftHeading(aircraft) ?? "",
-    kind: aircraftTypeGroup(aircraft),
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-}
+// aircraftToFlight przeniesiono do modules/aircraftUtils.js
 
 function openFlightInAds(flight) {
   const cleanIcao = normalizeIcao(flight?.icao || flight?.hex || "");
@@ -5088,23 +1189,7 @@ function openAircraftInAds(aircraft) {
   openFlightInAds(aircraftToFlight(aircraft));
 }
 
-function flightToAircraft(flight) {
-  return {
-    hex: normalizeIcao(flight?.icao || flight?.hex || ""),
-    flight: flight?.callsign || flight?.name || "",
-    r: flight?.registration || "",
-    registration: flight?.registration || "",
-    t: flight?.type || flight?.aircraftType || "",
-    type: flight?.type || flight?.aircraftType || "",
-    lat: flight?.lat || "",
-    lon: flight?.lon || "",
-    alt_baro: flight?.altitude ?? "",
-    gs: flight?.speed ?? "",
-    track: flight?.heading ?? "",
-    _route: { from: flight?.routeShort?.split?.("→")?.[0]?.trim?.() || "", to: flight?.routeShort?.split?.("→")?.slice?.(1)?.join?.("→")?.trim?.() || "", verbose: flight?.routeVerbose || flight?.routeShort || "" },
-    _sourceName: "zapisane"
-  };
-}
+// flightToAircraft przeniesiono do modules/aircraftUtils.js
 
 function mergeFlightRouteIntoAircraft(aircraft, flight) {
   if (!aircraft || !flight) return aircraft;
@@ -5123,759 +1208,87 @@ function mergeFlightRouteIntoAircraft(aircraft, flight) {
   return aircraft;
 }
 
-function refreshSavedFlightSnapshot(originalFlight, aircraft) {
-  if (!originalFlight || !aircraft) return;
-  const point = pointFromAircraft(aircraft);
-  const updated = aircraftToFlight(mergeFlightRouteIntoAircraft(aircraft, originalFlight));
-  const flights = loadFlights();
-  const next = flights.map((item) => {
-    const same = item.id === originalFlight.id || (item.icao === originalFlight.icao && item.date === originalFlight.date);
-    if (!same) return item;
-    return {
-      ...item,
-      name: updated.name || item.name,
-      callsign: updated.callsign || item.callsign,
-      type: updated.type || item.type,
-      registration: updated.registration || item.registration,
-      routeShort: updated.routeShort || item.routeShort,
-      routeVerbose: updated.routeVerbose || item.routeVerbose,
-      altitude: updated.altitude !== "" ? updated.altitude : item.altitude,
-      speed: updated.speed !== "" ? updated.speed : item.speed,
-      heading: updated.heading !== "" ? updated.heading : item.heading,
-      lat: point ? String(point.lat) : item.lat,
-      lon: point ? String(point.lon) : item.lon,
-      updatedAt: new Date().toISOString()
-    };
-  });
-  saveFlights(next);
-  renderFlights();
-}
-
-function resolveSavedFlightAircraft(flight) {
-  const cached = findAircraftByIcaoInCache(flight?.icao || flight?.hex || "");
-  const aircraft = cached ? mergeFlightRouteIntoAircraft(cached, flight) : flightToAircraft(flight);
-  return pointFromAircraft(aircraft) ? aircraft : null;
-}
-
-async function refreshSavedFlightLiveInBackground(flight) {
-  const cleanIcao = normalizeIcao(flight?.icao || "");
-  if (!isValidIcao(cleanIcao)) return;
-  try {
-    const live = await fetchAircraftByHex(cleanIcao, { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
-    if (!live) return;
-    const aircraft = mergeFlightRouteIntoAircraft(live, flight);
-    refreshSavedFlightSnapshot(flight, aircraft);
-    if (savedMapFocusActive && aircraftIcao(selectedAircraft) === cleanIcao) {
-      selectedAircraft = aircraft;
-      focusAircraftOnMap(aircraft, { singleMarker: true, showSheet: false, drawRoute: true, zoom: flight.zoom || zoomInput?.value });
-      setRouteSummary(`${flight.name || cleanIcao.toUpperCase()}: pozycja odświeżona w tle.`);
-    }
-  } catch {
-    // Odświeżanie live jest dodatkiem. Zapisany punkt ma pozostać widoczny bez czekania na API.
-  }
-}
-
-async function showSavedFlightOnMap(flight) {
-  closeDrawerPanel();
-  hideSelectedAircraftSheet();
-  map?.closePopup?.();
-  initMap();
-  if (aircraftLayer) aircraftLayer.clearLayers();
-  if (routeLayer) routeLayer.clearLayers();
-  lastRouteBounds = null;
-
-  let aircraft = resolveSavedFlightAircraft(flight);
-  if (!aircraft) {
-    setRouteSummary(`${flight.name || flight.icao?.toUpperCase() || "Samolot"}: szukam aktualnej pozycji, bo zapis nie ma punktu mapy.`);
-    try {
-      const live = await fetchAircraftByHex(normalizeIcao(flight.icao), { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
-      aircraft = live ? mergeFlightRouteIntoAircraft(live, flight) : null;
-      if (aircraft) refreshSavedFlightSnapshot(flight, aircraft);
-    } catch {
-      aircraft = null;
-    }
-  }
-
-  if (!aircraft) {
-    setRouteSummary(`${flight.name || flight.icao?.toUpperCase() || "Samolot"}: brak aktualnej pozycji i brak zapisanego punktu mapy.`);
-    showToast("Nie mam pozycji tego samolotu. Odśwież radar i spróbuj ponownie.", 3600);
-    return;
-  }
-
-  selectedAircraft = aircraft;
-  savedMapFocusActive = true;
-  focusAircraftOnMap(aircraft, { singleMarker: true, showSheet: false, drawRoute: true, zoom: flight.zoom || zoomInput?.value });
-  setRouteSummary(`${flight.name || flight.icao?.toUpperCase() || "Samolot"}: pokazuję punkt natychmiast. Pozycja live odświeża się w tle.`);
-  refreshSavedFlightLiveInBackground(flight);
-}
-
-function loadRouteCache() {
-  const cache = storageJsonGet(ROUTE_CACHE_STORAGE_KEY, {});
-  return cache && typeof cache === "object" ? cache : {};
-}
-
-function saveRouteCache(cache) {
-  storageJsonSet(ROUTE_CACHE_STORAGE_KEY, pruneCacheBySavedAt(cache, ROUTE_CACHE_MAX_ENTRIES, ROUTE_CACHE_MAX_AGE_MS));
-}
-
-function routeFromCache(cache, callsign) {
-  const item = cache[callsign];
-  if (!item || !item.route || !item.savedAt) return null;
-  if (Date.now() - item.savedAt > ROUTE_CACHE_MAX_AGE_MS) return null;
-  return item.route;
-}
-
-function parseJsonLoose(text) {
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function flightRouteRoot(route) {
-  if (!route || typeof route !== "object") return null;
-  return route.flightroute || route.response?.flightroute || route.data?.flightroute || null;
-}
-
-function normalizeAirportForRoute(airport) {
-  if (!airport || typeof airport !== "object") return null;
-  const iata = firstRouteValue(airport.iata, airport.iata_code, airport.iataCode);
-  const icao = firstRouteValue(airport.icao, airport.icao_code, airport.icaoCode, airport.ident);
-  const code = firstRouteValue(airport.code, airport.ident, iata, icao);
-  const name = firstRouteValue(airport.name, airport.airport, airport.municipality, airport.city, airport.location);
-  const lat = numericFirst(airport.lat, airport.latitude, airport.latDeg, airport.lat_deg, airport.position?.lat, airport.location?.lat, airport.geo?.lat);
-  const lon = numericFirst(airport.lon, airport.lng, airport.longitude, airport.lonDeg, airport.lon_deg, airport.position?.lon, airport.position?.lng, airport.location?.lon, airport.location?.lng, airport.geo?.lon);
-  if (!code && !name) return null;
-
-  return {
-    ...airport,
-    iata: iata || airport.iata,
-    icao: icao || airport.icao,
-    code: code || airport.code,
-    ident: icao || code || airport.ident,
-    name: name || airport.name,
-    city: firstRouteValue(airport.city, airport.municipality, airport.location) || airport.city,
-    lat: Number.isFinite(lat) ? lat : airport.lat,
-    lon: Number.isFinite(lon) ? lon : airport.lon
-  };
-}
-
-function routeAirportCandidates(route) {
-  const root = flightRouteRoot(route);
-  const origin = normalizeAirportForRoute(root?.origin || route.originAirport || route.fromAirport || route.departureAirport || route.origin || route.from || route.departure || route.dep);
-  const destination = normalizeAirportForRoute(root?.destination || route.destinationAirport || route.toAirport || route.arrivalAirport || route.destination || route.to || route.arrival || route.arr || route.dest);
-  return origin && destination ? [origin, destination] : [];
-}
-
-function normalizeRouteResult(route, callsign = "") {
-  if (!route || typeof route !== "object") return null;
-  const directAirports = routeAirports(route).map((airport) => normalizeAirportForRoute(airport) || airport).filter(Boolean);
-  if (directAirports.length >= 2) {
-    return {
-      ...route,
-      callsign: normalizeCallsign(route.callsign || route.flight || callsign),
-      _airports: directAirports,
-      confirmed: route.confirmed !== false
-    };
-  }
-
-  const airportCandidates = routeAirportCandidates(route);
-  if (airportCandidates.length >= 2) {
-    const fromAirport = airportCandidates[0];
-    const toAirport = airportCandidates[airportCandidates.length - 1];
-    const from = routeAirportLabel(fromAirport);
-    const to = routeAirportLabel(toAirport);
-    if (from && to) {
-      return {
-        ...route,
-        callsign: normalizeCallsign(route.callsign || route.flight || route?.response?.callsign || callsign),
-        from,
-        to,
-        verbose: `${routeAirportVerbose(fromAirport)} → ${routeAirportVerbose(toAirport)}`,
-        _airports: airportCandidates,
-        confirmed: route.confirmed !== false
-      };
-    }
-  }
-
-  const root = flightRouteRoot(route);
-  const from = firstRouteValue(
-    route.from,
-    route.origin,
-    route.departure,
-    route.dep,
-    route.fromAirport,
-    route.originAirport,
-    route.departureAirport,
-    root?.origin?.iata_code,
-    root?.origin?.icao_code,
-    route?.response?.flightroute?.origin?.iata_code,
-    route?.response?.flightroute?.origin?.icao_code
-  );
-  const to = firstRouteValue(
-    route.to,
-    route.destination,
-    route.dest,
-    route.arrival,
-    route.arr,
-    route.toAirport,
-    route.destinationAirport,
-    route.arrivalAirport,
-    root?.destination?.iata_code,
-    root?.destination?.icao_code,
-    route?.response?.flightroute?.destination?.iata_code,
-    route?.response?.flightroute?.destination?.icao_code
-  );
-  if (!from || !to) return null;
-
-  const originName = firstRouteValue(
-    root?.origin?.name,
-    root?.origin?.municipality,
-    route?.response?.flightroute?.origin?.name,
-    route?.response?.flightroute?.origin?.municipality
-  );
-  const destName = firstRouteValue(
-    root?.destination?.name,
-    root?.destination?.municipality,
-    route?.response?.flightroute?.destination?.name,
-    route?.response?.flightroute?.destination?.municipality
-  );
-
-  return {
-    callsign: normalizeCallsign(route.callsign || route.flight || route?.response?.callsign || callsign),
-    from,
-    to,
-    verbose: `${originName || from} → ${destName || to}`,
-    confirmed: route.confirmed !== false
-  };
-}
-
-function routeEntriesFromResponse(rawRoutes) {
-  if (!rawRoutes) return [];
-  if (Array.isArray(rawRoutes)) {
-    return rawRoutes.map((route) => [route?.callsign || route?.flight || route?.hex || "", route]);
-  }
-  const root = rawRoutes.routes || rawRoutes.results || rawRoutes.planes || rawRoutes.response || rawRoutes;
-  if (Array.isArray(root)) {
-    return root.map((route) => [route?.callsign || route?.flight || route?.hex || "", route]);
-  }
-  if (root && typeof root === "object") {
-    return Object.entries(root).map(([key, value]) => [value?.callsign || value?.flight || key, Array.isArray(value) ? { callsign: key, _airports: value } : value]);
-  }
-  return [];
-}
-
-async function fetchRouteset(planes) {
-  let lastError = null;
-  const safePlanes = (planes || []).map((plane) => ({
-    callsign: normalizeCallsign(plane.callsign),
-    lat: Number.isFinite(Number(plane.lat)) ? Number(plane.lat) : 0,
-    lng: Number.isFinite(Number(plane.lng)) ? Number(plane.lng) : 0
-  })).filter((plane) => plane.callsign);
-
-  for (const url of ROUTE_API_URLS) {
-    try {
-      const response = await fetchWithTimeout(url, {
-        method: "POST",
-        headers: {
-          "Accept": "application/json",
-          "Content-Type": "application/json; charset=utf-8"
-        },
-        body: JSON.stringify({ planes: safePlanes })
-      }, 15000);
-      if (!response.ok) throw new Error(`API trasy ${url} zwróciło błąd ${response.status}.`);
-      const text = await response.text();
-      return parseJsonLoose(text) || [];
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  throw lastError || new Error("Nie udało się pobrać tras z API.");
-}
-
-async function fetchAdsbDbRoute(callsign) {
-  const clean = normalizeCallsign(callsign);
-  if (!clean) return null;
-  const response = await fetchWithTimeout(`${ADSBDB_CALLSIGN_API_BASE_URL}${encodeURIComponent(clean)}`, {
-    method: "GET",
-    headers: { "Accept": "application/json" }
-  }, 8000);
-  if (!response.ok) return null;
-  const text = await response.text();
-  return normalizeRouteResult(parseJsonLoose(text), clean);
-}
-
-async function enrichAircraftRoutes(aircraft) {
-  const cache = loadRouteCache();
-  const toLookup = [];
-  const seen = new Set();
-
-  for (const item of aircraft.slice(0, 120)) {
-    const callsign = aircraftCallsign(item);
-    if (!callsign || seen.has(callsign)) continue;
-    seen.add(callsign);
-    const cached = routeFromCache(cache, callsign);
-    if (cached) {
-      item._route = cached;
-      continue;
-    }
-    const point = pointFromAircraft(item);
-    toLookup.push({
-      callsign,
-      lat: point?.lat ?? 0,
-      lng: point?.lon ?? 0
-    });
-  }
-
-  if (!toLookup.length) return;
-
-  const now = Date.now();
-  const byCallsign = new Map();
-
-  try {
-    const rawRoutes = await fetchRouteset(toLookup);
-    for (const [rawCallsign, rawRoute] of routeEntriesFromResponse(rawRoutes)) {
-      const callsign = normalizeCallsign(rawCallsign || rawRoute?.callsign || rawRoute?.flight || "");
-      const route = normalizeRouteResult(rawRoute, callsign);
-      if (!callsign || !route) continue;
-      cache[callsign] = { route, savedAt: now };
-      byCallsign.set(callsign, route);
-    }
-  } catch {
-    // Pierwsze źródło tras bywa niedostępne albo blokowane przez CORS. Niżej działa zapasowe uzupełnianie po callsign.
-  }
-
-  const missing = toLookup.filter((plane) => !byCallsign.has(plane.callsign) && !routeFromCache(cache, plane.callsign)).slice(0, 25);
-  for (const plane of missing) {
-    try {
-      const route = await fetchAdsbDbRoute(plane.callsign);
-      if (!route) continue;
-      cache[plane.callsign] = { route, savedAt: now };
-      byCallsign.set(plane.callsign, route);
-    } catch {
-      // Zapasowe API jest dodatkiem. Brak trasy nie może zatrzymać radaru.
-    }
-  }
-
-  saveRouteCache(cache);
-  for (const item of aircraft) {
-    const callsign = aircraftCallsign(item);
-    const route = byCallsign.get(callsign) || routeFromCache(cache, callsign);
-    if (route) item._route = route;
-  }
-}
-
-function applyCachedRoutesToAircraft(aircraft) {
-  const cache = loadRouteCache();
-  for (const item of aircraft || []) {
-    const route = routeFromCache(cache, aircraftCallsign(item));
-    if (route) item._route = route;
-  }
-}
-
-function refreshSelectedAircraftRouteUi() {
-  if (!selectedAircraft) return;
-  const updated = findAircraftByIcaoInCache(aircraftIcao(selectedAircraft));
-  if (updated) selectedAircraft = updated;
-  if (aircraftSheet?.classList.contains("is-open")) {
-    showSelectedAircraftSheet(selectedAircraft);
-    if (aircraftSheetMorePanel && !aircraftSheetMorePanel.hidden) {
-      renderAircraftDetailsPanel(selectedAircraft);
-    }
-  }
-  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(selectedAircraft, { fitMap: false });
-}
-
-
-function trackKey(icao, date) {
-  return `${normalizeIcao(icao)}:${date || todayLocalDate()}`;
-}
-
-function loadTracks() {
-  const tracks = storageJsonGet(TRACK_STORAGE_KEY, {});
-  return tracks && typeof tracks === "object" ? tracks : {};
-}
-
-function loadTrackPoints(icao, date) {
-  const tracks = loadTracks();
-  const points = tracks[trackKey(icao, date)] || [];
-  return Array.isArray(points) ? points : [];
-}
-
-function loadLatestTrackPoints(icao) {
-  const prefix = `${normalizeIcao(icao)}:`;
-  const tracks = loadTracks();
-  const keys = Object.keys(tracks)
-    .filter((key) => key.startsWith(prefix) && Array.isArray(tracks[key]) && tracks[key].length)
-    .sort();
-  const key = keys[keys.length - 1];
-  return key ? { date: key.slice(prefix.length), points: tracks[key] } : { date: "", points: [] };
-}
-
-function saveTracePointsIfUseful(icao, date, points) {
-  const cleanIcao = normalizeIcao(icao);
-  const cleanPoints = Array.isArray(points) ? points.filter(validPoint) : [];
-  if (!isValidIcao(cleanIcao) || cleanPoints.length < 2) return cleanPoints;
-
-  const current = loadTrackPoints(cleanIcao, date).filter(validPoint);
-  if (cleanPoints.length >= current.length) {
-    saveTrackPoints(cleanIcao, date, cleanPoints);
-  }
-  return cleanPoints;
-}
-
-
-function saveTrackPoints(icao, date, points) {
-  const tracks = loadTracks();
-  tracks[trackKey(icao, date)] = points.slice(-MAX_TRACK_POINTS);
-  storageJsonSet(TRACK_STORAGE_KEY, pruneTrackCache(tracks));
-}
-
-function addTrackPoint(icao, date, point) {
-  if (!validPoint(point)) return loadTrackPoints(icao, date);
-  let points = loadTrackPoints(icao, date).filter(validPoint);
-  const previous = points[points.length - 1];
-
-  if (previous && shouldBreakTraceSegment(previous, point)) {
-    points = [point];
-    saveTrackPoints(icao, date, points);
-    return points;
-  }
-
-  const moved = !previous || Math.abs(previous.lat - point.lat) > 0.0005 || Math.abs(previous.lon - point.lon) > 0.0005;
-  if (moved) {
-    points.push(point);
-    saveTrackPoints(icao, date, points);
-  }
-  return points;
-}
-
-function setAircraftStatus(message) {
-  if (aircraftStatus) aircraftStatus.textContent = message;
-  updateStatusPanel(message, String(message || "").toLowerCase().includes("błąd") || String(message || "").toLowerCase().includes("nie uda") ? "error" : "info");
-}
-
-function syncBrowseInputsFromMapCenter() {
-  initMap();
-  if (!map || !browseLatInput || !browseLonInput) return false;
-  const center = map.getCenter?.();
-  if (!center || !Number.isFinite(center.lat) || !Number.isFinite(center.lng)) return false;
-  browseLatInput.value = center.lat.toFixed(5);
-  browseLonInput.value = center.lng.toFixed(5);
-  return true;
-}
-
-function readBrowseSettings() {
-  const source = selectedApiSource();
-  const apiKey = apiKeyInput.value.trim();
-  const lat = Number.parseFloat(browseLatInput.value.replace(",", "."));
-  const lon = Number.parseFloat(browseLonInput.value.replace(",", "."));
-  const dist = Number.parseInt(browseDistInput.value, 10);
-
-  if (source.requiresKey && !apiKey) throw new Error("To źródło wymaga klucza API.");
-  if (!Number.isFinite(lat) || lat < -90 || lat > 90) throw new Error("Wpisz poprawną szerokość.");
-  if (!Number.isFinite(lon) || lon < -180 || lon > 180) throw new Error("Wpisz poprawną długość.");
-  if (!Number.isFinite(dist) || dist < 1 || dist > 250) throw new Error("Promień musi być od 1 do 250 NM.");
-
-  return {
-    apiKey,
-    apiBase: validatedApiBase(apiBaseInput.value),
-    sourceName: dataSourceInput.value,
-    lat,
-    lon,
-    dist
-  };
-}
-
-function browseSettingsAroundAircraft(aircraft) {
-  const point = pointFromAircraft(aircraft);
-  if (!point) return null;
-
-  let base;
-  try {
-    base = readBrowseSettings();
-  } catch {
-    const source = selectedApiSource();
-    base = {
-      apiKey: apiKeyInput?.value?.trim?.() || "",
-      apiBase: validatedApiBase(apiBaseInput?.value || source.apiBase),
-      sourceName: dataSourceInput?.value || DEFAULT_DATA_SOURCE,
-      lat: point.lat,
-      lon: point.lon,
-      dist: Number.parseInt(browseDistInput?.value || AUTO_LOAD_RADIUS_NM, 10) || AUTO_LOAD_RADIUS_NM
-    };
-  }
-
-  return {
-    ...base,
-    lat: point.lat,
-    lon: point.lon,
-    dist: Number.isFinite(Number(base.dist)) ? base.dist : AUTO_LOAD_RADIUS_NM
-  };
-}
-
-async function refreshAreaAroundFoundAircraft(aircraft, options = {}) {
-  const point = pointFromAircraft(aircraft);
-  const cleanIcao = aircraftIcao(aircraft);
-  if (!point || !isValidIcao(cleanIcao)) return aircraft;
-
-  if (browseLatInput) browseLatInput.value = point.lat.toFixed(5);
-  if (browseLonInput) browseLonInput.value = point.lon.toFixed(5);
-  const settings = browseSettingsAroundAircraft(aircraft);
-  if (!settings) return aircraft;
-
-  setAircraftStatus(`Odświeżam obszar znalezionego samolotu: ${aircraftLabel(aircraft)}...`);
-  const headers = { "Accept": "application/json" };
-  if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
-
-  try {
-    const result = await fetchFirstAircraftResult(settings, headers);
-    let areaAircraft = Array.isArray(result.aircraft) ? result.aircraft : [];
-    const foundInArea = findAircraftByIcaoInCache(cleanIcao, areaAircraft);
-    const finalAircraft = foundInArea ? mergeFlightRouteIntoAircraft(foundInArea, aircraft) : aircraft;
-
-    if (!foundInArea) {
-      areaAircraft = [finalAircraft, ...areaAircraft.filter((item) => aircraftIcao(item) !== cleanIcao)];
-    }
-
-    applyCachedRoutesToAircraft(areaAircraft);
-    lastAircraftCache = areaAircraft;
-    lastRenderSettings = result.candidate || settings;
-
-    const visibleAircraft = filterAircraftForDisplay(areaAircraft);
-    renderAircraft(visibleAircraft, lastRenderSettings);
-    renderAircraftMap(visibleAircraft, lastRenderSettings, { preserveView: true });
-    updateWatchlistFromAircraft(areaAircraft);
-    recordAircraftHistory(areaAircraft);
-    checkAircraftAlerts(areaAircraft);
-    checkWatchedAircraftGlobalInBackground(areaAircraft);
-    enrichAircraftRoutesInBackground(areaAircraft, lastRenderSettings, result.sourceName || sourceLabel(settings.sourceName));
-
-    setAircraftStatus(`Odświeżono obszar znalezionego samolotu: ${aircraftLabel(finalAircraft)}. ${aircraftFilterSummary(areaAircraft.length, visibleAircraft.length, areaAircraft)}.`);
-    return finalAircraft;
-  } catch (error) {
-    const fallbackAircraft = aircraft;
-    lastAircraftCache = [fallbackAircraft, ...lastAircraftCache.filter((item) => aircraftIcao(item) !== cleanIcao)];
-    renderAircraft(filterAircraftForDisplay(lastAircraftCache), lastRenderSettings || settings);
-    renderAircraftMap(filterAircraftForDisplay(lastAircraftCache), lastRenderSettings || settings, { preserveView: true });
-    setAircraftStatus(`Nie udało się odświeżyć obszaru po wyszukaniu. Pokazuję znaleziony samolot: ${aircraftLabel(fallbackAircraft)}. ${explainFetchError(error)}.`);
-    return fallbackAircraft;
-  }
-}
-
-async function enrichAircraftRoutesInBackground(aircraft, candidate, sourceName) {
-  try {
-    await enrichAircraftRoutes(aircraft);
-    const visibleAircraft = filterAircraftForDisplay(aircraft);
-    renderAircraft(visibleAircraft, candidate);
-    renderAircraftMap(visibleAircraft, candidate, { preserveView: true });
-    refreshSelectedAircraftRouteUi();
-    setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Trasy skąd/dokąd zaktualizowane automatycznie.`);
-  } catch {
-    const visibleAircraft = filterAircraftForDisplay(aircraft);
-    setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Danych skąd/dokąd nie udało się uzupełnić automatycznie.`);
-  }
-}
-
-function updateSelectedAircraftAfterRefresh(aircraft) {
-  const selectedIcao = aircraftIcao(selectedAircraft);
-  if (!selectedIcao) return;
-  const updated = findAircraftByIcaoInCache(selectedIcao, aircraft);
-  if (!updated) return;
-  selectedAircraft = updated;
-  updateSelectedAircraftMarkerHighlight();
-  if (routeLayer && routeSummary?.textContent) drawSelectedAircraftRoute(updated, { fitMap: false });
-  if (aircraftSheet?.classList.contains("is-open")) {
-    if (aircraftSheetAltitude) aircraftSheetAltitude.textContent = formatAltitude(updated?.alt_baro);
-    if (aircraftSheetSpeed) aircraftSheetSpeed.textContent = formatSpeed(updated?.gs);
-    if (aircraftSheetPhaseText) {
-      const phase = aircraftFlightPhase(updated);
-      aircraftSheetPhaseText.textContent = `${phase.label} • ${phase.detail}`;
-    }
-    if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(updated);
-    updateAircraftSheetLiveDetails(updated);
-    if (aircraftSheetMorePanel && !aircraftSheetMorePanel.hidden) {
-      renderAircraftDetailsPanel(updated);
-    }
-  }
-}
-
-function startAircraftAutoRefresh() {
-  if (aircraftAutoRefreshTimer) return;
-  aircraftAutoRefreshTimer = window.setInterval(refreshAircraftInBackground, getAutoRefreshIntervalMs());
-}
-
-function restartAircraftAutoRefresh() {
-  if (aircraftAutoRefreshTimer) {
-    window.clearInterval(aircraftAutoRefreshTimer);
-    aircraftAutoRefreshTimer = null;
-  }
-  startAircraftAutoRefresh();
-}
-
-async function refreshFocusedAircraftInBackground() {
-  const cleanIcao = aircraftIcao(selectedAircraft);
-  if (!isValidIcao(cleanIcao)) return;
-  try {
-    const updated = await fetchAircraftByHex(cleanIcao, { preferCache: false, fallbackAllSources: false, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: false });
-    if (!updated) return;
-    applyCachedRoutesToAircraft([updated]);
-    selectedAircraft = updated;
-    updateSelectedAircraftMarkerHighlight();
-    focusAircraftOnMap(updated, { singleMarker: true, showSheet: aircraftSheet?.classList.contains("is-open"), drawRoute: true, centerMap: false });
-    enrichAircraftRoutesInBackground([updated], lastRenderSettings || {}, "auto");
-    setAircraftStatus(`Auto-odświeżenie: ${aircraftLabel(updated)}.`);
-  } catch (error) {
-    setAircraftStatus(`Auto-odświeżenie wybranego samolotu nieudane: ${explainFetchError(error)}.`);
-  }
-}
-
-async function refreshAircraftInBackground() {
-  if (aircraftRefreshInProgress || document.hidden) return;
-  if (savedMapFocusActive && aircraftIcao(selectedAircraft)) {
-    aircraftRefreshInProgress = true;
-    try {
-      await refreshFocusedAircraftInBackground();
-    } finally {
-      aircraftRefreshInProgress = false;
-    }
-    return;
-  }
-  let settings;
-  try {
-    settings = readBrowseSettings();
-  } catch {
-    return;
-  }
-
-  aircraftRefreshInProgress = true;
-  try {
-    const headers = { "Accept": "application/json" };
-    if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
-    const result = await fetchFirstAircraftResult(settings, headers);
-    applyCachedRoutesToAircraft(result.aircraft);
-    const visibleAircraft = filterAircraftForDisplay(result.aircraft);
-    lastAircraftCache = result.aircraft;
-    lastRenderSettings = result.candidate;
-    renderAircraft(visibleAircraft, result.candidate);
-    renderAircraftMap(visibleAircraft, result.candidate, { preserveView: true });
-    updateSelectedAircraftAfterRefresh(result.aircraft);
-    updateWatchlistFromAircraft(result.aircraft);
-    recordAircraftHistory(result.aircraft);
-    checkAircraftAlerts(result.aircraft);
-    checkWatchedAircraftGlobalInBackground(result.aircraft);
-    setAircraftStatus(`Auto-odświeżenie: ${aircraftFilterSummary(result.aircraft.length, visibleAircraft.length)}. Źródło: ${result.sourceName}.`);
-    enrichAircraftRoutesInBackground(result.aircraft, result.candidate, result.sourceName);
-  } catch (error) {
-    setAircraftStatus(`Auto-odświeżenie nieudane: ${explainFetchError(error)}.`);
-  } finally {
-    aircraftRefreshInProgress = false;
-  }
-}
-
-async function loadAircraft() {
-  syncBrowseInputsFromMapCenter();
-  let settings;
-  try {
-    settings = readBrowseSettings();
-  } catch (error) {
-    showToast(error.message);
-    return;
-  }
-
-  const finishBusy = beginBusy("Pobieram samoloty z API...");
-  try {
-    setAircraftStatus("Pobieram samoloty...");
-    aircraftList.replaceChildren();
-    lastAircraftCache = [];
-    savedMapFocusActive = false;
-    clearAircraftMap();
-    if (routeLayer) routeLayer.clearLayers();
-    lastRouteBounds = null;
-
-    const headers = { "Accept": "application/json" };
-    if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
-
-    try {
-      const candidates = candidateSettings(settings);
-      const sourceNames = candidates.map((candidate) => sourceLabel(candidate.sourceName)).join(" / ");
-      setAircraftStatus(`Pobieram samoloty: ${sourceNames}...`);
-      setBusyVisible(true, `Pobieram samoloty: ${sourceNames}...`);
-
-      const result = await fetchFirstAircraftResult(settings, headers);
-      const aircraft = result.aircraft;
-      const candidate = result.candidate;
-      const sourceName = result.sourceName;
-      applyCachedRoutesToAircraft(aircraft);
-      const visibleAircraft = filterAircraftForDisplay(aircraft);
-
-      lastAircraftCache = aircraft;
-      lastRenderSettings = candidate;
-      setAircraftStatus(`Znaleziono ${aircraft.length} samolotów. Rysuję mapę...`);
-      setBusyVisible(true, "Rysuję samoloty na mapie...");
-      renderAircraft(visibleAircraft, candidate);
-      renderAircraftMap(visibleAircraft, candidate);
-      updateWatchlistFromAircraft(aircraft);
-      recordAircraftHistory(aircraft);
-      checkAircraftAlerts(aircraft);
-      checkWatchedAircraftGlobalInBackground(aircraft);
-      startAircraftAutoRefresh();
-
-      if (aircraft.length) {
-        setAircraftStatus(`Znaleziono ${aircraftFilterSummary(aircraft.length, visibleAircraft.length)}. Źródło: ${sourceName}. Mapa odświeża pozycje i ślady automatycznie co ${Math.round(getAutoRefreshIntervalMs() / 1000)} s.`);
-        enrichAircraftRoutesInBackground(aircraft, candidate, sourceName);
-      } else {
-        setAircraftStatus(`Nie znaleziono samolotów w tym promieniu. Źródło: ${sourceName}.`);
-      }
-    } catch (error) {
-      const details = explainFetchError(error);
-      setAircraftStatus(`Nie udało się pobrać danych. Ostatni błąd: ${details}.`);
-      showToast(`Błąd pobierania: ${details}`, 5200);
-    }
-  } finally {
-    finishBusy();
-  }
-}
-
-function aircraftIcon(aircraft) {
-  const rawHeading = aircraftHeading(aircraft) ?? Number(aircraft?.heading);
-  const heading = Number.isFinite(Number(rawHeading)) ? Number(rawHeading) : 0;
-  const label = aircraftCallsign(aircraft) || firstFilled(aircraft?.callsign, aircraft?.name, aircraft?.flight, normalizeIcao(aircraft?.hex || "").toUpperCase(), "SAMOLOT");
-  const group = aircraftTypeGroup(aircraft || {});
-  const dimensions = aircraftIconDimensions(group);
-  const special = group === "special" || (aircraft?.dbFlags && (aircraft.dbFlags & 1)) ? " special" : "";
-  const freshness = aircraftFreshnessInfo(aircraft);
-  const performance = readPerformanceSettings();
-  const lifecycle = aircraftLifecycleState(aircraft, performance);
-  const escapedLabel = escapeHtml(label);
-  const typeTitle = aircraftGroupLabel(group);
-  const icao = aircraftIcao(aircraft);
-  const selectedIcao = aircraftIcao(selectedAircraft);
-  const selectedClass = isValidIcao(icao) && icao === selectedIcao ? " aircraft-selected" : "";
-  const freshnessHtml = performance.showFreshnessLabels ? `<span class="plane-freshness freshness-${freshness.state}">${escapeHtml(freshness.label)}</span>` : "";
-  return L.divIcon({
-    className: `aircraft-div-icon aircraft-kind-${group} aircraft-freshness-${freshness.state} aircraft-lifecycle-${lifecycle}${selectedClass}`,
-    iconSize: [dimensions.width, dimensions.height],
-    iconAnchor: [dimensions.anchorX, dimensions.anchorY],
-    popupAnchor: [0, -Math.round(dimensions.height / 2)],
-    html: `
-      <div class="plane-marker-wrap aircraft-kind-${group}${selectedClass}" data-icao="${escapeHtml(icao)}" title="${escapeHtml(typeTitle)}">
-        <div class="plane-marker${special}" style="--heading:${heading}deg; --plane-svg-width:${dimensions.svgWidth}px; --plane-svg-height:${dimensions.svgHeight}px;">
-          ${aircraftSvgMarkup(group)}
-        </div>
-        <span class="plane-label">${escapedLabel}</span>
-        ${freshnessHtml}
-      </div>`
-  });
-}
-
-
-
-function aircraftIcao(aircraft) {
-  return normalizeIcao(aircraft?.hex || aircraft?.icao || aircraft?.icao24 || "");
-}
+// refreshSavedFlightSnapshot przeniesiono do modules/savedWatchHistory.js
+
+// resolveSavedFlightAircraft przeniesiono do modules/savedWatchHistory.js
+
+// refreshSavedFlightLiveInBackground przeniesiono do modules/savedWatchHistory.js
+
+// showSavedFlightOnMap przeniesiono do modules/savedWatchHistory.js
+
+// loadRouteCache przeniesiono do modules/cacheMediaRoutes.js
+
+// saveRouteCache przeniesiono do modules/cacheMediaRoutes.js
+
+// routeFromCache przeniesiono do modules/cacheMediaRoutes.js
+
+// parseJsonLoose przeniesiono do modules/cacheMediaRoutes.js
+
+// flightRouteRoot przeniesiono do modules/cacheMediaRoutes.js
+
+// normalizeAirportForRoute przeniesiono do modules/cacheMediaRoutes.js
+
+// routeAirportCandidates przeniesiono do modules/cacheMediaRoutes.js
+
+// normalizeRouteResult przeniesiono do modules/cacheMediaRoutes.js
+
+// routeEntriesFromResponse przeniesiono do modules/cacheMediaRoutes.js
+
+// fetchRouteset przeniesiono do modules/apiSources.js
+
+// fetchAdsbDbRoute przeniesiono do modules/apiSources.js
+
+// enrichAircraftRoutes przeniesiono do modules/cacheMediaRoutes.js
+
+// applyCachedRoutesToAircraft przeniesiono do modules/cacheMediaRoutes.js
+
+// refreshSelectedAircraftRouteUi przeniesiono do modules/cacheMediaRoutes.js
+
+
+// trackKey przeniesiono do modules/cacheMediaRoutes.js
+
+// loadTracks przeniesiono do modules/cacheMediaRoutes.js
+
+// loadTrackPoints przeniesiono do modules/cacheMediaRoutes.js
+
+// loadLatestTrackPoints przeniesiono do modules/cacheMediaRoutes.js
+
+// saveTracePointsIfUseful przeniesiono do modules/cacheMediaRoutes.js
+
+
+// saveTrackPoints przeniesiono do modules/cacheMediaRoutes.js
+
+// addTrackPoint przeniesiono do modules/cacheMediaRoutes.js
+
+// setAircraftStatus przeniesiono do modules/uiPanels.js
+
+// syncBrowseInputsFromMapCenter przeniesiono do modules/settingsFilters.js
+
+// readBrowseSettings przeniesiono do modules/settingsFilters.js
+
+// browseSettingsAroundAircraft przeniesiono do modules/settingsFilters.js
+
+// refreshAreaAroundFoundAircraft przeniesiono do modules/cacheMediaRoutes.js
+
+// enrichAircraftRoutesInBackground przeniesiono do modules/cacheMediaRoutes.js
+
+// updateSelectedAircraftAfterRefresh przeniesiono do modules/cacheMediaRoutes.js
+
+// startAircraftAutoRefresh przeniesiono do modules/cacheMediaRoutes.js
+
+// restartAircraftAutoRefresh przeniesiono do modules/cacheMediaRoutes.js
+
+// refreshFocusedAircraftInBackground przeniesiono do modules/cacheMediaRoutes.js
+
+// refreshAircraftInBackground przeniesiono do modules/cacheMediaRoutes.js
+
+// loadAircraft przeniesiono do modules/cacheMediaRoutes.js
+
+// aircraftIcon przeniesiono do modules/aircraftUtils.js
+
+
+
+// aircraftIcao przeniesiono do modules/aircraftUtils.js
 
 function findAircraftByIcaoInCache(icao, source = lastAircraftCache) {
   const cleanIcao = normalizeIcao(icao);
@@ -5883,450 +1296,46 @@ function findAircraftByIcaoInCache(icao, source = lastAircraftCache) {
   return (source || []).find((item) => aircraftIcao(item) === cleanIcao) || null;
 }
 
-function updateSelectedAircraftMarkerHighlight() {
-  const selectedIcao = aircraftIcao(selectedAircraft);
-  document.querySelectorAll(".plane-marker-wrap[data-icao]").forEach((element) => {
-    const isSelected = isValidIcao(selectedIcao) && normalizeIcao(element.dataset.icao) === selectedIcao;
-    element.classList.toggle("aircraft-selected", isSelected);
-    element.closest(".aircraft-div-icon")?.classList.toggle("aircraft-selected", isSelected);
-  });
-}
+// updateSelectedAircraftMarkerHighlight przeniesiono do modules/mapRoutes.js
 
-function makeAircraftMarker(aircraft) {
-  const aircraftPoint = pointFromAircraft(aircraft);
-  if (!aircraftPoint || !aircraftLayer) return null;
-  const marker = L.marker([aircraftPoint.lat, aircraftPoint.lon], {
-    pane: "aircraftPane",
-    icon: aircraftIcon(aircraft),
-    title: aircraftLabel(aircraft),
-    riseOnHover: true,
-    riseOffset: 900
-  }).addTo(aircraftLayer);
+// makeAircraftMarker przeniesiono do modules/mapRoutes.js
 
-  marker.on("click", (event) => {
-    if (event?.originalEvent) L.DomEvent.stopPropagation(event.originalEvent);
-    clearManualSearchInputLock();
-    closeDrawerPanel();
-    savedMapFocusActive = false;
-    selectedAircraft = aircraft;
-    updateSelectedAircraftMarkerHighlight();
-    drawSelectedAircraftRoute(aircraft, { fitMap: false });
-    showSelectedAircraftSheet(aircraft);
-  });
-  return marker;
-}
+// focusAircraftOnMap przeniesiono do modules/mapRoutes.js
 
-function focusAircraftOnMap(aircraft, options = {}) {
-  initMap();
-  invalidateMapSoon();
-  if (!map || !aircraft || !aircraftLayer) return false;
+// hasConfirmedEndpointCoordinates przeniesiono do modules/mapRoutes.js
 
-  const point = pointFromAircraft(aircraft);
-  if (!point) {
-    setRouteSummary(`${aircraftLabel(aircraft)}: brak aktualnej pozycji GPS.`);
-    showSelectedAircraftSheet(aircraft);
-    return false;
-  }
+// drawKnownAirportRouteFallback przeniesiono do modules/mapRoutes.js
 
-  if (options.singleMarker) {
-    aircraftLayer.clearLayers();
-    if (trailLayer) trailLayer.clearLayers();
-    makeAircraftMarker(aircraft);
-  }
+// ensureAircraftRouteData przeniesiono do modules/mapRoutes.js
 
-  if (options.drawRoute !== false) drawSelectedAircraftRoute(aircraft, { fitMap: options.fitMap === true });
-  if (options.showSheet !== false) showSelectedAircraftSheet(aircraft);
+// drawStoredTrackForAircraft przeniesiono do modules/mapRoutes.js
 
-  if (options.centerMap === true) {
-    const requestedZoom = Number(options.zoom ?? zoomInput?.value ?? 9.2);
-    const currentZoom = Number(map.getZoom?.() || 0);
-    const nextZoom = Number.isFinite(requestedZoom) ? Math.min(13, Math.max(currentZoom || 0, requestedZoom)) : Math.max(currentZoom || 0, 9);
-    map.setView([point.lat, point.lon], nextZoom || 9, { animate: false });
-  }
-  return true;
-}
+// drawLocalSelectedAircraftRoute przeniesiono do modules/mapRoutes.js
 
-function hasConfirmedEndpointCoordinates(aircraft) {
-  const endpoints = confirmedRouteEndpointPoints(aircraft);
-  return Boolean(endpoints?.start && endpoints?.end);
-}
+// drawSelectedAircraftRouteAsync przeniesiono do modules/mapRoutes.js
 
-function drawKnownAirportRouteFallback(aircraft, options = {}, messagePrefix = "") {
-  const endpoints = confirmedRouteEndpointPoints(aircraft);
-  if (!endpoints?.start || !endpoints?.end) return false;
-
-  const aircraftPoint = pointFromAircraft(aircraft);
-  const points = plannedAirportRoutePointsThroughAircraft(aircraft, endpoints).filter(validPoint);
-  if (points.length < 2) return false;
-
-  drawRoute(points, `${aircraftLabel(aircraft)} • trasa lotniskowa przez aktualną pozycję`, {
-    endpoints,
-    fitMap: options.fitMap === true,
-    showCurrentMarker: false,
-    showHeadingWhenSingle: false,
-    plannedOnly: true,
-    endMarkerText: "CEL"
-  });
-
-  const currentText = validPoint(aircraftPoint) ? " i aktualną pozycję samolotu" : "";
-  setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: znam start i cel (${endpoints.start.label} → ${endpoints.end.label})${currentText}. Brak pełnego śladu ADS-B z API, więc pokazuję trasę orientacyjną START → aktualna pozycja → CEL. To nie jest zapis punkt po punkcie z ADS-B.`);
-  return true;
-}
-
-async function ensureAircraftRouteData(aircraft) {
-  if (!aircraft || hasConfirmedEndpointCoordinates(aircraft)) return aircraft;
-  const callsign = aircraftCallsign(aircraft);
-  if (!callsign) return aircraft;
-  const cache = loadRouteCache();
-  const cached = routeFromCache(cache, callsign);
-  if (cached) {
-    aircraft._route = cached;
-    return aircraft;
-  }
-  try {
-    await enrichAircraftRoutes([aircraft]);
-  } catch {
-    // Brak danych skąd/dokąd nie może zatrzymać pobierania trace.
-  }
-  return aircraft;
-}
-
-function drawStoredTrackForAircraft(aircraft) {
-  const icao = normalizeIcao(aircraft.hex || "");
-  const point = pointFromAircraft(aircraft);
-  if (!icao || !point) return [];
-  const points = addTrackPoint(icao, todayLocalDate(), point);
-  const clean = points.filter(validPoint);
-  if (clean.length > 1) {
-    L.polyline(clean.map((item) => [item.lat, item.lon]), {
-      pane: "routePane",
-      interactive: false,
-      color: "#16a34a",
-      weight: 3,
-      opacity: 0.68
-    }).addTo(aircraftLayer);
-  } else if (Number.isFinite(Number(point.track))) {
-    drawDirectionLine(aircraftLayer, point, point.track, point.speed, { color: "#0ea5e9", weight: 2, opacity: 0.72 });
-  }
-  return clean;
-}
-
-function drawLocalSelectedAircraftRoute(aircraft, options = {}, messagePrefix = "") {
-  const flight = aircraftToFlight(aircraft);
-  const point = pointFromAircraft(aircraft);
-  const confirmedEndpoints = confirmedRouteEndpointPoints(aircraft);
-  let points = [];
-
-  if (isValidIcao(flight.icao)) {
-    points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
-    if (point) points = addTrackPoint(flight.icao, flight.date, point).filter(validPoint);
-    if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
-  }
-  if (!points.length && point) points = [point];
-
-  if (points.length) {
-    drawRoute(points, `${aircraftLabel(aircraft)} • rzeczywisty ślad przelotu`, {
-      endpoints: null,
-      fitMap: options.fitMap === true,
-      showCurrentMarker: points.length === 1,
-      showHeadingWhenSingle: false
-    });
-
-    if (points.length === 1) {
-      setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: mam tylko jeden rzeczywisty punkt. Nie rysuję sztucznej prostej START → CEL; kolejne punkty będą dopisywane z odświeżeń.`);
-    } else {
-      setRouteSummary(`${messagePrefix}${aircraftLabel(aircraft)}: pokazuję lokalny rzeczywisty ślad z ${points.length} punktów.`);
-    }
-    return points;
-  }
-
-  clearRoute();
-  setRouteSummary(`${aircraftLabel(aircraft)}: brak rzeczywistych punktów przelotu do narysowania trasy.`);
-  return [];
-}
-
-async function drawSelectedAircraftRouteAsync(aircraft, options = {}) {
-  aircraft = await ensureAircraftRouteData(aircraft);
-  let flight = aircraftToFlight(aircraft);
-  fillForm(flight);
-
-  const point = pointFromAircraft(aircraft);
-  if (point && isValidIcao(flight.icao)) {
-    addTrackPoint(flight.icao, flight.date, point);
-  }
-
-  if (!isValidIcao(flight.icao)) {
-    drawLocalSelectedAircraftRoute(aircraft, options);
-    return;
-  }
-
-  const traceKey = trackKey(flight.icao, flight.date);
-  const lastTraceAttempt = traceApiAttemptedAt.get(traceKey) || 0;
-  if (options.forceApiTrace !== true && Date.now() - lastTraceAttempt < TRACE_API_RETRY_COOLDOWN_MS) {
-    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API sprawdzane przed chwilą — ");
-    return;
-  }
-  traceApiAttemptedAt.set(traceKey, Date.now());
-
-  setRouteSummary(`${aircraftLabel(aircraft)}: sprawdzam publiczne pliki trace używane przez mapę ADS...`);
-  try {
-    const apiPoints = await loadOfficialTrace(flight);
-    const mergedApiPoints = appendCurrentAircraftPointToTrace(apiPoints, aircraft);
-    const cleanApiPoints = saveTracePointsIfUseful(flight.icao, flight.date, mergedApiPoints);
-    if (cleanApiPoints.length >= 2) {
-      drawRoute(cleanApiPoints, `${aircraftLabel(aircraft)} • realny ślad lotu z API`, {
-        endpoints: null,
-        fitMap: options.fitMap === true,
-        showCurrentMarker: false,
-        showHeadingWhenSingle: false
-      });
-      setRouteSummary(`${aircraftLabel(aircraft)}: pokazuję realny ślad punktowy z API do aktualnej pozycji, ${cleanApiPoints.length} punktów. Jeśli samolot wcześniej krążył, zakręty będą widoczne tylko wtedy, gdy API zwróciło te punkty.`);
-      return;
-    }
-  } catch (error) {
-    console.warn("Nie udało się pobrać pełnego trace API:", error);
-    drawLocalSelectedAircraftRoute(aircraft, options, "Trace API niedostępne — ");
-    return;
-  }
-
-  drawLocalSelectedAircraftRoute(aircraft, options, "Nie znalazłem pełnego trace z mapy ADS — ");
-}
-
-function drawSelectedAircraftRoute(aircraft, options = {}) {
-  drawSelectedAircraftRouteAsync(aircraft, options).catch((error) => {
-    console.error("Nie udało się narysować trasy samolotu:", error);
-    drawLocalSelectedAircraftRoute(aircraft, options, "Błąd pobierania trasy — ");
-  });
-}
+// drawSelectedAircraftRoute przeniesiono do modules/mapRoutes.js
 
 
-function clearAircraftMap() {
-  initMap();
-  if (aircraftLayer) aircraftLayer.clearLayers();
-  if (trailLayer) trailLayer.clearLayers();
-}
+// clearAircraftMap przeniesiono do modules/mapRoutes.js
 
-function visibleTrackSets(aircraft) {
-  const tracks = loadTracks();
-  const date = todayLocalDate();
-  const result = [];
-  let changed = false;
+// visibleTrackSets przeniesiono do modules/mapRoutes.js
 
-  const performance = readPerformanceSettings();
-  for (const item of aircraft.slice(0, performance.trailLimit)) {
-    const icao = aircraftIcao(item);
-    const point = pointFromAircraft(item);
-    if (!isValidIcao(icao) || !point) continue;
+// drawVisibleAircraftTracks przeniesiono do modules/mapRoutes.js
 
-    const key = trackKey(icao, date);
-    let points = Array.isArray(tracks[key]) ? tracks[key].filter(validPoint) : [];
-    const previous = points[points.length - 1];
+// renderAircraftMap przeniesiono do modules/mapRoutes.js
 
-    if (previous && shouldBreakTraceSegment(previous, point)) {
-      points = [point];
-      tracks[key] = points;
-      changed = true;
-    } else {
-      const moved = !previous || Math.abs(previous.lat - point.lat) > 0.0005 || Math.abs(previous.lon - point.lon) > 0.0005;
-      if (moved) {
-        points.push(point);
-        tracks[key] = points.slice(-MAX_TRACK_POINTS);
-        changed = true;
-      }
-    }
-    result.push({ icao, points: (tracks[key] || points).filter(validPoint).slice(-performance.trackPoints) });
-  }
+// renderAircraft przeniesiono do modules/uiPanels.js
 
-  if (changed) storageJsonSet(TRACK_STORAGE_KEY, pruneTrackCache(tracks));
-  return result;
-}
+// readApiOnlySettings przeniesiono do modules/settingsFilters.js
 
-function drawVisibleAircraftTracks(aircraft) {
-  if (!trailLayer) return;
-  trailLayer.clearLayers();
-  // Ślady wszystkich samolotów są nadal zapisywane w pamięci sesji,
-  // ale na mapie rysujemy wyłącznie ścieżkę wybranego samolotu.
-  visibleTrackSets(aircraft);
-}
+// fetchAircraftByHex przeniesiono do modules/apiSources.js
 
-function renderAircraftMap(aircraft, settings = {}, options = {}) {
-  initMap();
-  invalidateMapSoon();
-  if (!map || !aircraftLayer) return;
-  aircraftLayer.clearLayers();
-  const performance = readPerformanceSettings();
-  const visibleAircraft = filterAircraftForDisplay(aircraft).slice(0, performance.mapLimit);
-  const bounds = [];
+// offlineAircraftRecordFromIcao przeniesiono do modules/apiSources.js
 
-  drawVisibleAircraftTracks(visibleAircraft);
+// aircraftFromStaticDatabaseResponse przeniesiono do modules/apiSources.js
 
-  for (const item of visibleAircraft) {
-    const aircraftPoint = pointFromAircraft(item);
-    if (!aircraftPoint) continue;
-    bounds.push([aircraftPoint.lat, aircraftPoint.lon]);
-    makeAircraftMarker(item);
-  }
-  updateSelectedAircraftMarkerHighlight();
-
-  if (bounds.length && !lastRouteBounds && !options.preserveView) {
-    map.fitBounds(L.latLngBounds(bounds).pad(0.18), { maxZoom: Math.max(8, Number(settings.dist) > 60 ? 8 : 10) });
-  }
-}
-
-function renderAircraft(aircraft, settings) {
-  aircraftList.replaceChildren();
-  const performance = readPerformanceSettings();
-  const visibleAircraft = filterAircraftForDisplay(aircraft).slice(0, performance.listLimit);
-  const fragment = document.createDocumentFragment();
-
-  for (const item of visibleAircraft) {
-    const node = aircraftTemplate.content.firstElementChild.cloneNode(true);
-    setAircraftPhoto(node.querySelector(".aircraft-thumb"), item, { realPhoto: false, compact: true });
-    node.querySelector(".aircraft-title").textContent = aircraftLabel(item);
-    const textBlock = node.querySelector(".aircraft-text-block");
-    const titleNode = node.querySelector(".aircraft-title");
-    const freshnessBadge = document.createElement("span");
-    setFreshnessBadge(freshnessBadge, item, true);
-    freshnessBadge.classList.add("aircraft-list-freshness");
-    titleNode?.insertAdjacentElement("afterend", freshnessBadge);
-    node.dataset.freshness = aircraftFreshnessInfo(item).state;
-    node.dataset.lifecycle = aircraftLifecycleState(item);
-    node.querySelector(".aircraft-meta").textContent = aircraftMeta(item);
-    const routeNode = node.querySelector(".aircraft-route");
-    if (routeNode) routeNode.textContent = routeText(item);
-    const extraNode = node.querySelector(".aircraft-extra");
-    if (extraNode) extraNode.textContent = aircraftExtraMeta(item);
-    node.querySelector(".aircraft-pick").addEventListener("click", () => {
-      savedMapFocusActive = false;
-      focusAircraftOnMap(item, { singleMarker: false, showSheet: true });
-      showToast("Wybrano samolot.");
-    });
-    node.querySelector(".aircraft-map").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      savedMapFocusActive = false;
-      focusAircraftOnMap(item, { singleMarker: false, showSheet: true });
-    });
-    node.querySelector(".aircraft-ads").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      selectedAircraft = item;
-      openAircraftInAds(item);
-    });
-    node.querySelector(".aircraft-save").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      upsertFlight(aircraftToFlight(item));
-      showToast("Samolot zapisany.");
-    });
-    fragment.append(node);
-  }
-  aircraftList.append(fragment);
-}
-
-function readApiOnlySettings() {
-  const source = selectedApiSource();
-  const apiKey = apiKeyInput.value.trim();
-  if (source.requiresKey && !apiKey) throw new Error("To źródło wymaga klucza API.");
-  return {
-    apiKey,
-    apiBase: validatedApiBase(apiBaseInput.value),
-    sourceName: dataSourceInput.value
-  };
-}
-
-async function fetchAircraftByHex(icao, options = {}) {
-  const cleanIcao = normalizeIcao(icao);
-  if (!isValidIcao(cleanIcao)) return null;
-
-  if (options.preferCache !== false) {
-    const cached = findAircraftByIcaoInCache(cleanIcao);
-    if (cached) return cached;
-  }
-
-  const settings = readApiOnlySettings();
-  const headers = { "Accept": "application/json" };
-  if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
-
-  const candidates = options.fallbackAllSources === false ? [settings] : candidateSettings(settings);
-  let lastError = null;
-  for (const candidate of candidates) {
-    try {
-      const data = await fetchJsonWithFallback(buildHexUrl(candidate, cleanIcao), candidate, headers, {
-        timeoutMs: options.timeoutMs || HEX_FETCH_TIMEOUT_MS,
-        allowProxy: options.allowProxy === true
-      });
-      const aircraft = aircraftListFromResponse(data)
-        .filter((item) => isValidIcao(aircraftIcao(item)))
-        .map((item) => ({ ...item, _sourceName: sourceLabel(candidate.sourceName) }));
-      const match = aircraft.find((item) => aircraftIcao(item) === cleanIcao) || null;
-      if (match) return match;
-      if (aircraft.length) {
-        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło inny samolot niż ${cleanIcao.toUpperCase()}.`);
-      }
-    } catch (error) {
-      lastError = error;
-    }
-  }
-
-  if (lastError) throw lastError;
-  return null;
-}
-
-function offlineAircraftRecordFromIcao(icao, sourceText = "obserwowany bez pozycji LIVE") {
-  const cleanIcao = normalizeIcao(icao);
-  return {
-    hex: cleanIcao,
-    icao: cleanIcao,
-    flight: cleanIcao.toUpperCase(),
-    r: "",
-    t: "",
-    _offlineWatchOnly: true,
-    _sourceName: sourceText
-  };
-}
-
-function aircraftFromStaticDatabaseResponse(icao, data) {
-  const cleanIcao = normalizeIcao(icao);
-  const root = data?.response?.aircraft || data?.response || data?.aircraft || data || {};
-  const registration = firstFilled(root.registration, root.reg, root.n_number, root.tail, "");
-  const type = firstFilled(root.type, root.icao_type, root.icaoType, root.aircraft_type, root.model, root.aircraft, root.description, "");
-  const manufacturer = firstFilled(root.manufacturer, root.make, "");
-  const owner = firstFilled(root.registered_owner, root.owner, root.operator, root.airline, root.op, "");
-  const label = firstFilled(type, registration, owner, cleanIcao.toUpperCase());
-  return {
-    ...offlineAircraftRecordFromIcao(cleanIcao, "baza statyczna"),
-    flight: label,
-    name: label,
-    r: registration,
-    registration,
-    t: type,
-    type,
-    desc: [manufacturer, owner].filter(Boolean).join(" • "),
-    operator: owner,
-    _staticKnown: Boolean(registration || type || owner || manufacturer)
-  };
-}
-
-async function fetchStaticAircraftByHex(icao, options = {}) {
-  const cleanIcao = normalizeIcao(icao);
-  if (!isValidIcao(cleanIcao)) return null;
-  const url = `${ADSBDB_AIRCRAFT_API_BASE_URL}${cleanIcao.toUpperCase()}`;
-  const attempts = [url, ...CORS_PROXY_BUILDERS.map((builder) => builder(url))];
-  let lastError = null;
-  for (const attemptUrl of attempts) {
-    try {
-      const response = await fetchWithTimeout(attemptUrl, { headers: { "Accept": "application/json" } }, options.timeoutMs || WATCHLIST_STATIC_LOOKUP_TIMEOUT_MS);
-      if (!response.ok) throw new Error(`Baza statyczna zwróciła ${response.status}.`);
-      const data = await response.json();
-      return aircraftFromStaticDatabaseResponse(cleanIcao, data);
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (options.throwOnError) throw lastError || new Error("Nie udało się pobrać danych statycznych samolotu.");
-  return null;
-}
+// fetchStaticAircraftByHex przeniesiono do modules/apiSources.js
 
 async function enrichOfflineWatchItemInBackground(icao) {
   const cleanIcao = normalizeIcao(icao);
@@ -6359,781 +1368,86 @@ async function enrichOfflineWatchItemInBackground(icao) {
   }
 }
 
-function tracePointsFromData(data) {
-  if (!data || !Array.isArray(data.trace)) return [];
-  const base = Number(data.timestamp || 0);
-  return data.trace
-    .map((row) => {
-      const lat = Number(row[1]);
-      const lon = Number(row[2]);
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-      const offset = Number(row[0] || 0);
-      const at = base && Number.isFinite(offset) ? new Date((base + offset) * 1000).toISOString() : "";
-      return {
-        lat,
-        lon,
-        at,
-        altitude: row[3] ?? null,
-        speed: row[4] ?? null,
-        track: row[5] ?? null
-      };
-    })
-    .filter(Boolean);
-}
-
-function traceHeadersForSettings(settings) {
-  const headers = { "Accept": "application/json" };
-  const key = settings?.apiKey || "";
-  if (key) {
-    headers["X-Api-Key"] = key;
-    headers["api-auth"] = key;
-  }
-  return headers;
-}
-
-function traceSourceCandidates(baseSettings) {
-  const names = [baseSettings.sourceName, ...FREE_FALLBACK_SOURCES].filter((name, index, list) => list.indexOf(name) === index);
-  const candidates = names.map((name) => settingsForSource(baseSettings, name));
-  if (baseSettings.sourceName === "custom") candidates.unshift(baseSettings);
-  if (baseSettings.sourceName === "adsbExchange" && baseSettings.apiKey) candidates.unshift(baseSettings);
-  return candidates.filter((candidate, index, list) => {
-    if (candidate.sourceName === "adsbExchange" && !candidate.apiKey) return false;
-    return list.findIndex((item) => item.sourceName === candidate.sourceName && item.apiBase === candidate.apiBase) === index;
-  });
-}
-
-function uniqueTraceRequests(requests) {
-  const seen = new Set();
-  return requests.filter((request) => {
-    if (!request?.url || seen.has(request.url)) return false;
-    seen.add(request.url);
-    return true;
-  });
-}
-
-function safeUrlOrigin(value) {
-  try {
-    const parsed = new URL(String(value || "").trim());
-    return `${parsed.protocol}//${parsed.host}`;
-  } catch {
-    return "";
-  }
-}
-
-function traceDateParts(date) {
-  const clean = String(date || "").slice(0, 10);
-  const match = clean.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!match) return null;
-  return { year: match[1], month: match[2], day: match[3], clean };
-}
-
-function todayUtcDate() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function traceBaseUrlsForSettings(settings) {
-  const urls = [];
-  const add = (value) => {
-    const clean = String(value || "").trim().replace(/\/+$/, "");
-    if (clean && !urls.includes(clean)) urls.push(clean);
-  };
-
-  const configured = normalizeApiBase(settings.apiBase);
-  add(configured);
-  add(configured.replace(/\/api\/aircraft\/v2$/i, ""));
-  add(configured.replace(/\/v2$/i, ""));
-
-  const configuredOrigin = safeUrlOrigin(configured);
-  add(configuredOrigin);
-
-  // Ten adres jest tym samym punktem odniesienia, który otwiera przycisk „ADS”.
-  // Strona ADS rysuje ślad z plików trace w katalogach data/traces albo globe_history,
-  // więc program próbuje te same publiczne ścieżki JSON przed narysowaniem trasy.
-  add(ADSB_BASE_URL);
-  add(safeUrlOrigin(ADSB_BASE_URL));
-
-  if (settings.sourceName === "adsbLol") {
-    add("https://api.adsb.lol");
-    add("https://adsb.lol");
-  } else if (settings.sourceName === "adsbFi") {
-    add("https://opendata.adsb.fi");
-    add("https://globe.adsb.fi");
-  } else if (settings.sourceName === "adsbOne") {
-    add("https://api.adsb.one");
-    add("https://globe.adsb.one");
-  } else if (settings.sourceName === "airplanesLive") {
-    add("https://api.airplanes.live");
-    add("https://airplanes.live");
-    add("https://globe.airplanes.live");
-  } else if (settings.sourceName === "adsbExchange") {
-    add("https://gateway.adsbexchange.com/api/aircraft/v2");
-    add("https://www.adsbexchange.com/api/aircraft/v2");
-    add("https://globe.adsbexchange.com");
-  }
-
-  return urls;
-}
-
-function addTraceUrlVariants(requests, base, folder, file, label, filterDate, dateInfo = null) {
-  const cleanBase = String(base || "").trim().replace(/\/+$/, "");
-  if (!cleanBase) return;
-
-  const origin = safeUrlOrigin(cleanBase);
-  const apiRoot = cleanBase.replace(/\/v2$/i, "").replace(/\/api\/aircraft\/v2$/i, "");
-  const bases = [cleanBase, apiRoot, origin].filter(Boolean)
-    .filter((value, index, list) => list.indexOf(value) === index);
-
-  for (const item of bases) {
-    requests.push({ url: `${item}/data/traces/${folder}/${file}`, filterDate, label: `${label}/data` });
-    requests.push({ url: `${item}/traces/${folder}/${file}`, filterDate, label });
-    requests.push({ url: `${item}/api/aircraft/v2/traces/${folder}/${file}`, filterDate, label: `${label}/api` });
-  }
-
-  if (dateInfo) {
-    for (const item of bases) {
-      requests.push({
-        url: `${item}/globe_history/${dateInfo.year}/${dateInfo.month}/${dateInfo.day}/traces/${folder}/${file}`,
-        filterDate,
-        label: `${label}/globe_history`
-      });
-      requests.push({
-        url: `${item}/data/globe_history/${dateInfo.year}/${dateInfo.month}/${dateInfo.day}/traces/${folder}/${file}`,
-        filterDate,
-        label: `${label}/data_globe_history`
-      });
-    }
-  }
-}
-
-function traceUrlsForFlight(settings, flight) {
-  const cleanIcao = normalizeIcao(flight?.icao || "");
-  if (!isValidIcao(cleanIcao)) return [];
-
-  const folder = cleanIcao.slice(-2);
-  const dateInfo = traceDateParts(flight?.date);
-  const requestedDate = dateInfo?.clean || todayLocalDate();
-  const isCurrentDay = !dateInfo || requestedDate === todayLocalDate() || requestedDate === todayUtcDate();
-  const recentFile = `trace_recent_${cleanIcao}.json`;
-  const fullFile = `trace_full_${cleanIcao}.json`;
-
-  const requests = [];
-  for (const base of traceBaseUrlsForSettings(settings)) {
-    // Bieżący lot: najpierw recent trace, czyli ślad używany przez mapę live.
-    if (isCurrentDay) {
-      addTraceUrlVariants(requests, base, folder, recentFile, "trace_recent", false, null);
-      // Awaryjnie sprawdzamy też full, bo różne mirrory mogą mieć różną organizację plików.
-      addTraceUrlVariants(requests, base, folder, fullFile, "trace_full", true, dateInfo);
-    } else {
-      // Lot historyczny: najpierw pełny ślad z globe_history dla konkretnej daty.
-      addTraceUrlVariants(requests, base, folder, fullFile, "trace_full", true, dateInfo);
-      addTraceUrlVariants(requests, base, folder, recentFile, "trace_recent", true, null);
-    }
-  }
-  return uniqueTraceRequests(requests);
-}
-
-async function loadOfficialTrace(flight) {
-  const baseSettings = readApiOnlySettings();
-  const candidates = traceSourceCandidates(baseSettings);
-  let lastError = null;
-  let checkedCount = 0;
-
-  for (const candidate of candidates) {
-    const headers = traceHeadersForSettings(candidate);
-    const source = apiSourceByName(candidate.sourceName);
-    const requests = traceUrlsForFlight(candidate, flight);
-    for (const request of requests) {
-      checkedCount += 1;
-      try {
-        const data = await fetchJsonWithFallback(request.url, candidate, headers, {
-          timeoutMs: TRACE_FETCH_TIMEOUT_MS,
-          allowProxy: source.allowProxy === true
-        });
-        const rawPoints = tracePointsFromData(data);
-        const points = prepareTracePointsForFlight(rawPoints, flight, { filterDate: request.filterDate });
-        if (points.length >= 2) {
-          console.info(`Trace OK: ${sourceLabel(candidate.sourceName)} ${request.label}, punkty: ${points.length}, URL: ${request.url}`);
-          return points;
-        }
-        lastError = new Error(`Źródło ${sourceLabel(candidate.sourceName)} zwróciło plik trace, ale bez odcinka pasującego do aktualnej pozycji.`);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-  }
-
-  const suffix = checkedCount ? ` Sprawdzonych adresów trace: ${checkedCount}.` : "";
-  throw lastError || new Error(`Nie udało się pobrać śladu lotu z API.${suffix}`);
-}
-
-
-async function drawRouteForFlight(flight) {
-  if (routeLayer) routeLayer.clearLayers();
-  lastRouteBounds = null;
-  let points = [];
-  try {
-    points = await loadOfficialTrace(flight);
-    if (points.length) {
-      saveTracePointsIfUseful(flight.icao, flight.date, points);
-      drawRoute(points, flight.name || flight.icao.toUpperCase());
-      if (flight.date !== todayLocalDate()) {
-        setRouteSummary(`Uwaga: trace API może zwrócić najbliższy dostępny ślad zamiast dokładnej daty z linku. ${routeSummary.textContent}`);
-      }
-      return;
-    }
-  } catch (error) {
-    showToast(`Nie pobrałem pełnego śladu z API: ${error.message}`);
-  }
-
-  points = loadTrackPoints(flight.icao, flight.date).filter(validPoint);
-  if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
-  let fallbackMessage = "";
-  if (!points.length) {
-    const latestTrack = loadLatestTrackPoints(flight.icao);
-    if (latestTrack.points.length) {
-      points = latestTrack.points.filter(validPoint);
-      if (points.length >= 2) points = selectTraceSegmentForFlight(points, flight);
-      fallbackMessage = `Nie mam lokalnego śladu z dnia ${flight.date}; pokazuję ślad z ${latestTrack.date}.`;
-    }
-  }
-  if (!points.length && flight.lat && flight.lon) {
-    const savedPoint = { lat: Number(flight.lat), lon: Number(flight.lon), at: new Date().toISOString() };
-    if (validPoint(savedPoint)) points = [savedPoint];
-  }
-
-  if (points.length) {
-    drawRoute(points, flight.name || flight.icao.toUpperCase());
-    if (fallbackMessage) {
-      setRouteSummary(`${fallbackMessage} ${routeSummary.textContent}`);
-    }
-    if (points.length === 1) {
-      setRouteSummary("Mam tylko jeden punkt. Dalsze punkty będą dopisywane automatycznie podczas odświeżania mapy.");
-    }
-    return;
-  }
-
-  setRouteSummary("Darmowe API pokazuje aktualne pozycje, ale nie daje gotowego historycznego śladu. Program buduje ślad z kolejnych automatycznych odświeżeń.");
-}
-
-async function drawRouteFromForm() {
-  try {
-    await runBusy("Rysuję samolot na mapie...", () => drawRouteForFlight(readFormFlight()));
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
-function stopLiveTracking() {
-  if (liveTrackTimer) window.clearInterval(liveTrackTimer);
-  liveTrackTimer = null;
-  activeTrack = null;
-  setRouteSummary("Śledzenie zatrzymane.");
-}
-
-async function pollLiveTrack() {
-  if (!activeTrack) return;
-  try {
-    setRouteSummary(`Śledzenie live: odświeżam dane dla ${activeTrack.icao.toUpperCase()}...`);
-    const aircraft = await fetchAircraftByHex(activeTrack.icao);
-    if (!aircraft) {
-      setRouteSummary(`Nie widzę teraz ${activeTrack.icao.toUpperCase()} w danych live.`);
-      return;
-    }
-    const point = pointFromAircraft(aircraft);
-    if (!point) {
-      setRouteSummary(`Samolot ${activeTrack.icao.toUpperCase()} jest widoczny, ale bez pozycji GPS.`);
-      return;
-    }
-    const points = addTrackPoint(activeTrack.icao, activeTrack.date, point);
-    drawRoute(points, activeTrack.name || activeTrack.icao.toUpperCase());
-    setRouteSummary(`Śledzenie live: ${activeTrack.icao.toUpperCase()}, punktów ${points.length}. Odświeżanie co ${LIVE_TRACK_INTERVAL_MS / 1000} s.`);
-  } catch (error) {
-    setRouteSummary(`Nie udało się odświeżyć live: ${error.message}`);
-  }
-}
-
-async function startLiveTracking(flight = null) {
-  const finishBusy = beginBusy("Uruchamiam śledzenie na żywo...");
-  try {
-    const target = flight || readFormFlight();
-    const liveDate = todayLocalDate();
-    if (target.date && target.date !== liveDate) {
-      dateInput.value = liveDate;
-      showToast("Śledzenie live zapisuje dzisiejszy ślad.");
-    }
-    activeTrack = {
-      icao: target.icao,
-      date: liveDate,
-      name: target.name || target.icao.toUpperCase()
-    };
-    if (liveTrackTimer) window.clearInterval(liveTrackTimer);
-    setRouteSummary(`Uruchamiam śledzenie live dla ${activeTrack.icao.toUpperCase()}...`);
-    await pollLiveTrack();
-    liveTrackTimer = window.setInterval(pollLiveTrack, LIVE_TRACK_INTERVAL_MS);
-    showToast("Śledzenie włączone.");
-  } catch (error) {
-    showToast(error.message);
-  } finally {
-    finishBusy();
-  }
-}
-
-async function fetchAircraftByEndpointUrls(settings, urls, headers, options = {}) {
-  let lastError = null;
-  for (const url of urls) {
-    try {
-      const data = await fetchJsonWithFallback(url, settings, headers, {
-        timeoutMs: options.timeoutMs || HEX_FETCH_TIMEOUT_MS,
-        allowProxy: options.allowProxy !== false
-      });
-      const aircraft = aircraftListFromResponse(data)
-        .filter((item) => isValidIcao(normalizeIcao(item.hex || item.icao || item.icao24 || "")))
-        .map((item) => ({ ...item, _sourceName: sourceLabel(settings.sourceName) }));
-      if (aircraft.length) return aircraft[0];
-    } catch (error) {
-      lastError = error;
-    }
-  }
-  if (lastError) throw lastError;
-  return null;
-}
-
-async function fetchAircraftByLiveQuery(rawValue, options = {}) {
-  const raw = String(rawValue || "").trim();
-  if (!raw) return null;
-
-  const directIcao = explicitIcaoFromInput(raw);
-  if (isValidIcao(directIcao)) {
-    return fetchAircraftByHex(directIcao, {
-      preferCache: false,
-      fallbackAllSources: options.fallbackAllSources !== false,
-      timeoutMs: options.timeoutMs || HEX_FETCH_TIMEOUT_MS,
-      allowProxy: options.allowProxy !== false
-    });
-  }
-
-  const settings = readApiOnlySettings();
-  const headers = { "Accept": "application/json" };
-  if (settings.apiKey) headers["X-Api-Key"] = settings.apiKey;
-
-  const cleanCallsign = normalizeCallsign(raw);
-  const cleanReg = cleanAircraftRegistration(raw).toUpperCase();
-  const callsignCandidates = [...new Set([cleanCallsign, ...iataFlightToLikelyCallsigns(raw)].filter(Boolean))];
-  const candidates = candidateSettings(settings);
-  let lastError = null;
-
-  for (const candidate of candidates) {
-    const endpointSets = [];
-    for (const callsign of callsignCandidates) endpointSets.push(buildCallsignUrls(candidate, callsign));
-    if (looksLikeRegistration(raw) || cleanReg.includes("-")) endpointSets.push(buildRegistrationUrls(candidate, cleanReg));
-
-    for (const urls of endpointSets) {
-      try {
-        const aircraft = await fetchAircraftByEndpointUrls(candidate, urls, headers, options);
-        if (aircraft) return aircraft;
-      } catch (error) {
-        lastError = error;
-      }
-    }
-  }
-
-  if (lastError) throw lastError;
-  return null;
-}
-
-function normalizeSearchText(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "")
-    .replace(/[^A-Z0-9-]/g, "");
-}
-
-function aircraftSearchValues(aircraft) {
-  return [
-    aircraft?.hex,
-    aircraft?.icao,
-    aircraft?.flight,
-    aircraft?.callsign,
-    aircraft?.r,
-    aircraft?.registration,
-    aircraft?.t,
-    aircraft?.type,
-    aircraft?.aircraftType,
-    aircraft?.name,
-    aircraft?.routeShort,
-    aircraft?.routeVerbose
-  ].filter(Boolean).map(normalizeSearchText).filter(Boolean);
-}
-
-function findAircraftBySmartQuery(rawValue) {
-  const query = normalizeSearchText(rawValue);
-  if (!query) return null;
-
-  const sources = [
-    ...lastAircraftCache,
-    ...loadFlights(),
-    ...loadWatchlist()
-  ];
-
-  let fallback = null;
-  for (const item of sources) {
-    const values = aircraftSearchValues(item);
-    if (values.some((value) => value === query)) return item;
-    if (!fallback && values.some((value) => value.includes(query) || query.includes(value))) {
-      fallback = item;
-    }
-  }
-  return fallback;
-}
-
-function findAircraftByExactSearchQuery(rawValue) {
-  const query = normalizeSearchText(rawValue);
-  if (!query) return null;
-
-  const sources = [
-    ...lastAircraftCache,
-    ...loadFlights(),
-    ...loadWatchlist()
-  ];
-
-  return sources.find((item) => aircraftSearchValues(item).some((value) => value === query)) || null;
-}
-
-function aircraftMatchesSearchInput(aircraft, rawValue) {
-  const raw = String(rawValue || '').trim();
-  const directIcao = explicitIcaoFromInput(raw);
-  if (isValidIcao(directIcao)) return aircraftIcao(aircraft) === directIcao;
-
-  const query = normalizeSearchText(raw);
-  if (!query) return false;
-
-  const values = aircraftSearchValues(aircraft);
-  if (values.some((value) => value === query)) return true;
-
-  const likelyCallsigns = iataFlightToLikelyCallsigns(raw).map(normalizeSearchText);
-  return likelyCallsigns.length > 0 && values.some((value) => likelyCallsigns.includes(value));
-}
-
-function resolveSmartFlightInput(rawValue) {
-  const raw = String(rawValue || "").trim();
-  const directIcao = explicitIcaoFromInput(raw);
-  if (isValidIcao(directIcao)) {
-    const match = findAircraftBySmartQuery(directIcao);
-    const point = match ? pointFromAircraft(match) : null;
-    return {
-      icao: directIcao,
-      name: match ? aircraftLabel(match) : (nameInput.value.trim() || directIcao.toUpperCase()),
-      lat: point ? String(point.lat) : latInput.value.trim(),
-      lon: point ? String(point.lon) : lonInput.value.trim()
-    };
-  }
-
-  const rememberedIcao = normalizeIcao(icaoInput.dataset.resolvedIcao || "");
-  if (isValidIcao(rememberedIcao) && raw && raw === nameInput.value.trim()) {
-    return {
-      icao: rememberedIcao,
-      name: nameInput.value.trim() || rememberedIcao.toUpperCase(),
-      lat: latInput.value.trim(),
-      lon: lonInput.value.trim()
-    };
-  }
-
-  const match = findAircraftBySmartQuery(raw);
-  if (match) {
-    const icao = normalizeIcao(match.hex || match.icao || "");
-    if (isValidIcao(icao)) {
-      const point = pointFromAircraft(match);
-      return {
-        icao,
-        name: aircraftLabel(match),
-        lat: point ? String(point.lat) : firstFilled(match.lat, latInput.value),
-        lon: point ? String(point.lon) : firstFilled(match.lon, lonInput.value)
-      };
-    }
-  }
-
-  throw new Error("Nie rozpoznałem wpisu. Wpisz 6-znakowy hex albo najpierw pobierz samoloty, żeby program mógł znaleźć nazwę/callsign.");
-}
-
-function readFormFlight() {
-  const resolved = resolveSmartFlightInput(icaoInput.value);
-  const lat = cleanCoordinate(resolved.lat || latInput.value, -90, 90, "Szerokość");
-  const lon = cleanCoordinate(resolved.lon || lonInput.value, -180, 180, "Długość");
-
-  return {
-    id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${resolved.icao}`,
-    icao: resolved.icao,
-    name: resolved.name || resolved.icao.toUpperCase(),
-    date: dateInput.value || todayLocalDate(),
-    zoom: zoomInput.value.trim() || "9.2",
-    lat,
-    lon,
-    createdAt: new Date().toISOString()
-  };
-}
-
-function upsertFlight(flight) {
-  const flights = loadFlights();
-  const withoutDuplicate = flights.filter((item) => !(item.icao === flight.icao && item.date === flight.date));
-  withoutDuplicate.unshift(flight);
-  saveFlights(withoutDuplicate);
-  renderFlights();
-}
-
-function parseFlightText(text) {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  let url = null;
-  try {
-    const match = trimmed.match(/https?:\/\/\S+/i);
-    url = new URL(match ? match[0] : trimmed);
-  } catch {
-    url = null;
-  }
-
-  const urlIcao = url ? normalizeIcao(url.searchParams.get("icao") || "") : "";
-  const plainIcao = normalizeIcao((trimmed.match(/\b[a-fA-F0-9]{6}\b/) || [""])[0]);
-  const icao = isValidIcao(urlIcao) ? urlIcao : plainIcao;
-
-  if (!isValidIcao(icao)) return null;
-
-  return {
-    icao,
-    date: url?.searchParams.get("showTrace") || todayLocalDate(),
-    lat: url?.searchParams.get("lat") || "",
-    lon: url?.searchParams.get("lon") || "",
-    zoom: url?.searchParams.get("zoom") || "9.2"
-  };
-}
-
-function fillForm(parsed, options = {}) {
-  if (shouldPreserveManualSearchInput(options)) return;
-
-  const icao = normalizeIcao(parsed.icao || parsed.hex || "");
-  const displayName = parsed.name || parsed.callsign || parsed.flight || (icao ? icao.toUpperCase() : "");
-  const searchValue = options.searchValue !== undefined ? String(options.searchValue || "") : displayName;
-  icaoInput.value = options.keepSearchInput === true ? String(icaoInput.value || "") : searchValue;
-  icaoInput.dataset.resolvedIcao = icao;
-  nameInput.value = displayName;
-  dateInput.value = parsed.date || todayLocalDate();
-  zoomInput.value = parsed.zoom || "9.2";
-  latInput.value = parsed.lat || "";
-  lonInput.value = parsed.lon || "";
-}
-
-function savedFlightSearchValues(flight) {
-  return [
-    flight?.name,
-    flight?.icao,
-    flight?.callsign,
-    flight?.registration,
-    flight?.type,
-    flight?.date,
-    flight?.routeShort,
-    flight?.routeVerbose
-  ].filter(Boolean).join(" ").toUpperCase();
-}
-
-function renderFlights() {
-  const flights = loadFlights();
-  const query = String(savedSearchInput?.value || "").trim().toUpperCase();
-  const visibleFlights = query ? flights.filter((flight) => savedFlightSearchValues(flight).includes(query)) : flights;
-  flightList.replaceChildren();
-  emptyState.hidden = flights.length > 0;
-
-  for (const flight of visibleFlights) {
-    const node = template.content.firstElementChild.cloneNode(true);
-    setAircraftPhoto(node.querySelector(".flight-thumb"), flight);
-    node.querySelector(".flight-name").textContent = flight.name || flight.icao.toUpperCase();
-    const metaParts = [
-      flight.icao ? flight.icao.toUpperCase() : "",
-      flight.date,
-      aircraftKind(flight),
-      flight.routeShort,
-      flight.altitude !== undefined && flight.altitude !== "" ? formatAltitude(flight.altitude) : "",
-      flight.speed !== undefined && flight.speed !== "" ? formatSpeed(flight.speed) : ""
-    ].filter(Boolean);
-    node.querySelector(".flight-meta").textContent = metaParts.join(" • ");
-
-    node.querySelector(".ads-flight").addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      openFlightInAds(flight);
-    });
-
-    node.querySelector(".map-flight").addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      clearManualSearchInputLock();
-      fillForm(flight, { force: true });
-      await showSavedFlightOnMap(flight);
-    });
-
-    node.querySelector(".delete-flight").addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      await deleteSavedFlight(flight);
-    });
-
-    flightList.append(node);
-  }
-}
-
-function enableCopyableAircraftValue(element, value, label = "wartość") {
-  if (!element) return;
-  const text = String(value ?? "").trim();
-  if (!text || text === "brak danych") {
-    element.classList.remove("copyable-aircraft-value");
-    delete element.dataset.copyValue;
-    element.removeAttribute("title");
-    return;
-  }
-  element.classList.add("copyable-aircraft-value");
-  element.dataset.copyValue = text;
-  element.title = `Kliknij, aby skopiować ${label}: ${text}`;
-}
-
-function hasActiveTextSelection() {
-  const selection = window.getSelection?.();
-  return Boolean(selection && !selection.isCollapsed && String(selection).trim());
-}
-
-async function copyText(value) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
-  const helper = document.createElement("textarea");
-  helper.value = value;
-  helper.style.position = "fixed";
-  helper.style.opacity = "0";
-  document.body.append(helper);
-  helper.select();
-  document.execCommand("copy");
-  helper.remove();
-}
-
-function importFromText() {
-  const parsed = parseFlightText(importText.value);
-  if (!parsed) {
-    showToast("Nie znalazłem kodu ICAO.");
-    return;
-  }
-
-  clearManualSearchInputLock();
-  fillForm(parsed, { force: true });
-  showToast("Dane wpisane do formularza.");
-}
-
-
-function saveFlightFromForm() {
-  try {
-    const flight = readFormFlight();
-    upsertFlight(flight);
-    form.reset();
-    delete icaoInput.dataset.resolvedIcao;
-    dateInput.value = todayLocalDate();
-    zoomInput.value = "9.2";
-    showToast("Samolot zapisany.");
-  } catch (error) {
-    showToast(error.message);
-  }
-}
-
-async function searchAircraftFromInput() {
-  const raw = icaoInput.value.trim();
-  const originalValue = icaoInput.value;
-  if (!raw) {
-    showToast("Wpisz hex, callsign, rejestrację albo nazwę samolotu.");
-    return;
-  }
-
-  markManualSearchInput(raw);
-
-  const directIcao = explicitIcaoFromInput(raw);
-  const localMatch = isValidIcao(directIcao) ? findAircraftByIcaoInCache(directIcao) : findAircraftByExactSearchQuery(raw);
-  if (localMatch) {
-    try {
-      let aircraft = localMatch.icao && !localMatch.hex ? flightToAircraft(localMatch) : localMatch;
-      const localIcao = aircraftIcao(aircraft);
-      if (!pointFromAircraft(aircraft) && isValidIcao(localIcao)) {
-        try {
-          const live = await fetchAircraftByHex(localIcao, { preferCache: false, fallbackAllSources: true, timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: true });
-          if (live) aircraft = mergeFlightRouteIntoAircraft(live, localMatch);
-        } catch {
-          // Jeśli live nie odpowie, pokazujemy dane lokalne bez zapisywania.
-        }
-      }
-      if (!aircraftMatchesSearchInput(aircraft, raw)) throw new Error(`Znaleziony lokalnie samolot nie pasuje do wpisu: ${raw}.`);
-      fillForm(aircraftToFlight(aircraft), { force: true, searchValue: raw });
-      markManualSearchInput(raw);
-      focusAircraftOnMap(aircraft, { singleMarker: !findAircraftByIcaoInCache(aircraftIcao(aircraft)), showSheet: true, centerMap: true, fitMap: false, zoom: 10 });
-      showToast(pointFromAircraft(aircraft) ? "Znaleziono samolot i przeniesiono mapę do jego pozycji." : "Znaleziono samolot, ale brak pozycji GPS.", 3200);
-    } catch (error) {
-      icaoInput.value = originalValue;
-      markManualSearchInput(originalValue);
-      setAircraftStatus(`Nie znaleziono samolotu: ${raw}. ${explainFetchError(error)}.`);
-      showToast(`Nie znaleziono samolotu: ${raw}`, 5200);
-    }
-    return;
-  }
-
-  const finishBusy = beginBusy("Szukam samolotu globalnie...");
-  try {
-    const aircraft = await fetchAircraftByLiveQuery(raw, { timeoutMs: HEX_FETCH_TIMEOUT_MS, allowProxy: true, fallbackAllSources: true });
-    if (!aircraft) throw new Error("API nie zwróciło tego samolotu.");
-    if (!aircraftMatchesSearchInput(aircraft, raw)) {
-      throw new Error(`API zwróciło inny samolot niż wpisano: ${raw}.`);
-    }
-
-    const cleanIcao = aircraftIcao(aircraft);
-    const point = pointFromAircraft(aircraft);
-    fillForm(aircraftToFlight(aircraft), { force: true, searchValue: raw });
-    markManualSearchInput(raw);
-
-    if (point && map) {
-      const requestedZoom = Number(zoomInput?.value || 10);
-      map.setView([point.lat, point.lon], Number.isFinite(requestedZoom) ? Math.max(10, Math.min(13, requestedZoom)) : 10, { animate: false });
-      invalidateMapSoon();
-    }
-
-    const finalAircraft = await refreshAreaAroundFoundAircraft(aircraft);
-    const finalIcao = aircraftIcao(finalAircraft) || cleanIcao;
-    fillForm(aircraftToFlight(finalAircraft), { force: true, searchValue: raw });
-    markManualSearchInput(raw);
-    focusAircraftOnMap(finalAircraft, { singleMarker: !findAircraftByIcaoInCache(finalIcao), showSheet: true, centerMap: false, fitMap: false, zoom: 10 });
-    showToast("Znaleziono samolot, odświeżono jego obszar i pokazano dane.", 4200);
-  } catch (error) {
-    if (isValidIcao(directIcao)) {
-      let aircraft = offlineAircraftRecordFromIcao(directIcao);
-      try {
-        aircraft = await fetchStaticAircraftByHex(directIcao) || aircraft;
-      } catch {
-        // Brak danych statycznych nie blokuje obserwowania po HEX.
-      }
-      selectedAircraft = aircraft;
-      updateSelectedAircraftMarkerHighlight();
-      showSelectedAircraftSheet(aircraft);
-      fillForm(aircraftToFlight(aircraft), { force: true, searchValue: raw });
-      markManualSearchInput(raw);
-      setAircraftStatus(`${directIcao.toUpperCase()}: brak aktualnej pozycji LIVE w dostępnych źródłach, ale HEX jest poprawny i może zostać dodany do obserwowanych. Alert zadziała, gdy pojawi się w publicznym ADS.`);
-      showToast(`${directIcao.toUpperCase()}: brak LIVE. Możesz dodać do obserwowanych.`, 5200);
-      return;
-    }
-    icaoInput.value = originalValue;
-    markManualSearchInput(originalValue);
-    setAircraftStatus(`Nie znaleziono samolotu: ${raw}. ${explainFetchError(error)}.`);
-    showToast(`Nie znaleziono samolotu: ${raw}`, 5200);
-  } finally {
-    finishBusy();
-  }
-}
+// tracePointsFromData przeniesiono do modules/cacheMediaRoutes.js
 
+// traceHeadersForSettings przeniesiono do modules/cacheMediaRoutes.js
+
+// traceSourceCandidates przeniesiono do modules/cacheMediaRoutes.js
+
+// uniqueTraceRequests przeniesiono do modules/cacheMediaRoutes.js
+
+// safeUrlOrigin przeniesiono do modules/cacheMediaRoutes.js
+
+// traceDateParts przeniesiono do modules/cacheMediaRoutes.js
+
+// todayUtcDate przeniesiono do modules/cacheMediaRoutes.js
+
+// traceBaseUrlsForSettings przeniesiono do modules/cacheMediaRoutes.js
+
+// addTraceUrlVariants przeniesiono do modules/cacheMediaRoutes.js
+
+// traceUrlsForFlight przeniesiono do modules/cacheMediaRoutes.js
+
+// loadOfficialTraceDetailed przeniesiono do modules/cacheMediaRoutes.js
+
+// loadOfficialTrace przeniesiono do modules/cacheMediaRoutes.js
+
+
+// drawRouteForFlight przeniesiono do modules/mapRoutes.js
+
+// drawRouteFromForm przeniesiono do modules/mapRoutes.js
+
+// stopLiveTracking przeniesiono do modules/cacheMediaRoutes.js
+
+// pollLiveTrack przeniesiono do modules/cacheMediaRoutes.js
+
+// startLiveTracking przeniesiono do modules/cacheMediaRoutes.js
+
+// fetchAircraftByEndpointUrls przeniesiono do modules/apiSources.js
+
+// fetchAircraftByLiveQuery przeniesiono do modules/apiSources.js
+
+// normalizeSearchText przeniesiono do modules/apiSources.js
+
+// aircraftSearchValues przeniesiono do modules/apiSources.js
+
+// findAircraftBySmartQuery przeniesiono do modules/apiSources.js
+
+// findAircraftByExactSearchQuery przeniesiono do modules/apiSources.js
+
+// aircraftMatchesSearchInput przeniesiono do modules/apiSources.js
+
+// resolveSmartFlightInput przeniesiono do modules/apiSources.js
+
+// readFormFlight przeniesiono do modules/savedWatchHistory.js
+
+// upsertFlight przeniesiono do modules/savedWatchHistory.js
+
+// parseFlightText przeniesiono do modules/savedWatchHistory.js
+
+// fillForm przeniesiono do modules/savedWatchHistory.js
+
+// savedFlightSearchValues przeniesiono do modules/savedWatchHistory.js
+
+// renderFlights przeniesiono do modules/savedWatchHistory.js
+
+// enableCopyableAircraftValue przeniesiono do modules/uiPanels.js
+
+// hasActiveTextSelection przeniesiono do modules/uiPanels.js
+
+// copyText przeniesiono do modules/uiPanels.js
+
+// importFromText przeniesiono do modules/savedWatchHistory.js
+
+
+// saveFlightFromForm przeniesiono do modules/savedWatchHistory.js
+
+// searchAircraftFromInput przeniesiono do modules/savedWatchHistory.js
+
+
+
+// Historia trasy została wydzielona do: modules/historyTrace.js
 savedSearchInput?.addEventListener("input", renderFlights);
-historySearchInput?.addEventListener("input", renderFlightHistory);
 exportHistoryButton?.addEventListener("click", exportFlightHistory);
 clearHistoryButton?.addEventListener("click", () => {
   if (!loadFlightHistory().length) return;
@@ -7191,6 +1505,51 @@ form.addEventListener("submit", (event) => {
   searchAircraftFromInput();
 });
 
+
+function isHistoryMapMode() {
+  return currentMapMode === "history";
+}
+
+function updateMapModeUi() {
+  const historyMode = isHistoryMapMode();
+  mapModeBadge?.classList.toggle("is-history", historyMode);
+  mapModeBadge?.classList.toggle("is-live", !historyMode);
+  if (mapModeBadgeText) mapModeBadgeText.textContent = historyMode ? "Tryb: HISTORIA" : "Tryb: LIVE";
+  if (returnLiveMapButton) returnLiveMapButton.hidden = !historyMode;
+  if (historyAltitudeLegend) historyAltitudeLegend.hidden = !historyMode;
+}
+
+function setMapMode(mode, options = {}) {
+  const nextMode = mode === "history" ? "history" : "live";
+  currentMapMode = nextMode;
+  updateMapModeUi();
+  if (options.message) setRouteSummary(options.message);
+}
+
+function enterHistoryMapMode() {
+  setMapMode("history");
+}
+
+function returnToLiveMap(options = {}) {
+  window.ADSVHistoryTrace?.stopHistoryTracePlayback?.();
+  setMapMode("live");
+  if (routeLayer) routeLayer.clearLayers();
+  lastRouteBounds = null;
+  const settings = lastRenderSettings || readBrowseSettingsSafe();
+  const visibleAircraft = filterAircraftForDisplay(lastAircraftCache || []);
+  if (lastAircraftCache?.length) {
+    renderAircraft(visibleAircraft, settings);
+    renderAircraftMap(visibleAircraft, settings, { preserveView: options.preserveView !== false, forceLiveRender: true });
+    setAircraftStatus(`Tryb LIVE: pokazuję ${aircraftFilterSummary(lastAircraftCache.length, visibleAircraft.length)} z ostatniego pobrania.`);
+    setRouteSummary("Tryb LIVE: mapa wróciła do aktualnych samolotów. Odśwież dane, jeśli chcesz pobrać najnowsze pozycje.");
+    return;
+  }
+  clearAircraftMap();
+  setRouteSummary("Tryb LIVE: brak lokalnie zapamiętanych samolotów. Kliknij „Pobierz samoloty”.");
+}
+
+updateMapModeUi();
+
 saveFlightButton?.addEventListener("click", saveFlightFromForm);
 searchAircraftButton?.addEventListener("click", (event) => {
   event.preventDefault();
@@ -7216,7 +1575,14 @@ document.querySelector("#fitMapButton").addEventListener("click", () => {
   }
   if (lastRouteBounds) map.fitBounds(lastRouteBounds.pad(0.18), { maxZoom: 11 });
 });
-document.querySelector("#clearRouteButton").addEventListener("click", clearRoute);
+document.querySelector("#clearRouteButton").addEventListener("click", () => {
+  if (isHistoryMapMode()) {
+    returnToLiveMap({ preserveView: true });
+    return;
+  }
+  clearRoute();
+});
+returnLiveMapButton?.addEventListener("click", () => returnToLiveMap({ preserveView: true }));
 
 document.querySelector("#pasteButton").addEventListener("click", async () => {
   try {
@@ -7344,18 +1710,7 @@ resetAircraftFiltersButton?.addEventListener("click", () => {
   rerenderAircraftFromCache();
 });
 
-function applyPerformanceSettingsAndRerender(message = "Ustawienia wydajności zapisane.") {
-  savePerformanceSettings();
-  restartAircraftAutoRefresh();
-  if (lastAircraftCache.length) {
-    const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
-    renderAircraft(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe());
-    renderAircraftMap(visibleAircraft, lastRenderSettings || readBrowseSettingsSafe(), { preserveView: true });
-    setAircraftStatus(`${message} Pokazuję ${aircraftFilterSummary(lastAircraftCache.length, visibleAircraft.length)}.`);
-  } else {
-    setAircraftStatus(message);
-  }
-}
+// applyPerformanceSettingsAndRerender przeniesiono do modules/settingsFilters.js
 
 performanceModeInput?.addEventListener("change", () => {
   applyPerformancePreset(performanceModeInput.value);
@@ -7376,142 +1731,25 @@ resetPerformanceButton?.addEventListener("click", () => {
 document.querySelector("#loadAircraftButton").addEventListener("click", loadAircraft);
 document.querySelector("#refreshAircraftButton").addEventListener("click", loadAircraft);
 
-function geolocationErrorMessage(error) {
-  if (error?.code === error?.PERMISSION_DENIED) return "Brak zgody na lokalizację w przeglądarce.";
-  if (error?.code === error?.POSITION_UNAVAILABLE) return "Telefon nie zwrócił pozycji GPS / sieciowej.";
-  if (error?.code === error?.TIMEOUT) return "Telefon zbyt długo ustalał lokalizację.";
-  return "Nie udało się pobrać lokalizacji.";
-}
+// geolocationErrorMessage przeniesiono do modules/uiPanels.js
 
-function defaultBrowseRadius() {
-  return AUTO_LOAD_RADIUS_NM;
-}
+// defaultBrowseRadius przeniesiono do modules/uiPanels.js
 
-function setDefaultBrowseRadius() {
-  if (browseDistInput) browseDistInput.value = String(defaultBrowseRadius());
-}
+// setDefaultBrowseRadius przeniesiono do modules/uiPanels.js
 
-function browserLocation() {
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: 25000,
-      maximumAge: 300000
-    });
-  });
-}
+// browserLocation przeniesiono do modules/uiPanels.js
 
-function userLocationIcon() {
-  return L.divIcon({
-    className: "user-location-div-icon",
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
-    html: `<span class="user-location-pulse"></span><span class="user-location-dot"></span>`
-  });
-}
+// userLocationIcon przeniesiono do modules/uiPanels.js
 
-function drawUserLocation(position, options = {}) {
-  initMap();
-  if (!map || !window.L || !position?.coords) return false;
+// drawUserLocation przeniesiono do modules/uiPanels.js
 
-  const lat = Number(position.coords.latitude);
-  const lon = Number(position.coords.longitude);
-  const accuracy = Math.max(8, Math.min(2000, Number(position.coords.accuracy) || 0));
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+// applyBrowserLocation przeniesiono do modules/uiPanels.js
 
-  if (!userLocationLayer) userLocationLayer = L.layerGroup().addTo(map);
-  userLocationLayer.clearLayers();
+// locateUser przeniesiono do modules/uiPanels.js
 
-  L.circle([lat, lon], {
-    pane: "userPane",
-    radius: accuracy,
-    interactive: false,
-    keyboard: false,
-    color: "#2563eb",
-    weight: 1.5,
-    opacity: 0.55,
-    fillColor: "#3b82f6",
-    fillOpacity: 0.14
-  }).addTo(userLocationLayer);
+// checkStartupPermissions przeniesiono do modules/uiPanels.js
 
-  L.marker([lat, lon], {
-    pane: "userPane",
-    interactive: false,
-    keyboard: false,
-    icon: userLocationIcon(),
-    title: "Twoja lokalizacja"
-  }).addTo(userLocationLayer);
-
-  if (options.centerMap) {
-    const currentZoom = Number(map.getZoom?.() || 0);
-    map.setView([lat, lon], Math.max(currentZoom || 0, 13), { animate: true });
-  }
-
-  setRouteSummary(`Twoja lokalizacja: ${lat.toFixed(5)}, ${lon.toFixed(5)}. Dokładność około ${Math.round(accuracy)} m.`);
-  return true;
-}
-
-function applyBrowserLocation(position, options = {}) {
-  browseLatInput.value = position.coords.latitude.toFixed(5);
-  browseLonInput.value = position.coords.longitude.toFixed(5);
-  latInput.value = browseLatInput.value;
-  lonInput.value = browseLonInput.value;
-  drawUserLocation(position, { centerMap: options.centerMap === true });
-}
-
-async function locateUser({ autoLoad = false, startup = false, centerMap = false } = {}) {
-  if (!navigator.geolocation) {
-    const message = "Telefon lub przeglądarka nie udostępnia lokalizacji.";
-    setAircraftStatus(message);
-    showToast(message, 4200);
-    return false;
-  }
-
-  const finishBusy = beginBusy(startup ? "Pobieram lokalizację przy starcie programu..." : "Pobieram lokalizację telefonu...");
-  try {
-    setAircraftStatus(startup ? "Przy pierwszym uruchomieniu przeglądarka zapyta o zgodę na lokalizację." : "Pobieram lokalizację telefonu...");
-    const position = await browserLocation();
-    applyBrowserLocation(position, { centerMap });
-    setDefaultBrowseRadius();
-    setAircraftStatus(`Lokalizacja wpisana automatycznie. Promień: ${defaultBrowseRadius()} NM. Dokładność: około ${Math.round(position.coords.accuracy || 0)} m.`);
-    showToast(centerMap ? "Zlokalizowano Cię na mapie." : (startup ? "Lokalizacja pobrana automatycznie." : "Lokalizacja wpisana."));
-  } catch (error) {
-    const message = geolocationErrorMessage(error);
-    setAircraftStatus(message);
-    showToast(message, 5200);
-    return false;
-  } finally {
-    finishBusy();
-  }
-
-  if (autoLoad) {
-    await loadAircraft();
-  }
-  return true;
-}
-
-async function checkStartupPermissions() {
-  if (!navigator.permissions?.query) return;
-  try {
-    const permission = await navigator.permissions.query({ name: "geolocation" });
-    if (permission.state === "prompt") {
-      setAircraftStatus("Za chwilę przeglądarka zapyta o zgodę na lokalizację. Bez niej automatyczne pobieranie samolotów nie ruszy.");
-    } else if (permission.state === "denied") {
-      setAircraftStatus("Lokalizacja jest zablokowana. Włącz zgodę w ustawieniach przeglądarki, żeby auto-start działał.");
-    }
-  } catch {
-    // Nie każda przeglądarka obsługuje Permissions API dla geolokalizacji.
-  }
-}
-
-async function startupAutoFlow() {
-  if (startupAutoLoadInProgress) return;
-  startupAutoLoadInProgress = true;
-  setDefaultBrowseRadius();
-  await checkStartupPermissions();
-  await locateUser({ autoLoad: true, startup: true });
-  startupAutoLoadInProgress = false;
-}
+// startupAutoFlow przeniesiono do modules/uiPanels.js
 
 
 
@@ -7538,9 +1776,7 @@ for (const button of bottomMoreButtons) {
 }
 
 
-function isInsideFloatingUi(target) {
-  return Boolean(target?.closest?.(".control-column, .aircraft-sheet, .bottom-nav, .bottom-more-menu, .map-floating-controls, .leaflet-marker-icon, .leaflet-control, .toast, .busy-overlay"));
-}
+// isInsideFloatingUi przeniesiono do modules/uiPanels.js
 
 document.addEventListener("pointerdown", (event) => {
   if (isInsideFloatingUi(event.target)) return;
@@ -7549,68 +1785,9 @@ document.addEventListener("pointerdown", (event) => {
   map?.closePopup?.();
 });
 
-function installBottomDrag(handle, panel, closeCallback) {
-  if (!handle || !panel) return;
-  let startY = 0;
-  let lastDelta = 0;
-  let dragging = false;
+// installBottomDrag przeniesiono do modules/uiPanels.js
 
-  const resetDrag = () => {
-    dragging = false;
-    lastDelta = 0;
-    panel.classList.remove("is-dragging");
-    panel.style.removeProperty("--sheet-drag-y");
-  };
-
-  handle.addEventListener("pointerdown", (event) => {
-    if (!panel.classList.contains("is-open")) return;
-    event.preventDefault();
-    event.stopPropagation();
-    startY = event.clientY;
-    lastDelta = 0;
-    dragging = true;
-    panel.classList.add("is-dragging");
-    handle.setPointerCapture?.(event.pointerId);
-  });
-
-  handle.addEventListener("pointermove", (event) => {
-    if (!dragging) return;
-    event.preventDefault();
-    event.stopPropagation();
-    lastDelta = event.clientY - startY;
-    if (lastDelta > 0) {
-      panel.style.setProperty("--sheet-drag-y", `${Math.min(lastDelta, 360)}px`);
-    } else {
-      panel.style.setProperty("--sheet-drag-y", "0px");
-    }
-  });
-
-  const finish = (event) => {
-    if (!dragging) return;
-    event?.preventDefault?.();
-    event?.stopPropagation?.();
-    const delta = lastDelta;
-    resetDrag();
-    if (delta > 70) {
-      panel.classList.remove("is-expanded");
-      closeCallback?.();
-    } else if (delta < -45) {
-      panel.classList.add("is-expanded");
-      invalidateMapSoon();
-    } else if (Math.abs(delta) <= 8) {
-      // Krótkie dotknięcie uchwytu nie chowa i nie rozwija panelu przypadkowo.
-      invalidateMapSoon();
-    } else {
-      panel.classList.toggle("is-expanded");
-      invalidateMapSoon();
-    }
-  };
-
-  handle.addEventListener("pointerup", finish);
-  handle.addEventListener("pointercancel", finish);
-}
-
-installBottomDrag(aircraftSheetDragHandle, aircraftSheet, hideSelectedAircraftSheet);
+installBottomDrag(aircraftSheetDragHandle, aircraftSheet, hideSelectedAircraftSheet, { halfHidden: true });
 installBottomDrag(drawerDragHandle, drawer, closeDrawerPanel);
 
 document.addEventListener("keydown", (event) => {
@@ -7703,17 +1880,7 @@ if (toast) {
 
 forceUpdateButton?.addEventListener("click", forceProgramUpdate);
 
-function readShareTargetParams() {
-  const params = new URLSearchParams(window.location.search);
-  const incoming = [params.get("url"), params.get("text"), params.get("title")].filter(Boolean).join(" ");
-  const parsed = parseFlightText(incoming);
-  if (parsed) {
-    importText.value = incoming;
-    clearManualSearchInputLock();
-    fillForm(parsed, { force: true });
-    showToast("Odczytano udostępniony samolot.");
-  }
-}
+// readShareTargetParams przeniesiono do modules/uiPanels.js
 
 setBusyVisible(false);
 applyAppVersion();
@@ -7723,6 +1890,7 @@ loadAircraftFilters();
 loadPerformanceSettings();
 initMap();
 dateInput.value = todayLocalDate();
+if (historyTraceDateInput) historyTraceDateInput.value = todayLocalDate();
 dataSourceInput.value = storageGet(DATA_SOURCE_STORAGE_KEY, DEFAULT_DATA_SOURCE);
 apiKeyInput.value = storageGet(API_KEY_STORAGE_KEY, "");
 apiBaseInput.value = storageGet(API_BASE_STORAGE_KEY, selectedApiSource().apiBase);

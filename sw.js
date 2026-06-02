@@ -1,10 +1,23 @@
-const APP_VERSION_STAMP = "0106260955";
+const APP_VERSION_STAMP = "0206261935";
 const CACHE_NAME = `ads-viewer-pro-${APP_VERSION_STAMP}`;
 const ASSETS = [
   "./",
   `./index.html?v=${APP_VERSION_STAMP}`,
   `./styles.css?v=${APP_VERSION_STAMP}`,
   `./app.js?v=${APP_VERSION_STAMP}`,
+  `./modules/coreStorage.js?v=${APP_VERSION_STAMP}`,
+  `./modules/aircraftUtils.js?v=${APP_VERSION_STAMP}`,
+  `./modules/settingsFilters.js?v=${APP_VERSION_STAMP}`,
+  `./modules/apiSources.js?v=${APP_VERSION_STAMP}`,
+  `./modules/mapRoutes.js?v=${APP_VERSION_STAMP}`,
+  `./modules/uiPanels.js?v=${APP_VERSION_STAMP}`,
+  `./modules/savedWatchHistory.js?v=${APP_VERSION_STAMP}`,
+  `./modules/exportModule.js?v=${APP_VERSION_STAMP}`,
+  `./modules/alertsModule.js?v=${APP_VERSION_STAMP}`,
+  `./modules/cacheMediaRoutes.js?v=${APP_VERSION_STAMP}`,
+  `./modules/firestoreSync.js?v=${APP_VERSION_STAMP}`,
+  `./modules/historyTrace.js?v=${APP_VERSION_STAMP}`,
+  `./services/docxExportService.js?v=${APP_VERSION_STAMP}`,
   `./manifest.webmanifest?v=${APP_VERSION_STAMP}`,
   "./icon.svg",
   "./icon-192.png",

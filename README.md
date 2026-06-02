@@ -1,8 +1,8 @@
-# ADS Viewer Pro V31 - 3105261025
+# ADS Viewer Pro V63 - 0206261935
 
 # ADS Viewer Pro
 
-Wersja: **V31 - 3105261025**
+Wersja: **V63 - 0206261935**
 
 ## Opis
 
