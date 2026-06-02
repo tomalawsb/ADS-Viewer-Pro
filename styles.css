@@ -3152,3 +3152,95 @@ textarea {
     flex: 1 1 calc(50% - 8px);
   }
 }
+
+/* V66 - 0206261919: legenda historii w ustawieniach, historia z popupu i mniej zasłaniania mapy */
+.history-legend-settings {
+  margin-top: 12px;
+}
+.history-altitude-legend-settings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+.history-altitude-legend-settings strong {
+  grid-column: 1 / -1;
+  font-size: 0.84rem;
+}
+.history-altitude-legend-settings span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+[data-theme="dark"] .history-altitude-legend-settings {
+  background: rgba(15, 23, 42, 0.58);
+}
+.map-popup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-top: 4px;
+}
+.map-popup-actions button {
+  min-height: 32px;
+  border-radius: 10px;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+.popup-history-button {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: #fffbeb;
+  color: #78350f;
+}
+.aircraft-sheet-actions #aircraftSheetHistory {
+  border-color: rgba(245, 158, 11, 0.34);
+  background: #fffbeb;
+  color: #78350f;
+}
+.aircraft-sheet-actions #aircraftSheetHistory:hover {
+  background: #fef3c7;
+}
+.history-route-card {
+  scroll-margin-top: 72px;
+}
+@media (min-width: 980px) {
+  .aircraft-sheet-actions {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .history-altitude-legend-settings {
+    grid-template-columns: 1fr;
+  }
+  .history-route-grid {
+    grid-template-columns: 1fr;
+  }
+  .history-route-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .history-route-actions .compact-button {
+    width: 100%;
+  }
+  .aircraft-sheet-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+.control-column.is-history-panel {
+  max-height: min(58dvh, 560px);
+}
+@media (max-width: 760px) {
+  .control-column.is-history-panel {
+    max-height: min(46dvh, 430px);
+  }
+  .control-column.is-history-panel.is-expanded {
+    max-height: min(68dvh, 620px);
+  }
+}

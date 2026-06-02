@@ -272,6 +272,16 @@ function setHistoryTraceStatus(message) {
   if (historyTraceStatus) historyTraceStatus.textContent = message;
 }
 
+function collapseHistoryPanelAfterTraceLoaded() {
+  const historyPanel = document.getElementById("historyPanel");
+  const historyPanelOpen = Boolean(drawer?.classList.contains("is-open") && historyPanel?.classList.contains("is-active"));
+  if (!historyPanelOpen || typeof closeDrawerPanel !== "function") return;
+  window.setTimeout(() => {
+    closeDrawerPanel();
+    invalidateMapSoon?.();
+  }, 120);
+}
+
 function historyTraceDateValue() {
   return historyTraceDateInput?.value || todayLocalDate();
 }
@@ -330,6 +340,7 @@ async function loadHistoryTraceFromFreeSource(event = null) {
   if (cached.length >= 2 && !forceRefresh) {
     await yieldToUi();
     drawHistoryTraceOnMap(cached, icao, date, { fitMap: true });
+    collapseHistoryPanelAfterTraceLoaded();
     setHistoryTraceStatus(`Cache lokalny: ${icao.toUpperCase()} ${date}. Wczytano ${cachedHistoryTraceSummary(cached)} bez ponownego pobierania z internetu. Aby wymusić nowe pobranie, kliknij Pobierz trasę z Ctrl albo Shift.`);
     showToast("Wczytano trasę z cache lokalnego.", 3000);
     return;
@@ -371,6 +382,7 @@ async function loadHistoryTraceFromFreeSource(event = null) {
 
     await yieldToUi();
     drawHistoryTraceOnMap(clean, icao, date, { fitMap: true });
+    collapseHistoryPanelAfterTraceLoaded();
 
     const first = clean[0];
     const last = clean[clean.length - 1];
@@ -383,6 +395,7 @@ async function loadHistoryTraceFromFreeSource(event = null) {
     const fallback = getHistoryTraceCachedPoints(icao, date);
     if (fallback.length >= 2) {
       drawHistoryTraceOnMap(fallback, icao, date, { fitMap: true });
+      collapseHistoryPanelAfterTraceLoaded();
       setHistoryTraceStatus(`Internet/API nie zwróciło świeżych danych, ale pokazuję cache lokalny: ${cachedHistoryTraceSummary(fallback)}.`);
       showToast("Pokazuję zapisaną trasę z cache lokalnego.", 3600);
       return;

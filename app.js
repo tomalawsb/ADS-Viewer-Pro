@@ -1,5 +1,5 @@
-var APP_VERSION_NUMBER = "V65";
-var APP_VERSION_STAMP = "0206262015";
+var APP_VERSION_NUMBER = "V66";
+var APP_VERSION_STAMP = "0206261919";
 var APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 
 window.addEventListener("error", (event) => {
@@ -274,6 +274,7 @@ var aircraftSheetPosition = document.querySelector("#aircraftSheetPosition");
 var aircraftSheetSource = document.querySelector("#aircraftSheetSource");
 var aircraftSheetMorePanel = document.querySelector("#aircraftSheetMorePanel");
 var aircraftSheetAds = document.querySelector("#aircraftSheetAds");
+var aircraftSheetHistory = document.querySelector("#aircraftSheetHistory");
 var aircraftSheetWatch = document.querySelector("#aircraftSheetWatch");
 var aircraftSheetSave = document.querySelector("#aircraftSheetSave");
 var aircraftSheetExport = document.querySelector("#aircraftSheetExport");
@@ -1529,7 +1530,6 @@ function updateMapModeUi() {
   mapModeBadge?.classList.toggle("is-live", !historyMode);
   if (mapModeBadgeText) mapModeBadgeText.textContent = historyMode ? "Tryb: HISTORIA" : "Tryb: LIVE";
   if (returnLiveMapButton) returnLiveMapButton.hidden = !historyMode;
-  if (historyAltitudeLegend) historyAltitudeLegend.hidden = !historyMode;
 }
 
 function setMapMode(mode, options = {}) {
@@ -1861,6 +1861,10 @@ document.addEventListener("click", async (event) => {
 
 aircraftSheetAds?.addEventListener("click", () => {
   openAircraftInAds(selectedAircraft);
+});
+
+aircraftSheetHistory?.addEventListener("click", () => {
+  openHistoryTraceSettingsForAircraft(selectedAircraft, { fromSheet: true });
 });
 
 aircraftSheetWatch?.addEventListener("click", () => {

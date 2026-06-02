@@ -214,6 +214,19 @@ function aircraftPopupContent(aircraft) {
     createTextElement("span", "map-popup-meta", `${phase.label} • ${phase.detail}`)
   );
 
+  const popupActions = document.createElement("div");
+  popupActions.className = "map-popup-actions";
+
+  const historyButton = document.createElement("button");
+  historyButton.type = "button";
+  historyButton.className = "secondary-button popup-history-button";
+  historyButton.textContent = "Historia";
+  historyButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openHistoryTraceSettingsForAircraft(aircraft, { fromPopup: true });
+  });
+
   const saveButton = document.createElement("button");
   saveButton.type = "button";
   saveButton.className = "primary-button popup-save-button";
@@ -224,7 +237,8 @@ function aircraftPopupContent(aircraft) {
     upsertFlight(aircraftToFlight(aircraft));
     showToast("Samolot zapisany.");
   });
-  wrapper.append(saveButton);
+  popupActions.append(historyButton, saveButton);
+  wrapper.append(popupActions);
 
   return wrapper;
 }
@@ -344,7 +358,7 @@ function prepareAlertsPanelForSelectedAircraft() {
 function closeDrawerPanel() {
   clearManualSearchInputLock();
   if (!drawer) return;
-  drawer.classList.remove("is-open", "is-expanded", "is-dragging");
+  drawer.classList.remove("is-open", "is-expanded", "is-dragging", "is-history-panel");
   drawer.style.removeProperty("--sheet-drag-y");
   drawer.setAttribute("aria-hidden", "true");
   for (const panel of drawer.querySelectorAll(".drawer-panel")) panel.classList.remove("is-active");
@@ -353,14 +367,14 @@ function closeDrawerPanel() {
   invalidateMapSoon();
 }
 
-function openDrawerPanel(panelId, title = "Panel") {
+function openDrawerPanel(panelId, title = "Panel", options = {}) {
   const panel = document.getElementById(panelId);
   if (!drawer || !panel) return;
 
   if (panelId === "alertsPanel") prepareAlertsPanelForSelectedAircraft();
 
   const alreadyOpen = drawer.classList.contains("is-open") && panel.classList.contains("is-active");
-  if (alreadyOpen) {
+  if (alreadyOpen && options.forceOpen !== true) {
     closeDrawerPanel();
     return;
   }
@@ -378,10 +392,32 @@ function openDrawerPanel(panelId, title = "Panel") {
   }
   if (drawerTitle) drawerTitle.textContent = title;
   drawer.classList.remove("is-expanded", "is-dragging");
+  drawer.classList.toggle("is-history-panel", panelId === "historyPanel");
   drawer.style.removeProperty("--sheet-drag-y");
   drawer.classList.add("is-open");
   drawer.setAttribute("aria-hidden", "false");
   invalidateMapSoon();
+}
+
+function openHistoryTraceSettingsForAircraft(aircraft = selectedAircraft, options = {}) {
+  const icao = aircraftIcao(aircraft) || normalizeIcao(icaoInput?.value || "");
+  openDrawerPanel("historyPanel", "Historia przelotów", { forceOpen: true });
+
+  if (!isValidIcao(icao)) {
+    showToast("Nie mam poprawnego HEX / ICAO24 dla wybranego samolotu.", 4200);
+    window.setTimeout(() => historyTraceIcaoInput?.focus?.({ preventScroll: true }), 80);
+    return false;
+  }
+
+  selectedAircraft = aircraft || selectedAircraft;
+  if (historyTraceIcaoInput) historyTraceIcaoInput.value = icao.toUpperCase();
+  if (historyTraceDateInput && !historyTraceDateInput.value) historyTraceDateInput.value = todayLocalDate();
+  window.setTimeout(() => {
+    historyTraceIcaoInput?.focus?.({ preventScroll: true });
+    historyTraceLoadButton?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, 80);
+  showToast(`Ustawiono historię dla ${icao.toUpperCase()}. Wybierz datę i kliknij „Pobierz trasę”.`, 4200);
+  return true;
 }
 
 function applyAppVersion() {

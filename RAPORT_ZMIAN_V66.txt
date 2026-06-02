@@ -1,0 +1,27 @@
+ADS Viewer Pro V66 - 0206261919
+
+Zakres zmian:
+1. Przeniesiono legendę wysokości trasy z mapy do ustawień programu.
+   - Legenda nie jest już elementem pływającym nad mapą.
+   - W ustawieniach dodano sekcję „Legenda historii trasy”.
+
+2. Przebudowano zachowanie panelu historii.
+   - Panel historii dostał osobny tryb kompaktowy, żeby mniej zasłaniał mapę.
+   - Po pobraniu albo wczytaniu trasy historycznej z cache panel historii automatycznie się zwija.
+   - Mapa zostaje widoczna i pokazuje trasę zamiast być przykryta panelem.
+
+3. Dodano przycisk „Historia” dla wybranego samolotu.
+   - W popupie samolotu na mapie dodano przycisk „Historia”.
+   - W dolnym panelu szczegółów samolotu dodano przycisk „Historia”.
+   - Przycisk automatycznie wpisuje HEX / ICAO24 wybranego samolotu w panelu historii i ustawia bieżącą datę, jeśli data nie była ustawiona.
+
+4. Dostosowano układ mobilny.
+   - Przyciski historii na telefonie układają się czytelniej.
+   - Panel historii na telefonie ma mniejszą wysokość domyślną.
+   - Panel akcji samolotu obsługuje dodatkowy przycisk bez rozbijania układu.
+
+Sprawdzenie techniczne:
+- app.js: node --check OK
+- modules/uiPanels.js: node --check OK
+- modules/historyTrace.js: node --check OK
+- manifest.webmanifest: poprawny JSON
