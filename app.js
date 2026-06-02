@@ -1,5 +1,5 @@
-const APP_VERSION_NUMBER = "V51";
-const APP_VERSION_STAMP = "0206260728";
+const APP_VERSION_NUMBER = "V52";
+const APP_VERSION_STAMP = "0206260737";
 const APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 const APP_BUILD_STORAGE_KEY = "adsb-app-build-v1";
 const PWA_INSTALLED_STORAGE_KEY = "adsb-pwa-installed-v1";
@@ -3216,6 +3216,89 @@ function routePartsForDisplay(aircraft) {
   };
 }
 
+function clampNumber(value, min, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return min;
+  return Math.min(max, Math.max(min, number));
+}
+
+function routeProgressFraction(start, current, end) {
+  if (!validPoint(start) || !validPoint(current) || !validPoint(end)) return null;
+  const meanLat = ((start.lat + end.lat) / 2) * Math.PI / 180;
+  const cosLat = Math.cos(meanLat) || 1;
+  const startX = start.lon * cosLat;
+  const startY = start.lat;
+  const currentX = current.lon * cosLat;
+  const currentY = current.lat;
+  const endX = end.lon * cosLat;
+  const endY = end.lat;
+  const dx = endX - startX;
+  const dy = endY - startY;
+  const lengthSquared = dx * dx + dy * dy;
+
+  if (!Number.isFinite(lengthSquared) || lengthSquared <= 0) return null;
+  return clampNumber(((currentX - startX) * dx + (currentY - startY) * dy) / lengthSquared, 0, 1);
+}
+
+function formatRouteDistanceKm(distanceKm) {
+  const distance = Number(distanceKm);
+  if (!Number.isFinite(distance)) return "";
+  if (distance < 10) return `${distance.toFixed(1).replace(".", ",")} km`;
+  return `${numberText(Math.round(distance))} km`;
+}
+
+function aircraftRouteProgressInfo(aircraft) {
+  const endpoints = confirmedRouteEndpointPoints(aircraft);
+  const current = pointFromAircraft(aircraft);
+  if (!endpoints?.start || !endpoints?.end || !validPoint(current)) {
+    return { known: false, percent: 50, distanceToDestinationText: "" };
+  }
+
+  const totalDistanceKm = distanceKmBetweenPoints(endpoints.start, endpoints.end);
+  const distanceToDestinationKm = distanceKmBetweenPoints(current, endpoints.end);
+  if (!Number.isFinite(totalDistanceKm) || totalDistanceKm <= 0 || !Number.isFinite(distanceToDestinationKm)) {
+    return { known: false, percent: 50, distanceToDestinationText: "" };
+  }
+
+  const projectedFraction = routeProgressFraction(endpoints.start, current, endpoints.end);
+  const fromStartKm = distanceKmBetweenPoints(endpoints.start, current);
+  const ratioFraction = Number.isFinite(fromStartKm) ? fromStartKm / (fromStartKm + distanceToDestinationKm) : null;
+  const fraction = Number.isFinite(projectedFraction) ? projectedFraction : ratioFraction;
+  const percent = clampNumber((Number.isFinite(fraction) ? fraction : 0.5) * 100, 4, 96);
+  const distanceToDestinationText = formatRouteDistanceKm(distanceToDestinationKm);
+
+  return {
+    known: true,
+    percent,
+    distanceToDestinationText,
+    destinationLabel: endpoints.end.label || routePartsForDisplay(aircraft).to
+  };
+}
+
+function updateAircraftSheetRouteProgress(aircraft) {
+  if (!aircraftSheetPhaseIcon) return;
+  const routeLine = aircraftSheetPhaseIcon.closest(".route-line");
+  const progress = aircraftRouteProgressInfo(aircraft);
+
+  if (!routeLine || !progress.known) {
+    routeLine?.classList.remove("progress-known");
+    routeLine?.style.setProperty("--route-progress", "50%");
+    aircraftSheetPhaseIcon.removeAttribute("data-distance");
+    aircraftSheetPhaseIcon.title = "Brak danych o odległości do celu";
+    if (aircraftSheetRouteToMeta) aircraftSheetRouteToMeta.textContent = "cel";
+    return;
+  }
+
+  routeLine.classList.add("progress-known");
+  routeLine.style.setProperty("--route-progress", `${progress.percent}%`);
+  aircraftSheetPhaseIcon.dataset.distance = progress.distanceToDestinationText;
+  aircraftSheetPhaseIcon.title = `Do celu: ${progress.distanceToDestinationText}`;
+
+  if (aircraftSheetRouteToMeta) {
+    aircraftSheetRouteToMeta.textContent = progress.distanceToDestinationText ? `cel · ${progress.distanceToDestinationText}` : "cel";
+  }
+}
+
 
 
 function firstTimeValue(...values) {
@@ -3329,6 +3412,7 @@ function showSelectedAircraftSheet(aircraft) {
   if (aircraftSheetSpeed) aircraftSheetSpeed.textContent = formatSpeed(aircraft?.gs);
   if (aircraftSheetRegistration) aircraftSheetRegistration.textContent = registration;
   if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(aircraft);
+  updateAircraftSheetRouteProgress(aircraft);
   if (aircraftSheetPhaseText) aircraftSheetPhaseText.textContent = aircraftFlightPhase(aircraft).detail;
   updateAircraftSheetLiveDetails(aircraft);
   if (aircraftSheetPhoto) setAircraftPhoto(aircraftSheetPhoto, aircraft, { realPhoto: true });
@@ -5300,6 +5384,7 @@ function updateSelectedAircraftAfterRefresh(aircraft) {
       aircraftSheetPhaseText.textContent = `${phase.label} • ${phase.detail}`;
     }
     if (aircraftSheetPhaseIcon) aircraftSheetPhaseIcon.innerHTML = aircraftPhaseMarkup(updated);
+    updateAircraftSheetRouteProgress(updated);
     updateAircraftSheetLiveDetails(updated);
     if (aircraftSheetMorePanel && !aircraftSheetMorePanel.hidden) {
       renderAircraftDetailsPanel(updated);
