@@ -1,7 +1,0 @@
-ADS Viewer Pro V65 - 0206262015
-
-Naprawa krytyczna startu aplikacji po refaktoryzacji modułów.
-- Zmieniono globalne deklaracje w app.js tak, aby moduły miały dostęp do wspólnych zmiennych aplikacji.
-- Naprawiono problem pustej mapy i braku reakcji opcji po uruchomieniu.
-- Zachowano miniatury w Zapisane i Obserwowane.
-- Zaktualizowano wersjonowanie PWA.
