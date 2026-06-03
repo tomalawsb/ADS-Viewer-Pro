@@ -1,0 +1,17 @@
+ADS Viewer Pro V71 - 0306261318
+
+Zmiany wykonane:
+1. Dodano domyślną konfigurację Firebase/Firestore z danych widocznych na załączonym zrzucie.
+2. Pierwsze uruchomienie pokazuje uproszczone okno konfiguracji: użytkownik widzi tylko pole hasła synchronizacji.
+3. Hasło synchronizacji jest domyślnie uzupełnione wartością podaną przez użytkownika.
+4. Pełna konfiguracja Firebase nadal jest dostępna później w ustawieniach synchronizacji.
+5. Zmieniono numer wersji aplikacji na V71 - 0306261318.
+
+Pliki zmienione:
+- app.js
+- index.html
+- styles.css
+- modules/firestoreSync.js
+
+Uwaga techniczna:
+Dane Firebase w aplikacji webowej nie są właściwym hasłem do konta, ale hasło/kod synchronizacji działa jako prywatny identyfikator wspólnej synchronizacji.

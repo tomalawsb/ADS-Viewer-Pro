@@ -1,0 +1,22 @@
+ADS Viewer Pro V56 - 0206261610
+
+Zakres: historia lotów, etapy 5 i 6.
+
+Zrobione:
+1. Etap 5 - kolorowanie trasy według wysokości:
+   - trasa historyczna nie jest już jedną linią w jednym kolorze;
+   - każdy odcinek trasy dostaje kolor na podstawie wysokości;
+   - brak wysokości jest oznaczany neutralnym kolorem;
+   - opis na mapie informuje, że kolor linii pokazuje wysokość.
+
+2. Etap 6 - odtwarzanie lotu:
+   - dodany panel „Odtwarzanie lotu”;
+   - dodany suwak czasu;
+   - dodane przyciski Play, Pauza i Od początku;
+   - znacznik samolotu przesuwa się po punktach historycznej trasy;
+   - status pokazuje numer punktu, czas, wysokość i prędkość.
+
+Uwagi:
+- Funkcja działa na danych pobranych w etapach 1-4.
+- Jeżeli źródła historyczne zwrócą mało punktów albo brak wysokości, odtwarzanie pokaże tylko dostępne dane.
+- Nie usuwano przycisku ADS ani istniejących funkcji programu.

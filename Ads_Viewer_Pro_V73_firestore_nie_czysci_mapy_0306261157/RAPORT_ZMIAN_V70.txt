@@ -1,0 +1,7 @@
+ADS Viewer Pro V70 - 0206262022
+
+Zmiany:
+1. Na telefonie badge „Tryb: LIVE / HISTORIA” przeniesiono z prawej strony na lewą.
+2. Badge nie zasłania już przycisku centruj po prawej stronie mapy.
+3. Zachowano mniejszy rozmiar badge na telefonie.
+4. Zmieniono wersję aplikacji i cache stamp.

@@ -1,0 +1,34 @@
+ADS Viewer Pro V62 - 0206261915
+
+Zakres wykonany:
+1. Punkt 5 z audytu wykonany w pełni:
+   - ujednolicono wersję aplikacji do V62 - 0206261915,
+   - zaktualizowano index.html,
+   - zaktualizowano app.js,
+   - zaktualizowano sw.js,
+   - zaktualizowano manifest.webmanifest,
+   - zaktualizowano README.md,
+   - dodano ten raport zmian.
+
+2. Punkt 6 z audytu wykonany w pełni:
+   - dodano eksport pobranej historycznej trasy dla wskazanego HEX/ICAO24 i daty,
+   - eksport zawiera CSV, JSON, HTML oraz opis TXT,
+   - jeżeli przeglądarka obsługuje File System Access API, program zapisuje pliki bezpośrednio do wybranego folderu,
+   - jeżeli zapis do folderu nie jest dostępny, program pobiera ZIP jako awaryjny format z tymi samymi plikami,
+   - eksport działa z osobnego cache historii adsb-history-traces-v1.
+
+3. Dodatkowe wymaganie użytkownika:
+   - rozszerzono wyszukiwanie w głównym oknie wyszukiwania,
+   - program sprawdza teraz nie tylko HEX i callsign, ale też rejestrację oraz numer boczny/ogonowy/serial,
+   - poprawiono dopasowanie lokalne: SP-ABC i SPABC mogą wskazywać ten sam samolot,
+   - dla zapytań nielokalnych program próbuje także endpointów /reg/ i /registration/ w darmowych źródłach.
+
+Sprawdzenie techniczne:
+- app.js: OK
+- modules/*.js: OK
+- services/docxExportService.js: OK
+- sw.js: OK
+
+Uwagi:
+- Wyszukiwanie po numerze bocznym zależy od tego, czy dane źródło publiczne udostępnia taki numer lub czy samolot był już widziany/zapisany lokalnie.
+- Brak wyniku po rejestracji albo numerze bocznym nie musi oznaczać błędu programu; darmowe źródła często nie mają pełnej bazy identyfikatorów bocznych.

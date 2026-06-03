@@ -1,0 +1,7 @@
+ADS Viewer Pro V69 - 0206262010
+
+Zmiany:
+1. Na telefonie przeniesiono badge „Tryb: LIVE / HISTORIA” z centrum na prawą stronę pod nagłówkiem.
+2. Badge nie zasłania już szarego uchwytu panelu samolotu.
+3. Zmniejszono rozmiar badge i przycisku „Wróć do live” na telefonie.
+4. Zmieniono wersję aplikacji i cache stamp.

@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="pl" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#eaf3ef">
+    <meta name="app-version" content="V73 - 0306261157">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>ADS Viewer Pro V73 - 0306261157</title>
+    <link rel="manifest" href="manifest.webmanifest?v=0306261157">
+    <link rel="icon" href="icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="styles.css?v=0306261157">
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="topbar" aria-label="Nagłówek aplikacji">
+        <div class="brand-block">
+          <p class="eyebrow">ADS-B Live Radar</p>
+          <h1>ADS Viewer Pro</h1>
+          <div class="version-row">
+            <p class="version-badge" id="appVersionBadge">V73 - 0306261157</p>
+            <p class="status-chip" id="statusChip">Gotowy</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="install-prompt" id="installPrompt" aria-label="Instalacja aplikacji" hidden>
+        <div>
+          <strong>Zainstalować ADS Viewer Pro?</strong>
+          <p>Możesz zainstalować aplikację na telefonie albo dalej korzystać w przeglądarce.</p>
+        </div>
+        <div class="install-prompt-actions">
+          <button class="primary-button compact-button" id="installPromptInstallButton" type="button">Zainstaluj</button>
+          <button class="secondary-button compact-button" id="installPromptBrowserButton" type="button">Korzystaj w przeglądarce</button>
+        </div>
+      </section>
+
+      <div class="dashboard">
+        <section class="panel map-panel" aria-labelledby="mapTitle">
+          <div class="panel-head map-tools-card">
+            <div>
+              <h2 id="mapTitle">Mapa lotów</h2>
+              <p class="panel-subtitle">Samoloty, ślad z tej sesji i kierunek lotu.</p>
+            </div>
+            <div class="small-actions">
+              <button class="ghost-button" id="fitMapButton" type="button">Centruj</button>
+              <button class="ghost-button" id="clearRouteButton" type="button">Wyczyść</button>
+            </div>
+          </div>
+          <div id="flightMap" class="flight-map" aria-label="Mapa z samolotami"></div>
+          <div id="mapModeBadge" class="map-mode-badge is-live" aria-live="polite">
+            <span id="mapModeBadgeText">Tryb: LIVE</span>
+            <button class="ghost-button compact-button" id="returnLiveMapButton" type="button" hidden>Wróć do live</button>
+          </div>
+          <div class="map-floating-controls" aria-label="Narzędzia mapy">
+            <button class="map-location-button" id="mapLocateButton" type="button" aria-label="Lokalizuj mnie na mapie" title="Lokalizuj mnie na mapie">⌖</button>
+          </div>
+          <div id="routeSummary" class="status-line map-status-card">Wczytaj samoloty albo wpisz ICAO i kliknij „Pokaż na mapie”.</div>
+        </section>
+
+        <aside class="control-column" id="drawer" aria-label="Panel narzędzi" aria-hidden="true">
+          <div class="drawer-header">
+            <div class="drawer-drag-handle" id="drawerDragHandle" aria-hidden="true"></div>
+            <strong id="drawerTitle">Panel</strong>
+            <button class="drawer-close" id="drawerCloseButton" type="button" aria-label="Zamknij panel" title="Zamknij panel">×</button>
+          </div>
+
+          <section class="panel browse-panel drawer-panel" id="browsePanel" aria-labelledby="browseTitle">
+            <div class="panel-head">
+              <div>
+                <h2 id="browseTitle">Radar</h2>
+                <p class="panel-subtitle">Najważniejsze akcje są na górze. Ustawienia API są schowane niżej.</p>
+              </div>
+            </div>
+
+            <div class="actions radar-main-actions">
+              <button class="primary-button" id="loadAircraftButton" type="button">Pokaż samoloty</button>
+              <button class="secondary-button" id="refreshAircraftButton" type="button">Odśwież</button>
+              <button class="secondary-button" id="locateButton" type="button">Lokalizuj</button>
+            </div>
+
+            <div class="grid-three radar-position-grid">
+              <label>
+                Szerokość
+                <input id="browseLatInput" inputmode="decimal" placeholder="50.496">
+              </label>
+              <label>
+                Długość
+                <input id="browseLonInput" inputmode="decimal" placeholder="20.749">
+              </label>
+              <label>
+                Promień NM
+                <input id="browseDistInput" type="number" min="1" max="250" step="1" value="60">
+              </label>
+            </div>
+
+
+
+            <details class="filter-details" open>
+              <summary>Filtry samolotów</summary>
+              <div class="filter-grid">
+                <label>
+                  Typ
+                  <select id="aircraftFilterKind">
+                    <option value="all">Wszystkie</option>
+                    <option value="jet">Pasażerskie / odrzutowe</option>
+                    <option value="helicopter">Śmigłowce</option>
+                    <option value="prop">Śmigłowe / małe</option>
+                    <option value="glider">Szybowce</option>
+                    <option value="special">Specjalne / wojskowe</option>
+                  </select>
+                </label>
+                <label>
+                  Min. wysokość ft
+                  <input id="aircraftFilterMinAlt" type="number" min="0" step="500" placeholder="np. 1000">
+                </label>
+                <label>
+                  Max. wysokość ft
+                  <input id="aircraftFilterMaxAlt" type="number" min="0" step="500" placeholder="np. 20000">
+                </label>
+                <label class="checkbox-filter-row">
+                  <input id="aircraftFilterCallsign" type="checkbox">
+                  <span>Tylko z callsign</span>
+                </label>
+              </div>
+              <div class="filter-actions">
+                <button class="ghost-button" id="resetAircraftFiltersButton" type="button">Reset filtrów</button>
+              </div>
+            </details>
+
+            <div id="aircraftStatus" class="status-line">Wpisz lokalizację albo użyj lokalizacji telefonu, potem pobierz samoloty.</div>
+            <ol id="aircraftList" class="aircraft-list"></ol>
+
+            <details class="api-details advanced-api-details">
+              <summary>Zaawansowane: źródło danych i API</summary>
+              <div class="api-row advanced-api-grid">
+                <label>
+                  Źródło danych
+                  <select id="dataSourceInput" name="dataSource">
+                    <option value="adsbLol">adsb.lol - darmowe</option>
+                    <option value="adsbFi">adsb.fi - darmowe</option>
+                    <option value="adsbOne">adsb.one - darmowe</option>
+                    <option value="airplanesLive">airplanes.live - darmowe</option>
+                    <option value="adsbExchange">ADS-B Exchange - płatny klucz</option>
+                    <option value="custom">Własny adres API</option>
+                  </select>
+                </label>
+                <label>
+                  Klucz API
+                  <input id="apiKeyInput" name="apiKey" type="password" autocomplete="off" placeholder="Tylko gdy źródło go wymaga">
+                </label>
+                <button class="secondary-button" id="saveApiKeyButton" type="button">Zapisz ustawienia</button>
+              </div>
+              <label class="api-base-row">
+                Adres API
+                <input id="apiBaseInput" name="apiBase" inputmode="url" value="https://api.adsb.lol/v2">
+              </label>
+            </details>
+          </section>
+
+          <section class="panel quick-save drawer-panel" id="savePanel" aria-labelledby="saveTitle">
+            <div class="panel-head">
+              <div>
+                <h2 id="saveTitle">Szukaj / zapisz samolot</h2>
+                <p class="panel-subtitle">Jedno pole: wpisz hex, callsign, rejestrację albo nazwę z listy.</p>
+              </div>
+              <button class="ghost-button" id="pasteButton" type="button">Wklej</button>
+            </div>
+
+            <form id="flightForm" autocomplete="off">
+              <label class="search-field-label">
+                Kod ICAO / hex / nazwa / callsign
+                <span class="search-field-row">
+                  <input id="icaoInput" name="icao" inputmode="latin" placeholder="np. 50801b, RYR123, SP-ABC, numer boczny" required>
+                  <button class="search-icon-button" id="searchAircraftButton" type="submit" aria-label="Szukaj samolotu" title="Szukaj samolotu">⌕</button>
+                </span>
+              </label>
+              <input id="nameInput" name="name" type="hidden">
+
+              <div class="grid-two">
+                <label>
+                  Data w linku ADS-B
+                  <input id="dateInput" name="date" type="date" required>
+                </label>
+                <label>
+                  Zoom
+                  <input id="zoomInput" name="zoom" type="number" min="1" max="20" step="0.1" value="9.2">
+                </label>
+              </div>
+
+              <details>
+                <summary>Pozycja mapy</summary>
+                <div class="grid-two details-grid">
+                  <label>
+                    Szerokość
+                    <input id="latInput" name="lat" inputmode="decimal" placeholder="50.496">
+                  </label>
+                  <label>
+                    Długość
+                    <input id="lonInput" name="lon" inputmode="decimal" placeholder="20.749">
+                  </label>
+                </div>
+              </details>
+
+              <div class="actions">
+                <button class="primary-button" id="saveFlightButton" type="button">Zapisz</button>
+                <button class="secondary-button" id="openPreviewButton" type="button">Otwórz ADS</button>
+                <button class="secondary-button" id="drawRouteButton" type="button">Pokaż na mapie</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel import-panel drawer-panel" id="importPanel" aria-labelledby="importTitle">
+            <div class="panel-head">
+              <h2 id="importTitle">Z linku lub tekstu</h2>
+              <button class="ghost-button" id="clearImportButton" type="button">Wyczyść</button>
+            </div>
+            <textarea id="importText" rows="3" placeholder="Wklej link ADS-B albo tekst z kodem ICAO, np. 50801b"></textarea>
+            <button class="secondary-button full-width" id="readImportButton" type="button">Odczytaj dane</button>
+          </section>
+
+          <section class="saved-section drawer-panel" id="savedPanel" aria-labelledby="savedTitle">
+            <div class="section-head">
+              <div>
+                <h2 id="savedTitle">Zapisane samoloty</h2>
+                <p class="panel-subtitle">Kompaktowa lista zapisanych samolotów.</p>
+              </div>
+              <div class="small-actions">
+                <button class="ghost-button" id="exportButton" type="button">Eksport</button>
+                <button class="ghost-button danger" id="clearAllButton" type="button">Usuń</button>
+              </div>
+            </div>
+            <label class="saved-search-row">
+              Szukaj w zapisanych
+              <input id="savedSearchInput" type="search" placeholder="Nazwa, hex, callsign, rejestracja, data...">
+            </label>
+            <div id="emptyState" class="empty-state">
+              <strong>Brak zapisanych lotów.</strong>
+              <span>Wybierz samolot z listy albo wpisz kod ICAO i zapisz go ręcznie.</span>
+            </div>
+            <ol id="flightList" class="flight-list"></ol>
+          </section>
+
+          <section class="saved-section drawer-panel" id="watchPanel" aria-labelledby="watchTitle">
+            <div class="section-head">
+              <div>
+                <h2 id="watchTitle">Obserwowane samoloty</h2>
+                <p class="panel-subtitle">Lista samolotów, które chcesz mieć pod ręką i pod alertami.</p>
+              </div>
+              <div class="small-actions">
+                <button class="ghost-button" id="addCurrentWatchButton" type="button">Dodaj z pola</button>
+                <button class="ghost-button danger" id="clearWatchButton" type="button">Wyczyść</button>
+              </div>
+            </div>
+            <div id="watchEmptyState" class="empty-state">
+              <strong>Brak obserwowanych samolotów.</strong>
+              <span>Wybierz samolot na mapie i kliknij „Obserwuj”.</span>
+            </div>
+            <ol id="watchList" class="flight-list watch-list"></ol>
+          </section>
+
+
+          <section class="saved-section drawer-panel" id="historyPanel" aria-labelledby="historyTitle">
+            <div class="section-head">
+              <div>
+                <h2 id="historyTitle">Historia przelotów</h2>
+                <p class="panel-subtitle">Lokalny zapis samolotów widzianych na mapie. Dane zostają w przeglądarce.</p>
+              </div>
+              <div class="small-actions">
+                <button class="ghost-button" id="exportHistoryButton" type="button">Eksport</button>
+                <button class="ghost-button danger" id="clearHistoryButton" type="button">Wyczyść</button>
+              </div>
+            </div>
+            <div class="history-route-card" aria-label="Pobieranie historycznej trasy samolotu">
+              <div class="history-route-grid">
+                <label>
+                  HEX / ICAO24 samolotu
+                  <input id="historyTraceIcaoInput" inputmode="latin" placeholder="np. 4ca9c1">
+                </label>
+                <label>
+                  Data lotu
+                  <input id="historyTraceDateInput" type="date">
+                </label>
+              </div>
+              <div class="history-route-actions">
+                <button class="secondary-button compact-button" id="historyPrevDayButton" type="button">Poprzedni dzień</button>
+                <button class="secondary-button compact-button" id="historyTodayButton" type="button">Dzisiaj</button>
+                <button class="secondary-button compact-button" id="historyNextDayButton" type="button">Następny dzień</button>
+                <button class="primary-button compact-button" id="historyTraceLoadButton" type="button">Pobierz trasę</button>
+                <button class="secondary-button compact-button" id="historyTraceExportButton" type="button">Eksport trasy</button>
+              </div>
+              <div id="historyTraceStatus" class="status-line">Źródło główne: ADSB.lol. Awaryjnie: ADSB.fi, ADSB.one, airplanes.live. Po pobraniu trasa i punkty pojawią się na mapie.</div>
+              <div id="historyTracePlayerPanel" class="history-player-card" hidden>
+                <div class="history-player-head">
+                  <strong>Odtwarzanie lotu</strong>
+                  <span id="historyTracePlayerStatus">Brak wczytanej trasy.</span>
+                </div>
+                <input id="historyTracePlayerSlider" class="history-player-slider" type="range" min="0" max="0" value="0" step="1">
+                <div class="history-player-actions">
+                  <button class="secondary-button compact-button" id="historyTracePlayButton" type="button">Play</button>
+                  <button class="secondary-button compact-button" id="historyTracePauseButton" type="button">Pauza</button>
+                  <button class="secondary-button compact-button" id="historyTraceResetButton" type="button">Od początku</button>
+                </div>
+              </div>
+            </div>
+
+            <label class="saved-search-row">
+              Szukaj w lokalnej historii
+              <input id="historySearchInput" type="search" placeholder="Godzina, hex, callsign, rejestracja, typ, powód...">
+            </label>
+            <div id="historyEmptyState" class="empty-state">
+              <strong>Brak historii przelotów.</strong>
+              <span>Historia zacznie się uzupełniać po pobraniu samolotów z radaru.</span>
+            </div>
+            <ol id="historyList" class="flight-list history-list"></ol>
+          </section>
+
+          <section class="panel alerts-panel drawer-panel" id="alertsPanel" aria-labelledby="alertsTitle">
+            <div class="panel-head">
+              <div>
+                <h2 id="alertsTitle">Alerty</h2>
+                <p class="panel-subtitle">Powiadomienia tylko dla samolotów dodanych do listy obserwowanych. Dodatkowe pola mogą zawężać alert, ale nie uruchomią alarmu dla przypadkowego samolotu.</p>
+              </div>
+            </div>
+
+            <label class="checkbox-filter-row alert-enable-row">
+              <input id="alertsEnabledInput" type="checkbox">
+              <span>Alerty włączone</span>
+            </label>
+
+            <div class="alert-grid">
+              <label>
+                Dodatkowy filtr w obserwowanych
+                <input id="alertQueryInput" placeholder="opcjonalnie: hex, callsign, rejestracja">
+              </label>
+              <label>
+                Blisko mnie / środka mapy do km
+                <input id="alertDistanceKmInput" type="number" min="1" max="500" step="1" placeholder="np. 20">
+              </label>
+              <label>
+                Nisko poniżej ft
+                <input id="alertMaxAltitudeInput" type="number" min="0" max="60000" step="100" placeholder="np. 1500">
+              </label>
+              <label class="checkbox-filter-row">
+                <input id="alertWatchedInput" type="checkbox" checked disabled>
+                <span>Alarmuj tylko dla listy obserwowanych</span>
+              </label>
+              <label class="checkbox-filter-row">
+                <input id="alertSpecialInput" type="checkbox">
+                <span>Tylko wojskowe / specjalne z obserwowanych</span>
+              </label>
+              <label class="checkbox-filter-row">
+                <input id="alertSystemInput" type="checkbox">
+                <span>Powiadomienia systemowe</span>
+              </label>
+            </div>
+
+            <div class="actions alert-actions">
+              <button class="primary-button" id="saveAlertSettingsButton" type="button">Zapisz alerty</button>
+              <button class="secondary-button" id="requestNotificationsButton" type="button">Włącz powiadomienia</button>
+              <button class="secondary-button" id="testAlertsButton" type="button">Testuj teraz</button>
+              <button class="ghost-button danger" id="clearAlertLogButton" type="button">Wyczyść log</button>
+            </div>
+
+            <div id="alertStatus" class="status-line">Alerty są sprawdzane po każdym odświeżeniu mapy, tylko dla listy obserwowanych i tylko raz dla danego samolotu. Na telefonie wymagają zgody przeglądarki.</div>
+            <ol id="alertLogList" class="alert-log-list"></ol>
+          </section>
+
+          <section class="status-panel drawer-panel" id="statusPanel" aria-label="Status programu">
+            <div class="status-main">
+              <span class="status-label">Ostatni komunikat</span>
+              <strong id="lastStatusText">Gotowy. Przy starcie program sam poprosi o lokalizację i pobierze samoloty.</strong>
+              <span id="lastStatusTime">Oczekuję na działanie użytkownika.</span>
+            </div>
+            <button class="secondary-button status-copy-button" id="copyStatusButton" type="button">Kopiuj status</button>
+          </section>
+
+          <section class="panel settings-panel drawer-panel" id="settingsPanel" aria-labelledby="settingsTitle">
+            <div class="panel-head">
+              <div>
+                <h2 id="settingsTitle">Ustawienia programu</h2>
+                <p class="panel-subtitle">Motyw, instalacja PWA i odświeżenie programu.</p>
+              </div>
+            </div>
+            <div class="settings-grid">
+              <label class="theme-control">
+                Motyw
+                <select id="themeInput" name="theme">
+                  <option value="light">Jasny</option>
+                  <option value="dark">Ciemny</option>
+                </select>
+              </label>
+              <button class="ghost-button update-button" id="forceUpdateButton" type="button" title="Wyczyść cache programu i pobierz najnowszą wersję">Odśwież program</button>
+              <button class="secondary-button compact-button" id="installButton" type="button" hidden title="Zainstaluj aplikację">Zainstaluj</button>
+              <span class="settings-version">Wersja: <strong id="settingsVersionBadge">V73 - 0306261157</strong></span>
+            </div>
+            <p class="settings-note">„Odśwież program” czyści cache aplikacji i pobiera najnowsze pliki z GitHub Pages. Zapisane samoloty zostają.</p>
+
+            <details class="performance-details history-legend-settings">
+              <summary>Legenda historii trasy</summary>
+              <div id="historyAltitudeLegend" class="history-altitude-legend-settings" aria-label="Legenda wysokości trasy historycznej">
+                <strong>Kolory wysokości trasy</strong>
+                <span><i class="alt-dot alt-low"></i>0–2 000 ft</span>
+                <span><i class="alt-dot alt-climb"></i>2 000–10 000 ft</span>
+                <span><i class="alt-dot alt-mid"></i>10 000–20 000 ft</span>
+                <span><i class="alt-dot alt-high"></i>20 000–30 000 ft</span>
+                <span><i class="alt-dot alt-cruise"></i>30 000+ ft</span>
+                <span><i class="alt-dot alt-none"></i>brak wysokości</span>
+              </div>
+              <p class="settings-note">Legenda jest tutaj, żeby nie zasłaniała mapy, szczególnie na telefonie.</p>
+            </details>
+
+            <div class="sync-settings-card">
+              <div>
+                <strong>Synchronizacja Firestore</strong>
+                <p id="firestoreSyncStatus" class="sync-status">Synchronizacja Firestore nie jest skonfigurowana.</p>
+              </div>
+              <div class="sync-settings-actions">
+                <button class="secondary-button compact-button" id="firestoreSettingsButton" type="button">Konfiguruj</button>
+                <button class="secondary-button compact-button" id="firestoreSyncNowButton" type="button">Synchronizuj teraz</button>
+                <button class="ghost-button danger compact-button" id="firestoreDisableButton" type="button">Wyłącz</button>
+              </div>
+            </div>
+
+            <details class="performance-details" open>
+              <summary>Tryb wydajności</summary>
+              <div class="performance-grid">
+                <label>
+                  Profil
+                  <select id="performanceModeInput">
+                    <option value="responsive">Responsywny</option>
+                    <option value="balanced">Zrównoważony</option>
+                    <option value="economy">Oszczędny</option>
+                  </select>
+                </label>
+                <label>
+                  Odświeżanie co sek.
+                  <input id="performanceRefreshInput" type="number" min="3" max="30" step="1" value="8">
+                </label>
+                <label>
+                  Limit markerów mapy
+                  <input id="performanceMapLimitInput" type="number" min="40" max="500" step="10" value="220">
+                </label>
+                <label>
+                  Limit listy
+                  <input id="performanceListLimitInput" type="number" min="30" max="250" step="10" value="120">
+                </label>
+                <label>
+                  Usuń stare po sek.
+                  <input id="performanceRemoveAfterInput" type="number" min="60" max="600" step="10" value="180">
+                </label>
+                <label class="checkbox-filter-row">
+                  <input id="performanceTrailsInput" type="checkbox" checked>
+                  <span>Rysuj ślady lotu</span>
+                </label>
+                <label class="checkbox-filter-row">
+                  <input id="performanceFreshnessLabelsInput" type="checkbox" checked>
+                  <span>Etykiety świeżości na mapie</span>
+                </label>
+                <label class="checkbox-filter-row">
+                  <input id="performanceRealPhotosInput" type="checkbox" checked>
+                  <span>Pobieraj zdjęcia samolotów</span>
+                </label>
+                <label class="checkbox-filter-row">
+                  <input id="performanceAutoHideStaleInput" type="checkbox" checked>
+                  <span>Automatycznie ukrywaj stare samoloty</span>
+                </label>
+              </div>
+              <div class="filter-actions">
+                <button class="ghost-button" id="resetPerformanceButton" type="button">Domyślne</button>
+              </div>
+              <p class="settings-note">Stare samoloty są najpierw przygaszane, a po ustawionym czasie znikają z mapy i listy. Profil responsywny ogranicza liczbę markerów oraz wyłącza pobieranie zdjęć.</p>
+            </details>
+
+          </section>
+        </aside>
+      </div>
+
+      <section id="aircraftSheet" class="aircraft-sheet" aria-label="Wybrany samolot" hidden>
+        <div class="aircraft-sheet-drag-handle" id="aircraftSheetDragHandle" aria-hidden="true"></div>
+
+        <div class="aircraft-sheet-top">
+          <div class="aircraft-sheet-photo-wrap">
+            <img id="aircraftSheetPhoto" class="aircraft-sheet-photo" alt="Zdjęcie samolotu" loading="lazy">
+          </div>
+
+          <div class="aircraft-sheet-title-wrap">
+            <strong id="aircraftSheetCallsign">SAMOLOT</strong>
+            <span id="aircraftSheetType" class="aircraft-sheet-subtitle">brak danych</span>
+          </div>
+
+          <span id="aircraftSheetFreshness" class="freshness-badge freshness-unknown">brak czasu</span>
+        </div>
+
+        <div class="aircraft-sheet-route-row">
+          <div class="route-end">
+            <strong id="aircraftSheetRouteFrom">N/A</strong>
+            <span id="aircraftSheetRouteFromMeta">start</span>
+          </div>
+
+          <div class="route-line">
+            <div id="aircraftSheetPhaseIcon" class="sheet-phase-icon"></div>
+          </div>
+
+          <div class="route-end">
+            <strong id="aircraftSheetRouteTo">N/A</strong>
+            <span id="aircraftSheetRouteToMeta">cel</span>
+          </div>
+        </div>
+
+        <div class="aircraft-sheet-stats-grid">
+          <div>
+            <span>wysokość</span>
+            <strong id="aircraftSheetAltitude">brak danych</strong>
+          </div>
+          <div>
+            <span>prędkość</span>
+            <strong id="aircraftSheetSpeed">brak danych</strong>
+          </div>
+          <div>
+            <span>kurs</span>
+            <strong id="aircraftSheetHeading">brak danych</strong>
+          </div>
+          <div class="metric-climb">
+            <span>wznoszenie</span>
+            <strong id="aircraftSheetVerticalRate">brak danych</strong>
+          </div>
+        </div>
+
+        <div class="aircraft-sheet-meta-grid" aria-label="Szczegóły live samolotu">
+          <div>
+            <span>Hex</span>
+            <strong id="aircraftSheetHex">brak danych</strong>
+          </div>
+          <div>
+            <span>Pozycja</span>
+            <strong id="aircraftSheetPosition">brak danych</strong>
+          </div>
+          <div>
+            <span>Operator</span>
+            <strong id="aircraftSheetOperator">brak danych</strong>
+          </div>
+          <div>
+            <span>Źródło</span>
+            <strong id="aircraftSheetSource">brak danych</strong>
+          </div>
+        </div>
+
+        <div class="aircraft-sheet-actions">
+          <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
+          <button type="button" id="aircraftSheetAds"><span class="action-ico">◎</span><span>ADS-B</span></button>
+          <button type="button" id="aircraftSheetHistory"><span class="action-ico">◷</span><span>Historia</span></button>
+          <button type="button" id="aircraftSheetWatch"><span class="action-ico">◉</span><span>Obserwuj</span></button>
+          <button type="button" id="aircraftSheetSave"><span class="action-ico">★</span><span>Zapisz</span></button>
+          <button type="button" id="aircraftSheetExport" class="aircraft-sheet-export"><span class="action-ico">⇩</span><span>Eksportuj</span></button>
+        </div>
+
+        <div class="aircraft-sheet-footer">
+          <span id="aircraftSheetLastSignal">Ostatni sygnał: brak danych</span>
+          <span class="aircraft-sheet-footer-sep">·</span>
+          <span id="aircraftSheetRouteCaption">brak danych</span>
+        </div>
+
+        <div id="aircraftSheetMorePanel" class="aircraft-sheet-more" hidden></div>
+      </section>
+
+      <div class="bottom-more-menu" id="bottomMoreMenu" aria-label="Więcej opcji" hidden>
+        <button type="button" data-panel="alertsPanel" data-title="Alerty">
+          <span class="nav-icon">⚑</span>
+          <span>Alerty</span>
+        </button>
+        <button type="button" data-panel="historyPanel" data-title="Historia przelotów">
+          <span class="nav-icon">◷</span>
+          <span>Historia</span>
+        </button>
+        <button type="button" data-panel="statusPanel" data-title="Status programu">
+          <span class="nav-icon">!</span>
+          <span>Status</span>
+        </button>
+        <button type="button" data-panel="settingsPanel" data-title="Ustawienia programu">
+          <span class="nav-icon">⚙</span>
+          <span>Ustawienia</span>
+        </button>
+        <button type="button" data-panel="importPanel" data-title="Z linku lub tekstu">
+          <span class="nav-icon">↗</span>
+          <span>Z linku</span>
+        </button>
+      </div>
+
+      <nav class="bottom-nav" aria-label="Główne menu">
+        <button type="button" data-panel="browsePanel" data-title="Radar i pobieranie">
+          <span class="nav-icon">✈</span>
+          <span>Radar</span>
+        </button>
+        <button type="button" data-panel="savePanel" data-title="Szukaj / zapisz">
+          <span class="nav-icon">⌕</span>
+          <span>Szukaj</span>
+        </button>
+        <button type="button" data-panel="savedPanel" data-title="Zapisane samoloty">
+          <span class="nav-icon">★</span>
+          <span>Zapisane</span>
+        </button>
+        <button type="button" data-panel="watchPanel" data-title="Obserwowane samoloty">
+          <span class="nav-icon">◎</span>
+          <span>Obserwowane</span>
+        </button>
+        <button type="button" data-more-toggle="true" aria-controls="bottomMoreMenu" aria-expanded="false">
+          <span class="nav-icon">☰</span>
+          <span>Więcej</span>
+        </button>
+      </nav>
+    </main>
+
+    <template id="flightItemTemplate">
+      <li class="flight-item">
+        <div class="flight-card-main">
+          <img class="flight-thumb" alt="" loading="lazy">
+          <div class="flight-main">
+            <span class="flight-name"></span>
+            <span class="flight-meta"></span>
+          </div>
+        </div>
+        <div class="flight-actions flight-actions-compact">
+          <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
+          <button class="icon-button ads-flight" type="button" title="Otwórz w ADS">ADS</button>
+          <button class="icon-button map-flight" type="button" title="Pokaż na mapie">Mapa</button>
+          <button class="icon-button delete-flight danger" type="button" title="Usuń">Usuń</button>
+        </div>
+      </li>
+    </template>
+
+    <template id="watchItemTemplate">
+      <li class="flight-item watch-item">
+        <div class="flight-card-main">
+          <img class="flight-thumb" alt="" loading="lazy">
+          <div class="flight-main">
+            <span class="flight-name"></span>
+            <span class="flight-meta"></span>
+          </div>
+        </div>
+        <div class="flight-actions flight-actions-compact">
+          <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
+          <button class="icon-button ads-watch" type="button" title="Otwórz w ADS">ADS</button>
+          <button class="icon-button map-watch" type="button" title="Pokaż na mapie">Mapa</button>
+          <button class="icon-button delete-watch danger" type="button" title="Usuń">Usuń</button>
+        </div>
+      </li>
+    </template>
+
+
+    <template id="historyItemTemplate">
+      <li class="flight-item history-item">
+        <div class="flight-card-main">
+          <img class="flight-thumb" alt="" loading="lazy">
+          <div class="flight-main">
+            <span class="flight-name"></span>
+            <span class="flight-meta"></span>
+          </div>
+        </div>
+        <div class="flight-actions flight-actions-compact">
+          <button class="icon-button ads-history" type="button" title="Otwórz w ADS">ADS</button>
+          <button class="icon-button map-history" type="button" title="Pokaż na mapie">Mapa</button>
+          <button class="icon-button watch-history" type="button" title="Dodaj do obserwowanych">Obserwuj</button>
+          <button class="icon-button delete-history danger" type="button" title="Usuń wpis">Usuń</button>
+        </div>
+      </li>
+    </template>
+
+    <template id="aircraftItemTemplate">
+      <li class="aircraft-item">
+        <button class="aircraft-pick" type="button">
+          <img class="aircraft-thumb" alt="" loading="lazy">
+          <span class="aircraft-text-block">
+            <span class="aircraft-title"></span>
+            <span class="aircraft-route"></span>
+            <span class="aircraft-meta"></span>
+            <span class="aircraft-extra"></span>
+          </span>
+        </button>
+        <button class="secondary-button aircraft-map" type="button">Mapa</button>
+        <!-- WAŻNE: ADS jest obowiązkowy. Nie usuwać tego przycisku. -->
+        <button class="secondary-button aircraft-ads" type="button">ADS</button>
+        <button class="secondary-button aircraft-save" type="button">Zapisz</button>
+      </li>
+    </template>
+
+    <div id="firestoreSetupModal" class="setup-modal" role="dialog" aria-modal="true" aria-labelledby="firestoreSetupTitle" hidden>
+      <section class="setup-card">
+        <div class="setup-head">
+          <div>
+            <p class="eyebrow">Synchronizacja danych</p>
+            <h2 id="firestoreSetupTitle">Konfiguracja Firestore</h2>
+            <p>Wklej konfigurację Firebase i ustaw prywatny kod synchronizacji. Ten sam kod wpisz na telefonie i komputerze.</p>
+          </div>
+          <button class="ghost-button" id="firestoreCloseConfigButton" type="button" aria-label="Zamknij">×</button>
+        </div>
+
+        <label class="firestore-advanced-config">
+          Wklej cały obiekt <code>firebaseConfig</code>
+          <textarea id="firestoreConfigPaste" rows="5" spellcheck="false" placeholder="const firebaseConfig = { apiKey: '...', authDomain: '...', projectId: '...', appId: '...' };"></textarea>
+        </label>
+        <button class="secondary-button firestore-advanced-config" id="firestoreParseConfigButton" type="button">Odczytaj konfigurację z wklejonego tekstu</button>
+
+        <div class="setup-grid firestore-advanced-config">
+          <label>apiKey<input id="firestoreApiKeyInput" autocomplete="off" spellcheck="false"></label>
+          <label>authDomain<input id="firestoreAuthDomainInput" autocomplete="off" spellcheck="false"></label>
+          <label>projectId<input id="firestoreProjectIdInput" autocomplete="off" spellcheck="false"></label>
+          <label>storageBucket<input id="firestoreStorageBucketInput" autocomplete="off" spellcheck="false"></label>
+          <label>messagingSenderId<input id="firestoreMessagingSenderIdInput" autocomplete="off" spellcheck="false"></label>
+          <label>appId<input id="firestoreAppIdInput" autocomplete="off" spellcheck="false"></label>
+        </div>
+
+        <label>
+          Hasło synchronizacji
+          <input id="firestoreSyncKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Hasło synchronizacji">
+          <span class="field-hint">To samo hasło musi być wpisane na każdym urządzeniu. Nie używaj spacji ani polskich znaków.</span>
+        </label>
+
+        <p id="firestoreModalStatus" class="sync-status">Czekam na konfigurację.</p>
+        <div class="setup-actions">
+          <button class="primary-button" id="firestoreSaveConfigButton" type="button">Zapisz i synchronizuj</button>
+          <button class="secondary-button" id="firestoreSkipConfigButton" type="button">Pomiń teraz</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <div id="busyOverlay" class="busy-overlay" role="status" aria-live="polite" hidden>
+      <div class="busy-card">
+        <span class="busy-spinner" aria-hidden="true"></span>
+        <span id="busyText">Pracuję...</span>
+      </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="services/docxExportService.js?v=0306261157" defer></script>
+    <script src="modules/coreStorage.js?v=0306261157" defer></script>
+    <script src="modules/aircraftUtils.js?v=0306261157" defer></script>
+    <script src="modules/settingsFilters.js?v=0306261157" defer></script>
+    <script src="modules/apiSources.js?v=0306261157" defer></script>
+    <script src="modules/mapRoutes.js?v=0306261157" defer></script>
+    <script src="modules/uiPanels.js?v=0306261157" defer></script>
+    <script src="modules/savedWatchHistory.js?v=0306261157" defer></script>
+    <script src="modules/exportModule.js?v=0306261157" defer></script>
+    <script src="modules/alertsModule.js?v=0306261157" defer></script>
+    <script src="modules/cacheMediaRoutes.js?v=0306261157" defer></script>
+    <script src="modules/firestoreSync.js?v=0306261157" defer></script>
+    <script src="app.js?v=0306261157" defer></script>
+    <script src="modules/historyTrace.js?v=0306261157" defer></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+ADS Viewer Pro V73 - 0306261157
+
+Zakres poprawki:
+1. Firestore nie synchronizuje już ustawień radaru: źródła API, filtrów samolotów i ustawień wydajności.
+   Te ustawienia zostają lokalne dla danego urządzenia, żeby po podpięciu Firebase nie znikały samoloty.
+2. Jednorazowa naprawa po V72 resetuje filtr samolotów do „Wszystkie” oraz przywraca darmowe źródło adsb.lol, jeżeli lokalnie zostało zapisane źródło wymagające klucza bez wpisanego klucza.
+3. Kliknięcie „Pokaż samoloty” nie czyści już mapy przed udanym pobraniem danych.
+   Jeżeli API zwróci „Failed to fetch”, poprzednie samoloty zostają na mapie.
+4. Pobieranie samolotów dostało awaryjne próby przez proxy CORS dla darmowych źródeł, gdy bezpośredni fetch zostanie zablokowany.
+5. Dekoder stanu aplikacji Firestore preferuje aktualny zapis routeVerbose i ignoruje stare top-level sections, które mogły nadpisywać ustawienia radaru.
+
+Zmienione pliki:
+- app.js
+- modules/firestoreSync.js
+- modules/apiSources.js
+- modules/cacheMediaRoutes.js
+- index.html
+- manifest.webmanifest
+- sw.js
+
+Test składni:
+- node --check: OK dla plików JS.

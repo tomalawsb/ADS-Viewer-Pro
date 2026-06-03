@@ -1,0 +1,26 @@
+ADS Viewer Pro V68 - 0206261947
+
+Zakres poprawki:
+1. Usunięto zdublowane pola „Operator” i „Źródło” z panelu samolotu przy przyciskach.
+2. Panel historii nie zamyka się po kliknięciu w mapę; zamknięcie odbywa się przyciskiem X.
+3. Historia na mapie ma teraz mocniejszy ślad: biały obrys, ciemny cień i kolorową linię zależną od wysokości.
+4. Naprawiono odczyt wysokości dla punktów historii z pól altitude / alt_baro / alt_geom.
+5. Dodano widoczną ikonę samolotu w trybie historii, obracaną według kursu punktu.
+6. Dodano znaczniki START i KONIEC dla trasy historycznej.
+7. Zachowano automatyczne przeładowywanie historii po zmianie daty.
+
+Pliki zmienione:
+- index.html
+- styles.css
+- app.js
+- sw.js
+- manifest.webmanifest
+- README.md
+- modules/mapRoutes.js
+- modules/historyTrace.js
+
+Testy techniczne:
+- node --check app.js: OK
+- node --check modules/*.js: OK
+- node --check services/*.js: OK
+- node --check sw.js: OK
