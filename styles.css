@@ -1983,6 +1983,24 @@ summary { color: var(--muted); font-weight: 850; cursor: pointer; }
   justify-content: flex-end;
 }
 body.modal-open { overflow: hidden; }
+.setup-actions button:disabled {
+  opacity: .62;
+  cursor: wait;
+}
+
+
+/* V72 - pierwsze uruchomienie: uproszczona konfiguracja Firestore */
+.setup-modal.firestore-quick-setup .firestore-advanced-config {
+  display: none;
+}
+.setup-modal.firestore-quick-setup .setup-card {
+  width: min(520px, 100%);
+}
+.setup-modal.firestore-quick-setup #firestoreSyncKeyInput {
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
 
 @media (max-width: 760px) {
   .map-floating-controls {

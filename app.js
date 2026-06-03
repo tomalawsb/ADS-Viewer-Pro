@@ -1,5 +1,5 @@
-var APP_VERSION_NUMBER = "V70";
-var APP_VERSION_STAMP = "0206262022";
+var APP_VERSION_NUMBER = "V72";
+var APP_VERSION_STAMP = "0306261140";
 var APP_VERSION = `${APP_VERSION_NUMBER} - ${APP_VERSION_STAMP}`;
 
 window.addEventListener("error", (event) => {
@@ -38,6 +38,16 @@ var ALERT_SETTINGS_STORAGE_KEY = "adsb-alert-settings-v1";
 var ALERT_LOG_STORAGE_KEY = "adsb-alert-log-v1";
 var ALERT_FIRED_STORAGE_KEY = "adsb-alert-fired-v1";
 var HISTORY_STORAGE_KEY = "adsb-flight-history-v1";
+var DEFAULT_FIRESTORE_CONFIG = Object.freeze({
+  enabled: true,
+  apiKey: "AIzaSyDjMHenjYqsw3Hjsh1pkWsx2Z9jdLcLiXY",
+  authDomain: "ads-viewer-c79c9.firebaseapp.com",
+  projectId: "ads-viewer-c79c9",
+  storageBucket: "ads-viewer-c79c9.firebasestorage.app",
+  messagingSenderId: "593222698249",
+  appId: "1:593222698249:web:afd85b800d6f778f04bfd8",
+  syncKey: "Tomaszwolak"
+});
 var FIRESTORE_CONFIG_STORAGE_KEY = "adsb-firestore-config-v1";
 var FIRESTORE_SETUP_DISMISSED_KEY = "adsb-firestore-setup-dismissed-v1";
 var FIRESTORE_DELETED_FLIGHTS_STORAGE_KEY = "adsb-firestore-deleted-flights-v1";
@@ -1690,11 +1700,25 @@ firestoreSaveConfigButton?.addEventListener("click", async () => {
   try {
     const config = firestoreConfigFromForm();
     saveFirestoreConfig(config);
-    setFirestoreStatus("Konfiguracja zapisana. Łączę z Firestore...", "busy");
-    await initFirestoreSync({ silent: false });
-    closeFirestoreSetupModal();
+    setFirestoreStatus("Konfiguracja zapisana. Sprawdzam połączenie z Firestore...", "busy");
+    if (firestoreSaveConfigButton) firestoreSaveConfigButton.disabled = true;
+
+    const connected = await initFirestoreSync({ silent: false, protectRuntimeState: true });
+    if (!connected) {
+      setFirestoreStatus("Nie połączono z Firestore. Sprawdź konfigurację, hasło i reguły bazy.", "error");
+      showToast("Nie połączono z Firestore. Okno zostaje otwarte.", 5200);
+      return;
+    }
+
+    setFirestoreStatus(firestoreStatusSummary("Połączono z Firestore"), "ok");
+    showToast("Połączono z Firestore. Synchronizacja aktywna.", 4200);
+    window.setTimeout(() => closeFirestoreSetupModal(), 900);
   } catch (error) {
-    setFirestoreStatus(error.message || "Nie udało się zapisać konfiguracji.", "error");
+    const message = error.message || "Nie udało się zapisać konfiguracji.";
+    setFirestoreStatus(message, "error");
+    showToast(message, 5200);
+  } finally {
+    if (firestoreSaveConfigButton) firestoreSaveConfigButton.disabled = false;
   }
 });
 
@@ -1709,7 +1733,14 @@ firestoreCloseConfigButton?.addEventListener("click", () => {
 });
 
 firestoreSetupModal?.addEventListener("click", (event) => {
-  if (event.target === firestoreSetupModal) closeFirestoreSetupModal();
+  if (event.target === firestoreSetupModal) {
+    event.preventDefault();
+    setFirestoreStatus("Okno konfiguracji zamkniesz przyciskiem X albo „Pomiń teraz”. Kliknięcie w tło nic nie kasuje.", "info");
+  }
+});
+
+firestoreSetupModal?.querySelector?.(".setup-card")?.addEventListener("click", (event) => {
+  event.stopPropagation();
 });
 
 [aircraftFilterKindInput, aircraftFilterMinAltInput, aircraftFilterMaxAltInput, aircraftFilterCallsignInput]

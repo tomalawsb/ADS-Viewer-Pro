@@ -1,0 +1,22 @@
+ADS Viewer Pro V72 - 0306261140
+
+Zakres poprawki:
+1. Okno konfiguracji Firestore nie zamyka się już po kliknięciu w tło ani podczas zaznaczania/kasowania tekstu w polach.
+2. Po zapisie konfiguracji program sprawdza realnie wynik połączenia.
+3. Gdy połączenie się uda, pojawia się komunikat: „Połączono z Firestore. Synchronizacja aktywna.”
+4. Gdy połączenie się nie uda, okno zostaje otwarte i pojawia się komunikat błędu.
+5. Program nie zamyka już okna konfiguracji „na ślepo” po samym kliknięciu „Zapisz i synchronizuj”.
+6. Synchronizacja Firestore nie nadpisuje już bieżących ustawień API, filtrów i wydajności z bazy podczas startu, żeby nie czyścić widocznych samolotów z mapy/listy.
+7. Po połączeniu z Firestore program przywraca bieżący widok samolotów z pamięci aplikacji.
+8. Poprawiono numer wersji w index.html, app.js, service workerze i manifest.webmanifest.
+
+Zmienione pliki:
+- app.js
+- modules/firestoreSync.js
+- index.html
+- styles.css
+- sw.js
+- manifest.webmanifest
+
+Test techniczny:
+- node --check wykonany dla wszystkich plików JS bez błędów składni.

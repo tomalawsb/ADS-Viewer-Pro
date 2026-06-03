@@ -4,16 +4,16 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#eaf3ef">
-    <meta name="app-version" content="V67 - 0206261932">
+    <meta name="app-version" content="V72 - 0306261140">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>ADS Viewer Pro V67 - 0206261932</title>
-    <link rel="manifest" href="manifest.webmanifest?v=0206261932">
+    <title>ADS Viewer Pro V72 - 0306261140</title>
+    <link rel="manifest" href="manifest.webmanifest?v=0306261140">
     <link rel="icon" href="icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="icon-192.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="styles.css?v=0206261932">
+    <link rel="stylesheet" href="styles.css?v=0306261140">
   </head>
   <body>
     <main class="app-shell">
@@ -22,7 +22,7 @@
           <p class="eyebrow">ADS-B Live Radar</p>
           <h1>ADS Viewer Pro</h1>
           <div class="version-row">
-            <p class="version-badge" id="appVersionBadge">V67 - 0206261932</p>
+            <p class="version-badge" id="appVersionBadge">V72 - 0306261140</p>
             <p class="status-chip" id="statusChip">Gotowy</p>
           </div>
         </div>
@@ -396,7 +396,7 @@
               </label>
               <button class="ghost-button update-button" id="forceUpdateButton" type="button" title="Wyczyść cache programu i pobierz najnowszą wersję">Odśwież program</button>
               <button class="secondary-button compact-button" id="installButton" type="button" hidden title="Zainstaluj aplikację">Zainstaluj</button>
-              <span class="settings-version">Wersja: <strong id="settingsVersionBadge">V67 - 0206261932</strong></span>
+              <span class="settings-version">Wersja: <strong id="settingsVersionBadge">V72 - 0306261140</strong></span>
             </div>
             <p class="settings-note">„Odśwież program” czyści cache aplikacji i pobiera najnowsze pliki z GitHub Pages. Zapisane samoloty zostają.</p>
 
@@ -699,13 +699,13 @@
           <button class="ghost-button" id="firestoreCloseConfigButton" type="button" aria-label="Zamknij">×</button>
         </div>
 
-        <label>
+        <label class="firestore-advanced-config">
           Wklej cały obiekt <code>firebaseConfig</code>
           <textarea id="firestoreConfigPaste" rows="5" spellcheck="false" placeholder="const firebaseConfig = { apiKey: '...', authDomain: '...', projectId: '...', appId: '...' };"></textarea>
         </label>
-        <button class="secondary-button" id="firestoreParseConfigButton" type="button">Odczytaj konfigurację z wklejonego tekstu</button>
+        <button class="secondary-button firestore-advanced-config" id="firestoreParseConfigButton" type="button">Odczytaj konfigurację z wklejonego tekstu</button>
 
-        <div class="setup-grid">
+        <div class="setup-grid firestore-advanced-config">
           <label>apiKey<input id="firestoreApiKeyInput" autocomplete="off" spellcheck="false"></label>
           <label>authDomain<input id="firestoreAuthDomainInput" autocomplete="off" spellcheck="false"></label>
           <label>projectId<input id="firestoreProjectIdInput" autocomplete="off" spellcheck="false"></label>
@@ -715,9 +715,9 @@
         </div>
 
         <label>
-          Kod synchronizacji
-          <input id="firestoreSyncKeyInput" autocomplete="off" spellcheck="false" placeholder="np. ads-tomek-2026">
-          <span class="field-hint">Ten sam kod musi być wpisany na każdym urządzeniu. Nie używaj spacji ani polskich znaków.</span>
+          Hasło synchronizacji
+          <input id="firestoreSyncKeyInput" type="password" autocomplete="off" spellcheck="false" placeholder="Hasło synchronizacji">
+          <span class="field-hint">To samo hasło musi być wpisane na każdym urządzeniu. Nie używaj spacji ani polskich znaków.</span>
         </label>
 
         <p id="firestoreModalStatus" class="sync-status">Czekam na konfigurację.</p>
@@ -736,19 +736,19 @@
       </div>
     </div>
     <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="services/docxExportService.js?v=0206261932" defer></script>
-    <script src="modules/coreStorage.js?v=0206261932" defer></script>
-    <script src="modules/aircraftUtils.js?v=0206261932" defer></script>
-    <script src="modules/settingsFilters.js?v=0206261932" defer></script>
-    <script src="modules/apiSources.js?v=0206261932" defer></script>
-    <script src="modules/mapRoutes.js?v=0206261932" defer></script>
-    <script src="modules/uiPanels.js?v=0206261932" defer></script>
-    <script src="modules/savedWatchHistory.js?v=0206261932" defer></script>
-    <script src="modules/exportModule.js?v=0206261932" defer></script>
-    <script src="modules/alertsModule.js?v=0206261932" defer></script>
-    <script src="modules/cacheMediaRoutes.js?v=0206261932" defer></script>
-    <script src="modules/firestoreSync.js?v=0206261932" defer></script>
-    <script src="app.js?v=0206261932" defer></script>
-    <script src="modules/historyTrace.js?v=0206261932" defer></script>
+    <script src="services/docxExportService.js?v=0306261140" defer></script>
+    <script src="modules/coreStorage.js?v=0306261140" defer></script>
+    <script src="modules/aircraftUtils.js?v=0306261140" defer></script>
+    <script src="modules/settingsFilters.js?v=0306261140" defer></script>
+    <script src="modules/apiSources.js?v=0306261140" defer></script>
+    <script src="modules/mapRoutes.js?v=0306261140" defer></script>
+    <script src="modules/uiPanels.js?v=0306261140" defer></script>
+    <script src="modules/savedWatchHistory.js?v=0306261140" defer></script>
+    <script src="modules/exportModule.js?v=0306261140" defer></script>
+    <script src="modules/alertsModule.js?v=0306261140" defer></script>
+    <script src="modules/cacheMediaRoutes.js?v=0306261140" defer></script>
+    <script src="modules/firestoreSync.js?v=0306261140" defer></script>
+    <script src="app.js?v=0306261140" defer></script>
+    <script src="modules/historyTrace.js?v=0306261140" defer></script>
   </body>
 </html>

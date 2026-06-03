@@ -199,6 +199,21 @@ function remoteFirestoreStateSections(data) {
   return source && typeof source === "object" && !Array.isArray(source) ? source : {};
 }
 
+function protectedFirestoreRuntimeSections(options = {}) {
+  if (options.protectRuntimeState === false) return new Set();
+  return new Set(["api", "filters", "performance"]);
+}
+
+function restoreFirestoreLiveAircraftSnapshot(snapshot) {
+  if (!snapshot || !Array.isArray(snapshot.aircraft) || !snapshot.aircraft.length) return;
+  lastAircraftCache = snapshot.aircraft;
+  if (snapshot.renderSettings) lastRenderSettings = snapshot.renderSettings;
+  const settings = lastRenderSettings || snapshot.renderSettings || readBrowseSettingsSafe();
+  const visibleAircraft = filterAircraftForDisplay(lastAircraftCache);
+  renderAircraft(visibleAircraft, settings);
+  renderAircraftMap(visibleAircraft, settings, { preserveView: true });
+}
+
 function applyRemoteSectionToLocal(section, value) {
   const normalized = normalizeFirestoreSection(section, value);
   if (section === "api") {
@@ -242,8 +257,9 @@ function applyRemoteSectionToLocal(section, value) {
   }
 }
 
-function applyRemoteAppState(remoteData) {
+function applyRemoteAppState(remoteData, options = {}) {
   const sections = remoteFirestoreStateSections(remoteData);
+  const protectedSections = protectedFirestoreRuntimeSections(options);
   const meta = loadFirestoreStateMeta();
   const changedSections = new Set();
   let needsPush = false;
@@ -252,6 +268,14 @@ function applyRemoteAppState(remoteData) {
   try {
     for (const section of FIRESTORE_STATE_SECTIONS) {
       const remoteSection = sections[section];
+      if (protectedSections.has(section)) {
+        const remoteUpdatedAt = Number(remoteSection?.updatedAtMs || 0);
+        const localUpdatedAt = Number(meta[section] || 0);
+        if (Number.isFinite(localUpdatedAt) && Number.isFinite(remoteUpdatedAt) && localUpdatedAt > remoteUpdatedAt) {
+          needsPush = true;
+        }
+        continue;
+      }
       if (!remoteSection || typeof remoteSection !== "object") continue;
       const remoteUpdatedAt = Number(remoteSection.updatedAtMs || 0);
       const localUpdatedAt = Number(meta[section] || 0);
@@ -278,7 +302,7 @@ function applyRemoteAppState(remoteData) {
   return { changed: changedSections.size > 0, needsPush };
 }
 
-async function pullAppStateFromFirestore() {
+async function pullAppStateFromFirestore(options = {}) {
   if (!firestoreState.ready || !firestoreState.stateDocRef) return { changed: false, needsPush: false };
   const modules = await loadFirestoreModules();
   const { getDoc } = modules.firestore;
@@ -286,7 +310,7 @@ async function pullAppStateFromFirestore() {
   if (!snapshot.exists()) return { changed: false, needsPush: false };
   const state = decodeFirestoreAppStateFromFlightDoc(snapshot.data());
   if (!state) return { changed: false, needsPush: false };
-  return applyRemoteAppState(state);
+  return applyRemoteAppState(state, options);
 }
 
 async function pushAppStateToFirestore() {
@@ -300,6 +324,11 @@ async function pushAppStateToFirestore() {
 
 function firestoreStatusSummary(prefix = "Synchronizacja aktywna") {
   return `${prefix}. Zapisane: ${loadFlights().length}. Obserwowane: ${loadWatchlist().length}.`;
+}
+
+function defaultFirestoreConfigForForm() {
+  if (typeof DEFAULT_FIRESTORE_CONFIG !== "object" || !DEFAULT_FIRESTORE_CONFIG) return null;
+  return { ...DEFAULT_FIRESTORE_CONFIG, enabled: true };
 }
 
 function firestoreConfigFromForm() {
@@ -398,23 +427,41 @@ function applyParsedFirebaseConfigToForm(parsed) {
 }
 
 function fillFirestoreForm(config = loadFirestoreConfig()) {
-  if (firestoreApiKeyInput) firestoreApiKeyInput.value = config?.apiKey || "";
-  if (firestoreAuthDomainInput) firestoreAuthDomainInput.value = config?.authDomain || "";
-  if (firestoreProjectIdInput) firestoreProjectIdInput.value = config?.projectId || "";
-  if (firestoreStorageBucketInput) firestoreStorageBucketInput.value = config?.storageBucket || "";
-  if (firestoreMessagingSenderIdInput) firestoreMessagingSenderIdInput.value = config?.messagingSenderId || "";
-  if (firestoreAppIdInput) firestoreAppIdInput.value = config?.appId || "";
-  if (firestoreSyncKeyInput) firestoreSyncKeyInput.value = config?.syncKey || generateSyncKey();
+  const effectiveConfig = config && typeof config === "object" ? config : defaultFirestoreConfigForForm();
+  if (firestoreApiKeyInput) firestoreApiKeyInput.value = effectiveConfig?.apiKey || "";
+  if (firestoreAuthDomainInput) firestoreAuthDomainInput.value = effectiveConfig?.authDomain || "";
+  if (firestoreProjectIdInput) firestoreProjectIdInput.value = effectiveConfig?.projectId || "";
+  if (firestoreStorageBucketInput) firestoreStorageBucketInput.value = effectiveConfig?.storageBucket || "";
+  if (firestoreMessagingSenderIdInput) firestoreMessagingSenderIdInput.value = effectiveConfig?.messagingSenderId || "";
+  if (firestoreAppIdInput) firestoreAppIdInput.value = effectiveConfig?.appId || "";
+  if (firestoreSyncKeyInput) firestoreSyncKeyInput.value = effectiveConfig?.syncKey || generateSyncKey();
   if (firestoreConfigPaste) firestoreConfigPaste.value = "";
+}
+
+function setFirestoreSetupMode(isFirstRun = false) {
+  const quickMode = Boolean(isFirstRun && !firestoreConfigComplete(loadFirestoreConfig()) && defaultFirestoreConfigForForm());
+  firestoreSetupModal?.classList.toggle("firestore-quick-setup", quickMode);
+
+  const title = document.querySelector("#firestoreSetupTitle");
+  const description = title?.nextElementSibling;
+  if (quickMode) {
+    if (title) title.textContent = "Hasło synchronizacji";
+    if (description) description.textContent = "Dane Firebase są wpisane automatycznie. Sprawdź hasło i kliknij „Zapisz i synchronizuj”.";
+  } else {
+    if (title) title.textContent = "Konfiguracja Firestore";
+    if (description) description.textContent = "Wklej konfigurację Firebase i ustaw prywatny kod synchronizacji. Ten sam kod wpisz na telefonie i komputerze.";
+  }
+  return quickMode;
 }
 
 function openFirestoreSetupModal(isFirstRun = false) {
   if (!firestoreSetupModal) return;
   fillFirestoreForm();
+  const quickMode = setFirestoreSetupMode(isFirstRun);
   firestoreSetupModal.hidden = false;
   document.body.classList.add("modal-open");
-  setFirestoreStatus(isFirstRun ? "Wklej konfigurację Firebase i ustaw kod synchronizacji." : "Edytujesz konfigurację Firestore.");
-  window.setTimeout(() => firestoreConfigPaste?.focus(), 50);
+  setFirestoreStatus(quickMode ? "Dane Firebase są już wpisane. Zapisz konfigurację, aby włączyć synchronizację." : "Edytujesz konfigurację Firestore.");
+  window.setTimeout(() => (quickMode ? firestoreSyncKeyInput : firestoreConfigPaste)?.focus(), 50);
 }
 
 function closeFirestoreSetupModal() {
@@ -568,8 +615,7 @@ async function syncFirestoreNow(options = {}) {
     return false;
   }
   if (!firestoreState.ready) {
-    await initFirestoreSync({ silent: options.silent });
-    return true;
+    return await initFirestoreSync({ silent: options.silent, protectRuntimeState: true });
   }
   if (firestorePushInProgress) return true;
   firestorePushInProgress = true;
@@ -579,6 +625,7 @@ async function syncFirestoreNow(options = {}) {
     await pushLocalTombstonesToFirestore();
     await pushAppStateToFirestore();
     setFirestoreStatus(firestoreStatusSummary(), "ok");
+    if (!options.silent) showToast(firestoreStatusSummary("Synchronizacja zakończona"), 4200);
     return true;
   } finally {
     firestorePushInProgress = false;
@@ -595,6 +642,11 @@ async function initFirestoreSync(options = {}) {
   const signature = firestoreConfigSignature(config);
   if (firestoreState.ready && firestoreState.configSignature === signature) return true;
   if (firestoreState.initializing) return false;
+
+  const liveSnapshot = {
+    aircraft: Array.isArray(lastAircraftCache) ? lastAircraftCache.slice() : [],
+    renderSettings: lastRenderSettings || null
+  };
 
   firestoreState.initializing = true;
   try {
@@ -624,7 +676,7 @@ async function initFirestoreSync(options = {}) {
     const merged = applyRemoteFlights(remoteFlights, tombstones);
     await pushFlightsToFirestore(merged);
     await pushLocalTombstonesToFirestore();
-    const stateResult = await pullAppStateFromFirestore();
+    const stateResult = await pullAppStateFromFirestore({ protectRuntimeState: options.protectRuntimeState !== false });
     await pushAppStateToFirestore();
     if (stateResult.needsPush) scheduleFirestorePush();
 
@@ -640,7 +692,7 @@ async function initFirestoreSync(options = {}) {
       if (!stateSnapshot.exists()) return;
       const state = decodeFirestoreAppStateFromFlightDoc(stateSnapshot.data());
       if (!state) return;
-      const result = applyRemoteAppState(state);
+      const result = applyRemoteAppState(state, { protectRuntimeState: true });
       if (result.needsPush) scheduleFirestorePush();
       if (result.changed) setFirestoreStatus(firestoreStatusSummary(), "ok");
     }, (error) => {
@@ -648,7 +700,9 @@ async function initFirestoreSync(options = {}) {
     });
 
 
-    setFirestoreStatus(firestoreStatusSummary(), "ok");
+    restoreFirestoreLiveAircraftSnapshot(liveSnapshot);
+    setFirestoreStatus(firestoreStatusSummary(options.silent ? "Synchronizacja aktywna" : "Połączono z Firestore"), "ok");
+    if (!options.silent) showToast("Połączono z Firestore. Synchronizacja aktywna.", 4200);
     return true;
   } catch (error) {
     firestoreState.ready = false;
